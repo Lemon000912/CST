@@ -1,0 +1,13 @@
+# 与 E:\15w\pipeline.py 中 MatSciBERT NER 对齐的参考依赖（在 MATSCI_PYTHON 所指环境中安装）。
+# 实际版本以你 15w 目录下已能跑 pipeline 的环境为准。
+torch>=2.0
+transformers>=4.30
+tokenizers
+numpy
+pandas
+tqdm
+nltk
+PyMuPDF
+sentencepiece
+TorchCRF
+# 若使用完整 CRF 权重（MATSCI_NER_NO_CRF=0），需与训练时一致的 torch 版本以加载 pytorch_model.bin

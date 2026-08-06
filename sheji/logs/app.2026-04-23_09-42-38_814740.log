@@ -1,0 +1,633 @@
+2026-04-23 09:42:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 09:42:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 09:48:56 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 09:48:56 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 09:48:56 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 09:48:56 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-23 09:48:56 | INFO     | core.database:connect:119 - ✅ Redis连接成功
+2026-04-23 09:51:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 09:51:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.005s
+2026-04-23 09:51:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /favicon.ico | 客户端: 127.0.0.1
+2026-04-23 09:51:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /favicon.ico | 状态: 404 | 耗时: 0.001s
+2026-04-23 09:53:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /docs | 客户端: 127.0.0.1
+2026-04-23 09:53:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /docs | 状态: 200 | 耗时: 0.001s
+2026-04-23 09:53:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /openapi.json | 客户端: 127.0.0.1
+2026-04-23 09:53:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /openapi.json | 状态: 200 | 耗时: 0.055s
+2026-04-23 10:03:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 10:03:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.001s
+2026-04-23 10:37:55 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 10:37:55 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 10:37:56 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 10:37:56 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-23 10:37:56 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 10:38:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-23 10:38:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.031s
+2026-04-23 10:38:31 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-23 10:38:31 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.008s
+2026-04-23 10:38:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 10:38:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.001s
+2026-04-23 10:38:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 10:38:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.001s
+2026-04-23 10:48:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 10:48:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.002s
+2026-04-23 10:48:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /favicon.ico | 客户端: 127.0.0.1
+2026-04-23 10:48:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /favicon.ico | 状态: 404 | 耗时: 0.001s
+2026-04-23 12:02:03 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:02:03 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:03:12 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:03:12 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:03:24 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:03:24 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:03:25 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 12:03:25 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 12:03:25 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 12:03:46 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:03:46 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:03:46 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 12:03:46 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 12:03:46 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 12:03:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-23 12:03:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.025s
+2026-04-23 12:04:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/elements/schema | 客户端: 127.0.0.1
+2026-04-23 12:04:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/elements/schema | 状态: 200 | 耗时: 0.002s
+2026-04-23 12:04:20 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-23 12:04:20 | ERROR    | core.exceptions:handle_generic_exception:158 - 未捕获异常 | TypeError: object of type 'NoneType' has no len() | 路径: /api/v1/material/search
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\app\main.py", line 53, in requests_logger
+    return await log_requests(request, call_next)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\core\logging.py", line 84, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\api\material_routes.py", line 128, in advanced_search
+    results = await SearchService.advanced_search(db, search_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\services\search_service.py", line 170, in advanced_search
+    year_from = year_range[0] if len(year_range) > 0 else None
+                                 ~~~^^^^^^^^^^^^
+TypeError: object of type 'NoneType' has no len()
+
+2026-04-23 12:05:05 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:05:05 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:05:05 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 12:05:05 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 12:05:05 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 12:05:16 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-23 12:05:16 | ERROR    | core.exceptions:handle_generic_exception:158 - 未捕获异常 | TypeError: object of type 'NoneType' has no len() | 路径: /api/v1/material/search
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\app\main.py", line 53, in requests_logger
+    return await log_requests(request, call_next)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\core\logging.py", line 84, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\fastapi\routing.py", line 328, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\api\material_routes.py", line 128, in advanced_search
+    results = await SearchService.advanced_search(db, search_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\aizhishiku\sheji\services\search_service.py", line 170, in advanced_search
+    year_from = year_range[0] if len(year_range) > 0 else None
+                                 ~~~^^^^^^^^^^^^
+TypeError: object of type 'NoneType' has no len()
+
+2026-04-23 12:06:32 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 12:06:32 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 12:06:32 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 12:06:32 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 12:06:32 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 12:06:42 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-23 12:06:42 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/search | 状态: 200 | 耗时: 0.031s
+2026-04-23 12:06:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/admin_user_id | 客户端: 127.0.0.1
+2026-04-23 12:06:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/admin_user_id | 状态: 404 | 耗时: 0.006s
+2026-04-23 14:09:35 | INFO     | __main__:test_logging:65 - 这是一条INFO日志
+2026-04-23 14:09:35 | WARNING  | __main__:test_logging:66 - 这是一条WARNING日志
+2026-04-23 14:09:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 14:09:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 14:09:38 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 14:09:38 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 14:09:38 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 14:12:18 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 14:12:18 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 14:12:18 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 14:12:18 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 14:12:18 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 14:16:49 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:16:49 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 14:16:49 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.026s
+2026-04-23 14:16:50 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:16:50 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 14:16:50 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 14:16:57 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:16:57 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 14:16:57 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 14:16:58 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:16:58 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 14:16:58 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 14:18:34 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:18:34 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 14:18:34 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.006s
+2026-04-23 14:19:06 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:19:06 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-23 14:19:06 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.241s
+2026-04-23 14:21:32 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:21:32 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-23 14:21:32 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.222s
+2026-04-23 14:21:32 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:21:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.039s
+2026-04-23 14:21:54 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 14:21:54 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-23 14:21:54 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.227s
+2026-04-23 14:21:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:21:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.040s
+2026-04-23 14:21:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-23 14:21:58 | ERROR    | api.endpoints.admin:list_users:182 - 获取用户列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:21:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 500 | 耗时: 0.015s
+2026-04-23 14:21:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-23 14:21:59 | ERROR    | api.endpoints.admin:list_pdfs:658 - 获取PDF列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:21:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 500 | 耗时: 0.009s
+2026-04-23 14:22:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-23 14:22:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.008s
+2026-04-23 14:22:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-23 14:22:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.006s
+2026-04-23 14:22:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-23 14:22:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.006s
+2026-04-23 14:22:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-23 14:22:07 | ERROR    | api.endpoints.admin:list_pdfs:658 - 获取PDF列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:22:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 500 | 耗时: 0.009s
+2026-04-23 14:22:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-23 14:22:11 | ERROR    | api.endpoints.admin:list_users:182 - 获取用户列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:22:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 500 | 耗时: 0.010s
+2026-04-23 14:22:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:22:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.026s
+2026-04-23 14:22:16 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-04-23 14:22:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-23 14:22:19 | ERROR    | api.endpoints.admin:list_users:182 - 获取用户列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:22:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 500 | 耗时: 0.020s
+2026-04-23 14:22:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-23 14:22:19 | ERROR    | api.endpoints.admin:list_pdfs:658 - 获取PDF列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:22:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 500 | 耗时: 0.025s
+2026-04-23 14:22:21 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 14:22:21 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 14:22:21 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 14:22:21 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 14:22:21 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 14:22:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-23 14:22:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.002s
+2026-04-23 14:22:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /favicon.ico | 客户端: 127.0.0.1
+2026-04-23 14:22:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /favicon.ico | 状态: 404 | 耗时: 0.001s
+2026-04-23 14:23:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:23:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.025s
+2026-04-23 14:23:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-23 14:23:40 | ERROR    | api.endpoints.admin:list_users:182 - 获取用户列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:23:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 500 | 耗时: 0.006s
+2026-04-23 14:23:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-23 14:23:40 | ERROR    | api.endpoints.admin:list_pdfs:658 - 获取PDF列表失败: 'str' object has no attribute 'isoformat'
+2026-04-23 14:23:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 500 | 耗时: 0.009s
+2026-04-23 14:23:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:23:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.025s
+2026-04-23 14:24:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:24:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.062s
+2026-04-23 14:24:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:24:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.027s
+2026-04-23 14:32:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /docs | 客户端: 127.0.0.1
+2026-04-23 14:32:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /docs | 状态: 200 | 耗时: 0.002s
+2026-04-23 14:32:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /openapi.json | 客户端: 127.0.0.1
+2026-04-23 14:32:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /openapi.json | 状态: 200 | 耗时: 0.073s
+2026-04-23 14:46:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 14:46:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.040s
+2026-04-23 14:57:57 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 14:57:58 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 14:57:58 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 14:59:59 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 14:59:59 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 14:59:59 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 14:59:59 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 14:59:59 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 15:00:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-23 15:00:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.006s
+2026-04-23 15:00:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-23 15:00:34 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.028s
+2026-04-23 15:09:06 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 15:09:06 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 15:09:06 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 15:09:06 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 15:09:06 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 16:06:08 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 17:19:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search | 客户端: 127.0.0.1
+2026-04-23 17:19:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search | 状态: 307 | 耗时: 0.007s
+2026-04-23 17:19:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-04-23 17:19:05 | INFO     | api.endpoints.search:search:69 - 搜索: '11' | 用户: 匿名 | 结果: 0
+2026-04-23 17:19:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.071s
+2026-04-23 17:19:54 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-23 17:19:54 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 422 | 耗时: 0.004s
+2026-04-23 17:20:15 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-23 17:20:15 | INFO     | services.auth_service:register_user:210 - 新用户注册: 123
+2026-04-23 17:20:15 | INFO     | api.endpoints.auth:register:90 - 用户注册成功: 123
+2026-04-23 17:20:15 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 200 | 耗时: 0.249s
+2026-04-23 17:20:15 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:20:15 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.004s
+2026-04-23 17:20:23 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-23 17:20:23 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 400 | 耗时: 0.014s
+2026-04-23 17:20:25 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-23 17:20:25 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 400 | 耗时: 0.011s
+2026-04-23 17:20:32 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-23 17:20:32 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 400 | 耗时: 0.010s
+2026-04-23 17:22:38 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search | 客户端: 127.0.0.1
+2026-04-23 17:22:38 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search | 状态: 307 | 耗时: 0.001s
+2026-04-23 17:22:38 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-04-23 17:22:38 | INFO     | api.endpoints.search:search:69 - 搜索: 'metal' | 用户: 匿名 | 结果: 0
+2026-04-23 17:22:38 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.005s
+2026-04-23 17:23:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 17:23:06 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-23 17:23:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.004s
+2026-04-23 17:23:08 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:23:08 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:23:08 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.005s
+2026-04-23 17:23:09 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:23:09 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:23:09 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.005s
+2026-04-23 17:23:19 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:23:19 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:23:19 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:25:44 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:25:44 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:25:44 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:25:48 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:25:48 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:25:48 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.003s
+2026-04-23 17:26:11 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-23 17:26:11 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-23 17:26:11 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-23 17:26:12 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-23 17:26:12 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-23 17:26:20 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:26:20 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:26:20 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.030s
+2026-04-23 17:26:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 17:26:28 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-23 17:26:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.004s
+2026-04-23 17:26:34 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:26:34 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:26:34 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.005s
+2026-04-23 17:27:24 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:24 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:24 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.007s
+2026-04-23 17:27:55 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:55 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:55 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:56 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:56 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:56 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.003s
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:56 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:27:56 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:27:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:28:02 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:28:02 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:28:02 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.003s
+2026-04-23 17:28:26 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:28:26 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-23 17:28:26 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.004s
+2026-04-23 17:30:08 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:30:08 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-23 17:30:08 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.232s
+2026-04-23 17:30:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-23 17:30:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.045s
+2026-04-23 17:30:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-23 17:30:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.010s
+2026-04-23 17:30:25 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:30:25 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.003s
+2026-04-23 17:30:30 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:30:30 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-23 17:31:03 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:31:03 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.002s
+2026-04-23 17:31:09 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:31:09 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-23 17:31:21 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-23 17:31:21 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.002s
+2026-04-24 08:48:19 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.005s
+2026-04-24 08:48:44 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-24 08:48:44 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 422 | 耗时: 0.003s
+2026-04-24 08:50:04 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 08:50:04 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.002s
+2026-04-24 08:50:14 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 08:50:14 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 08:59:25 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 08:59:25 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.004s
+2026-04-24 08:59:25 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 08:59:25 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 08:59:38 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 08:59:38 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.002s
+2026-04-24 09:05:09 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:05:09 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 401 | 耗时: 0.004s
+2026-04-24 09:05:29 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:05:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 09:06:35 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:06:35 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 09:08:47 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:08:47 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.003s
+2026-04-24 09:09:08 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-24 09:09:08 | INFO     | services.auth_service:register_user:210 - 新用户注册: testuser
+2026-04-24 09:09:08 | INFO     | api.endpoints.auth:register:90 - 用户注册成功: testuser
+2026-04-24 09:09:08 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 200 | 耗时: 0.212s
+2026-04-24 09:09:23 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-24 09:09:23 | INFO     | services.auth_service:register_user:210 - 新用户注册: testuser2
+2026-04-24 09:09:23 | INFO     | api.endpoints.auth:register:90 - 用户注册成功: testuser2
+2026-04-24 09:09:23 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 200 | 耗时: 0.208s
+2026-04-24 09:09:35 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/register | 客户端: 127.0.0.1
+2026-04-24 09:09:35 | INFO     | services.auth_service:register_user:210 - 新用户注册: testuser3
+2026-04-24 09:09:35 | INFO     | api.endpoints.auth:register:90 - 用户注册成功: testuser3
+2026-04-24 09:09:35 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/register | 状态: 200 | 耗时: 0.212s
+2026-04-24 09:09:46 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:09:46 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 09:09:46 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.207s
+2026-04-24 09:10:13 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:10:13 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 09:22:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 09:22:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.009s
+2026-04-24 09:22:35 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:22:35 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.001s
+2026-04-24 09:22:43 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:22:43 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: 123
+2026-04-24 09:22:43 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.227s
+2026-04-24 09:22:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:22:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:22:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.012s
+2026-04-24 09:22:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.130s
+2026-04-24 09:24:53 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:24:53 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 401 | 耗时: 0.211s
+2026-04-24 09:29:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:29:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:29:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.008s
+2026-04-24 09:29:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.011s
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/search | 状态: 200 | 耗时: 0.014s
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.005s
+2026-04-24 09:30:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.006s
+2026-04-24 09:31:17 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-24 09:31:17 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/search | 状态: 200 | 耗时: 0.009s
+2026-04-24 09:31:48 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:31:48 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: 123
+2026-04-24 09:31:48 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.211s
+2026-04-24 09:31:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:31:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:31:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.004s
+2026-04-24 09:31:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.007s
+2026-04-24 09:32:02 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-24 09:32:02 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/search | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:32:10 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/search | 客户端: 127.0.0.1
+2026-04-24 09:32:10 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/search | 状态: 200 | 耗时: 0.005s
+2026-04-24 09:32:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:32:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:32:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.010s
+2026-04-24 09:32:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.010s
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:36:36 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: 123
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.218s
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:36:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.013s
+2026-04-24 09:42:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 客户端: 127.0.0.1
+2026-04-24 09:42:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 客户端: 127.0.0.1
+2026-04-24 09:42:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1/topics | 状态: 200 | 耗时: 0.005s
+2026-04-24 09:42:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/3c4c9f74-20f7-4cc8-b647-8c54dfb22ff1 | 状态: 404 | 耗时: 0.009s
+2026-04-24 09:43:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-24 09:43:03 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-24 09:43:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.003s
+2026-04-24 09:43:04 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 09:43:04 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-24 09:43:04 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.214s
+2026-04-24 09:43:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-24 09:43:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.029s
+2026-04-24 09:43:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-24 09:43:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.014s
+2026-04-24 09:43:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-24 09:43:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.029s
+2026-04-24 09:43:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-24 09:43:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.013s
+2026-04-24 09:43:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:43:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-24 09:44:00 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 客户端: 127.0.0.1
+2026-04-24 09:44:00 | INFO     | api.endpoints.admin:process_pdf:793 - 管理员手动处理PDF: 32a2838a-2f1c-4246-a2ee-61f9cb22dc61
+2026-04-24 09:44:00 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:02 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 客户端: 127.0.0.1
+2026-04-24 09:44:02 | INFO     | api.endpoints.admin:process_pdf:793 - 管理员手动处理PDF: 32a2838a-2f1c-4246-a2ee-61f9cb22dc61
+2026-04-24 09:44:02 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:03 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 客户端: 127.0.0.1
+2026-04-24 09:44:03 | INFO     | api.endpoints.admin:process_pdf:793 - 管理员手动处理PDF: 32a2838a-2f1c-4246-a2ee-61f9cb22dc61
+2026-04-24 09:44:03 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/32a2838a-2f1c-4246-a2ee-61f9cb22dc61/process | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:13 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:13 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:13 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:13 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-24 09:44:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.009s
+2026-04-24 09:44:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-24 09:44:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.006s
+2026-04-24 09:44:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-24 09:44:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.003s
+2026-04-24 09:44:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-24 09:44:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-04-24 09:44:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-24 09:44:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.009s
+2026-04-24 09:44:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:38 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:38 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 09:44:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 09:44:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-24 10:08:28 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 10:08:29 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 10:08:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.211s
+2026-04-24 10:08:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 客户端: 127.0.0.1
+2026-04-24 10:08:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 状态: 404 | 耗时: 0.003s
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 10:10:29 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.209s
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 客户端: 127.0.0.1
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 状态: 200 | 耗时: 0.023s
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 客户端: 127.0.0.1
+2026-04-24 10:10:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/memory/2066a773-811d-483e-9743-b05564854562 | 状态: 200 | 耗时: 0.003s
+2026-04-24 10:30:58 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 10:30:58 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-24 10:30:58 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.221s
+2026-04-24 10:43:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-24 10:43:59 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-24 10:43:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.002s
+2026-04-24 10:44:00 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 10:44:00 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-24 10:44:00 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.216s
+2026-04-24 10:44:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-24 10:44:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.024s
+2026-04-24 10:44:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-24 10:44:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-04-24 10:44:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-24 10:44:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-24 10:47:09 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-24 10:47:10 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-24 10:47:10 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-24 10:47:10 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-24 11:01:46 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-04-24 11:01:46 | INFO     | api.endpoints.search:search:69 - 搜索: 'Li6PS5Cl' | 用户: 匿名 | 结果: 1
+2026-04-24 11:01:46 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.033s
+2026-04-24 11:05:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:05:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.006s
+2026-04-24 11:05:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:05:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.004s
+2026-04-24 11:07:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-24 11:07:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.003s
+2026-04-24 11:07:54 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 11:07:55 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 11:07:55 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.232s
+2026-04-24 11:09:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:09:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.004s
+2026-04-24 11:09:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:09:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.005s
+2026-04-24 11:10:03 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 11:10:03 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 11:10:03 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.208s
+2026-04-24 11:10:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-24 11:10:56 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: testuser3
+2026-04-24 11:10:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.228s
+2026-04-24 11:14:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:14:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.005s
+2026-04-24 11:14:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:14:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.003s
+2026-04-24 11:14:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:14:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.003s
+2026-04-24 11:15:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/material/categories | 客户端: 127.0.0.1
+2026-04-24 11:15:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/material/categories | 状态: 200 | 耗时: 0.003s

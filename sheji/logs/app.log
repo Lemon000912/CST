@@ -1,0 +1,319 @@
+2026-05-06 10:49:04 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 10:49:04 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 10:49:04 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 10:49:07 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 10:49:07 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 10:49:07 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 10:49:07 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 10:49:07 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 10:49:07 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 10:54:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 10:54:04 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-06 10:54:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.004s
+2026-05-06 10:54:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 10:54:05 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 10:54:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.263s
+2026-05-06 10:54:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 10:54:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.127s
+2026-05-06 10:54:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 10:54:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.014s
+2026-05-06 10:54:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 10:54:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.058s
+2026-05-06 10:54:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois | 客户端: 127.0.0.1
+2026-05-06 10:54:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois | 状态: 200 | 耗时: 0.588s
+2026-05-06 10:54:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-05-06 10:54:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-05-06 10:54:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-05-06 10:54:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-05-06 10:54:23 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 10:54:23 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.058s
+2026-05-06 10:54:24 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 10:54:24 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.004s
+2026-05-06 10:54:39 | INFO     | core.logging:log_requests:78 - 请求开始 | PUT /api/v1/admin/users/f81ebb95-fdb7-4b2d-afff-ffbf64266aa1 | 客户端: 127.0.0.1
+2026-05-06 10:54:39 | INFO     | api.endpoints.admin:update_user:295 - 管理员更新用户 f81ebb95-fdb7-4b2d-afff-ffbf64266aa1: {'email': '', 'is_active': True}
+2026-05-06 10:54:39 | INFO     | core.logging:log_requests:90 - 请求完成 | PUT /api/v1/admin/users/f81ebb95-fdb7-4b2d-afff-ffbf64266aa1 | 状态: 200 | 耗时: 0.009s
+2026-05-06 10:54:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 10:54:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-05-06 13:17:35 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 13:17:35 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-06 13:17:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.002s
+2026-05-06 13:17:36 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 13:17:37 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 13:17:37 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.358s
+2026-05-06 13:17:37 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 13:17:37 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.091s
+2026-05-06 13:17:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 13:17:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-05-06 14:40:59 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 14:40:59 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 14:40:59 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 14:41:02 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 14:41:02 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 14:41:02 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 14:41:02 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 14:41:02 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 14:41:02 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 14:56:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 14:56:20 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-06 14:56:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.005s
+2026-05-06 14:56:21 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 14:56:22 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 14:56:22 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.285s
+2026-05-06 14:56:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 14:56:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.142s
+2026-05-06 15:12:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 15:12:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-05-06 15:12:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 15:12:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.051s
+2026-05-06 15:24:52 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:24:55 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:24:55 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:24:55 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:24:56 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:24:56 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:24:56 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:29:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-05-06 15:29:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.003s
+2026-05-06 15:30:13 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:30:14 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.268s
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.309s
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois | 客户端: 127.0.0.1
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois | 状态: 200 | 耗时: 0.534s
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 15:30:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:30:36 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.208s
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches | 客户端: 127.0.0.1
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches | 状态: 200 | 耗时: 0.005s
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/statistics | 客户端: 127.0.0.1
+2026-05-06 15:30:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/statistics | 状态: 422 | 耗时: 0.003s
+2026-05-06 15:31:38 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:31:40 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:31:40 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:31:40 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:31:41 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:31:41 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:31:41 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:32:31 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:32:33 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:32:33 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:32:33 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:32:34 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:32:34 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:32:34 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:34:39 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:34:42 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:34:42 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:34:42 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:34:49 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:34:49 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:34:49 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:34:49 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:34:49 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:34:49 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:36:24 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:36:26 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:36:26 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:36:26 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:36:27 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:36:27 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:36:27 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:37:28 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:37:31 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:37:31 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:37:31 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:37:31 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:37:31 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:37:31 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:39:54 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:39:57 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:39:57 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:39:57 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:39:57 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:39:58 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:39:58 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:40:10 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:40:11 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:40:11 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.281s
+2026-05-06 15:40:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/statistics | 客户端: 127.0.0.1
+2026-05-06 15:40:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/statistics | 状态: 200 | 耗时: 0.907s
+2026-05-06 15:40:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 15:40:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.053s
+2026-05-06 15:40:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches/stats | 客户端: 127.0.0.1
+2026-05-06 15:40:12 | ERROR    | api.endpoints.admin:get_search_stats:480 - 获取搜索统计失败: (sqlalchemy.dialects.postgresql.asyncpg.InterfaceError) <class 'asyncpg.exceptions._base.InterfaceError'>: the server expects 0 arguments for this query, 1 was passed
+HINT:  Check the query against the passed list of arguments.  Note that parameters are supported only in SELECT, INSERT, UPDATE, DELETE, MERGE and VALUES statements, and will *not* work in statements  like CREATE VIEW or DECLARE CURSOR.
+[SQL: 
+                    SELECT query, COUNT(*) as count
+                    FROM search_histories
+                    WHERE created_at >= NOW() - INTERVAL '$1 days'
+                    GROUP BY query
+                    ORDER BY count DESC
+                    LIMIT 20
+                ]
+[parameters: (7,)]
+(Background on this error at: https://sqlalche.me/e/20/rvf5)
+2026-05-06 15:40:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches/stats | 状态: 500 | 耗时: 0.008s
+2026-05-06 15:41:14 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:41:17 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:41:17 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:41:17 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:41:18 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:41:18 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:41:18 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:41:28 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:41:29 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:41:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.253s
+2026-05-06 15:41:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches/stats | 客户端: 127.0.0.1
+2026-05-06 15:41:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches/stats | 状态: 200 | 耗时: 0.010s
+2026-05-06 15:41:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/errors | 客户端: 127.0.0.1
+2026-05-06 15:41:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/errors | 状态: 200 | 耗时: 0.004s
+2026-05-06 15:42:21 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:42:22 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.215s
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/087b56ef-01d7-4f4e-bf3e-11d874a5d900 | 客户端: 127.0.0.1
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/087b56ef-01d7-4f4e-bf3e-11d874a5d900 | 状态: 200 | 耗时: 0.008s
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/8285855 | 客户端: 127.0.0.1
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/8285855 | 状态: 200 | 耗时: 0.007s
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 15:42:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.271s
+2026-05-06 15:43:39 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:43:41 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:43:41 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:43:41 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:43:42 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:43:42 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:43:42 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:43:52 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:43:53 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:43:53 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.260s
+2026-05-06 15:43:53 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/batch | 客户端: 127.0.0.1
+2026-05-06 15:43:53 | INFO     | api.endpoints.admin:batch_import_dois:1000 - 批量导入DOI: 成功 2 条, 跳过 0 条
+2026-05-06 15:43:53 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/batch | 状态: 200 | 耗时: 0.015s
+2026-05-06 15:44:38 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 15:44:50 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 15:44:50 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 15:44:50 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 15:44:50 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 15:44:50 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 15:44:50 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 15:44:58 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.252s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.249s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.015s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.058s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.064s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/categories | 客户端: 127.0.0.1
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/categories | 状态: 200 | 耗时: 0.275s
+2026-05-06 15:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois | 客户端: 127.0.0.1
+2026-05-06 15:45:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois | 状态: 200 | 耗时: 0.704s
+2026-05-06 15:45:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/statistics | 客户端: 127.0.0.1
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/statistics | 状态: 200 | 耗时: 0.748s
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches | 客户端: 127.0.0.1
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches | 状态: 200 | 耗时: 0.005s
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.005s
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-05-06 15:45:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-05-06 15:54:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /admin/index.html | 客户端: 127.0.0.1
+2026-05-06 15:54:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /admin/index.html | 状态: 404 | 耗时: 0.001s
+2026-05-06 15:54:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /favicon.ico | 客户端: 127.0.0.1
+2026-05-06 15:54:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /favicon.ico | 状态: 404 | 耗时: 0.002s
+2026-05-06 15:54:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /admin/index.html | 客户端: 127.0.0.1
+2026-05-06 15:54:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /admin/index.html | 状态: 404 | 耗时: 0.001s
+2026-05-06 15:55:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-05-06 15:55:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.004s
+2026-05-06 15:55:55 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭
+2026-05-06 16:04:12 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-05-06 16:04:12 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-05-06 16:04:12 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-05-06 16:04:13 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-05-06 16:04:13 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-05-06 16:04:13 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-05-06 16:10:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 16:10:33 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-06 16:10:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.005s
+2026-05-06 16:10:34 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-06 16:10:35 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-06 16:10:35 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.250s
+2026-05-06 16:10:35 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 16:10:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.203s
+2026-05-06 16:10:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 16:10:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.009s
+2026-05-06 16:10:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 16:10:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-05-06 16:10:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 客户端: 127.0.0.1
+2026-05-06 16:10:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 状态: 200 | 耗时: 0.005s
+2026-05-06 16:11:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/2f3a5597-12c1-4ba2-a411-b23a41868e24 | 客户端: 127.0.0.1
+2026-05-06 16:11:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/2f3a5597-12c1-4ba2-a411-b23a41868e24 | 状态: 200 | 耗时: 0.004s
+2026-05-06 16:11:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois | 客户端: 127.0.0.1
+2026-05-06 16:11:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois | 状态: 200 | 耗时: 0.526s
+2026-05-06 16:11:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/8285855 | 客户端: 127.0.0.1
+2026-05-06 16:11:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/8285855 | 状态: 200 | 耗时: 0.004s
+2026-05-06 16:17:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-05-06 16:17:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.005s
+2026-05-06 16:17:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-05-06 16:17:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.003s
+2026-05-06 16:17:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-06 16:17:43 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.203s
+2026-05-06 16:17:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-06 16:17:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.004s
+2026-05-06 16:17:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-05-06 16:17:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.040s
+2026-05-06 16:17:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 客户端: 127.0.0.1
+2026-05-06 16:17:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 状态: 200 | 耗时: 0.007s
+2026-05-06 16:19:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois | 客户端: 127.0.0.1
+2026-05-06 16:19:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois | 状态: 200 | 耗时: 0.598s
+2026-05-06 16:19:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dois/8285849 | 客户端: 127.0.0.1
+2026-05-06 16:19:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dois/8285849 | 状态: 200 | 耗时: 0.003s
+2026-05-07 09:04:17 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-07 09:04:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.036s
+2026-05-07 09:04:19 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-07 09:04:19 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-07 09:04:19 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.403s
+2026-05-07 09:04:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-07 09:04:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.404s
+2026-05-07 13:54:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-05-07 13:54:19 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-05-07 13:54:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 401 | 耗时: 0.011s
+2026-05-07 13:54:21 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-07 13:54:21 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-07 13:54:21 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.377s
+2026-05-07 13:54:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-05-07 13:54:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.256s
+2026-05-07 14:26:28 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-05-07 14:26:28 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-05-07 14:26:28 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.239s
+2026-05-07 14:26:28 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search | 客户端: 127.0.0.1
+2026-05-07 14:26:28 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search | 状态: 307 | 耗时: 0.004s
+2026-05-07 14:26:28 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-05-07 14:26:29 | INFO     | api.endpoints.search:search:69 - 搜索: 'lithium battery' | 用户: 匿名 | 结果: 0
+2026-05-07 14:26:29 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.100s
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.004s
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search | 客户端: 127.0.0.1
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search | 状态: 307 | 耗时: 0.001s
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-05-07 14:27:41 | INFO     | api.endpoints.search:search:69 - 搜索: 'TiO2' | 用户: 匿名 | 结果: 50
+2026-05-07 14:27:41 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.028s
+2026-05-07 14:31:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search | 客户端: 127.0.0.1
+2026-05-07 14:31:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search | 状态: 307 | 耗时: 0.001s
+2026-05-07 14:31:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/search/ | 客户端: 127.0.0.1
+2026-05-07 14:31:05 | INFO     | api.endpoints.search:search:69 - 搜索: 'TiO2' | 用户: 匿名 | 结果: 50
+2026-05-07 14:31:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/search/ | 状态: 200 | 耗时: 0.016s
+2026-05-07 14:34:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-05-07 14:34:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.004s
+2026-05-07 14:57:31 | INFO     | app.main:lifespan:35 - 👋 材料AI知识库 已关闭

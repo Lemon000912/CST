@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>犀材 - 管理端</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录页面 -->
+        <div id="login-page" class="login-container">
+            <div class="login-box">
+                <div class="login-header">
+                    <i class="fas fa-cube"></i>
+                    <h1>QuantumPinnacle（量子巅）</h1>
+                    <p>管理端登录</p>
+                </div>
+                <form id="login-form" class="login-form">
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> 用户名</label>
+                        <input type="text" id="username" placeholder="请输入用户名" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-lock"></i> 密码</label>
+                        <input type="password" id="password" placeholder="请输入密码" required>
+                    </div>
+                    <button type="submit" class="btn-login">
+                        <i class="fas fa-sign-in-alt"></i> 登录
+                    </button>
+                </form>
+                <div id="login-error" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- 管理端主界面 -->
+        <div id="admin-page" class="admin-container" style="display: none;">
+            <!-- 侧边栏 -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <i class="fas fa-cube"></i>
+                    <span>犀材</span>
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="#" class="nav-item active" data-page="dashboard">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>仪表盘</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="users">
+                        <i class="fas fa-users"></i>
+                        <span>用户管理</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="pdfs">
+                        <i class="fas fa-database"></i>
+                        <span>文献数据库</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="doi">
+                        <i class="fas fa-barcode"></i>
+                        <span>DOI管理</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="logs">
+                        <i class="fas fa-clipboard-list"></i>
+                        <span>日志监控</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="config">
+                        <i class="fas fa-cog"></i>
+                        <span>系统配置</span>
+                    </a>
+                </nav>
+                <div class="sidebar-footer">
+                    <a href="#" id="logout-btn">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>退出登录</span>
+                    </a>
+                </div>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="main-content">
+                <!-- 顶部栏 -->
+                <header class="top-bar">
+                    <button id="toggle-sidebar" class="btn-toggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="top-bar-right">
+                        <span id="admin-username"><i class="fas fa-user-circle"></i> admin</span>
+                    </div>
+                </header>
+
+                <!-- 页面内容 -->
+                <div class="content-wrapper">
+                    <!-- 仪表盘页面 -->
+                    <div id="page-dashboard" class="page active">
+                        <h2><i class="fas fa-tachometer-alt"></i> 仪表盘</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon users"><i class="fas fa-users"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="stat-users">0</h3>
+                                    <p>总用户数</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon active"><i class="fas fa-user-check"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="stat-active">0</h3>
+                                    <p>活跃用户</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon papers"><i class="fas fa-file-alt"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="stat-papers">0</h3>
+                                    <p>论文数量</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon searches"><i class="fas fa-search"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="stat-searches">0</h3>
+                                    <p>今日搜索</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="charts-row">
+                            <div class="chart-card">
+                                <h3><i class="fas fa-chart-line"></i> 最近7天搜索趋势</h3>
+                                <div id="search-trend-chart" class="chart-container">
+                                    <div id="trend-loading" class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                    <canvas id="trendCanvas" style="display: none;"></canvas>
+                                </div>
+                            </div>
+                            <div class="chart-card">
+                                <h3><i class="fas fa-chart-bar"></i> 论文来源分布</h3>
+                                <div id="paper-source-chart" class="chart-container">
+                                    <div id="source-loading" class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                    <div class="source-info" id="source-info" style="display: none;">
+                                        <div><span class="dot doi"></span> DOI记录: <span id="source-doi">0</span></div>
+                                        <div><span class="dot journal"></span> 期刊论文: <span id="source-journal">0</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 用户管理页面 -->
+                    <div id="page-users" class="page">
+                        <h2><i class="fas fa-users"></i> 用户管理</h2>
+                        <div class="table-card">
+                            <div class="table-header">
+                                <div class="search-box">
+                                    <i class="fas fa-search"></i>
+                                    <input type="text" id="user-search" placeholder="搜索用户名或邮箱...">
+                                </div>
+                                <div class="filter-box">
+                                    <select id="user-filter">
+                                        <option value="">全部状态</option>
+                                        <option value="1">活跃</option>
+                                        <option value="0">禁用</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>用户名</th>
+                                        <th>邮箱</th>
+                                        <th>创建时间</th>
+                                        <th>最后活跃</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body">
+                                    <tr>
+                                        <td colspan="7" class="loading">
+                                            <div class="spinner"></div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="pagination">
+                                <button id="user-prev" disabled><i class="fas fa-chevron-left"></i></button>
+                                <span id="user-page-info">第 1 页</span>
+                                <button id="user-next"><i class="fas fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PDF文献页面 -->
+                    <div id="page-pdfs" class="page">
+                        <h2><i class="fas fa-database"></i> 文献数据库</h2>
+                        <div class="table-card">
+                            <div class="table-header">
+                                <div class="search-box">
+                                    <i class="fas fa-search"></i>
+                                    <input type="text" id="pdf-search" placeholder="搜索DOI、标题或材料名称...">
+                                </div>
+                                <div class="filter-box">
+                                    <select id="pdf-category">
+                                        <option value="">全部领域</option>
+                                        <option value="amorphous_glass">非晶玻璃</option>
+                                        <option value="composite_multiphase">复合多相材料</option>
+                                        <option value="solid_state_ionic">固态离子材料</option>
+                                        <option value="optical_optoelectronic">光学/光电材料</option>
+                                        <option value="alloy_metallic">合金/金属材料</option>
+                                        <option value="ceramic_structural">结构陶瓷</option>
+                                        <option value="nanomaterials_lowdim">低维纳米材料</option>
+                                        <option value="polymer_soft_matter">高分子/软物质</option>
+                                        <option value="surface_thin_film">表面/薄膜材料</option>
+                                    </select>
+                                </div>
+                                <div class="table-actions">
+                                    <button class="btn-primary" onclick="showUploadDOIModal()">
+                                        <i class="fas fa-upload"></i> 批量导入DOI
+                                    </button>
+                                </div>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>DOI</th>
+                                        <th>标题</th>
+                                        <th>材料名称</th>
+                                        <th>材料类型</th>
+                                        <th>年份</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pdfs-table-body">
+                                    <tr>
+                                        <td colspan="7" class="loading">
+                                            <div class="spinner"></div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="pagination">
+                                <button id="pdf-prev" disabled><i class="fas fa-chevron-left"></i></button>
+                                <span id="pdf-page-info">第 1 页 / 共 1 页</span>
+                                <button id="pdf-next"><i class="fas fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DOI管理页面 -->
+                    <div id="page-doi" class="page">
+                        <h2><i class="fas fa-barcode"></i> DOI管理</h2>
+                        <div class="table-card">
+                            <div class="table-header">
+                                <div class="search-box">
+                                    <i class="fas fa-search"></i>
+                                    <input type="text" id="doi-search" placeholder="搜索DOI或标题...">
+                                </div>
+                                <div class="table-actions">
+                                    <button class="btn-primary" onclick="showUploadDOIModal()">
+                                        <i class="fas fa-upload"></i> 批量上传DOI
+                                    </button>
+                                </div>
+                            </div>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>DOI</th>
+                                        <th>标题</th>
+                                        <th>作者</th>
+                                        <th>期刊</th>
+                                        <th>年份</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="doi-table-body">
+                                    <tr>
+                                        <td colspan="7" class="loading">
+                                            <div class="spinner"></div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="pagination">
+                                <button id="doi-prev" disabled><i class="fas fa-chevron-left"></i></button>
+                                <span id="doi-page-info">第 1 页 / 共 1 页</span>
+                                <button id="doi-next"><i class="fas fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 上传DOI模态框 -->
+                    <div id="upload-doi-modal" class="modal">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3><i class="fas fa-upload"></i> 批量上传DOI</h3>
+                                <button class="btn-close" onclick="closeUploadDOIModal()">&times;</button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="form-group">
+                                    <label>选择文件 (CSV/Excel)</label>
+                                    <input type="file" id="doi-file" accept=".csv,.xlsx,.xls" onchange="handleDOIFileSelect(event)">
+                                    <small class="form-text">文件格式: DOI, 标题 (可选)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>或手动输入DOI列表</label>
+                                    <textarea id="doi-text" rows="10" placeholder="每行一个DOI，格式: DOI,标题"></textarea>
+                                </div>
+                                <div id="upload-doi-status"></div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn-secondary" onclick="closeUploadDOIModal()">取消</button>
+                                <button class="btn-primary" onclick="uploadDOI()">上传</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 日志监控页面 -->
+                    <div id="page-logs" class="page">
+                        <h2><i class="fas fa-clipboard-list"></i> 日志监控</h2>
+                        <div class="log-filters">
+                            <button class="active" data-log="system">系统日志</button>
+                            <button data-log="error">错误日志</button>
+                            <button data-log="searches">搜索日志</button>
+                        </div>
+                        <div id="log-content" class="log-container">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统配置页面 -->
+                    <div id="page-config" class="page">
+                        <h2><i class="fas fa-cog"></i> 系统配置</h2>
+                        <div class="config-grid">
+                            <div class="config-card">
+                                <h3><i class="fas fa-info-circle"></i> 基本信息</h3>
+                                <div id="config-basic">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="config-card">
+                                <h3><i class="fas fa-database"></i> 数据库配置</h3>
+                                <div id="config-database">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="config-card">
+                                <h3><i class="fas fa-search"></i> 搜索配置</h3>
+                                <div id="config-search">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="config-card">
+                                <h3><i class="fas fa-shield-alt"></i> 安全配置</h3>
+                                <div id="config-security">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 编辑用户模态框 -->
+    <div id="edit-user-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-edit"></i> 编辑用户</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form class="modal-form" id="edit-user-form">
+                <input type="hidden" id="edit-user-id">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="edit-username" readonly>
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="edit-email">
+                </div>
+                <div class="form-group">
+                    <label>状态</label>
+                    <select id="edit-status">
+                        <option value="1">活跃</option>
+                        <option value="0">禁用</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-cancel">取消</button>
+                    <button type="submit" class="btn-submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

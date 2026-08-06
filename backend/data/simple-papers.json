@@ -1,0 +1,28 @@
+[
+  {
+    "paper_id": "local:simple-demo-1",
+    "doi": "10.9999/simple-test-0001",
+    "title": "Simple Test Paper Alpha：用于本地检索与 DOI 命中",
+    "abstract": "本记录仅用于开发测试。摘要中包含关键词 quantum、widget。可通过标题中的 Alpha、或 DOI 10.9999/simple-test-0001 检索到本文。",
+    "year": 2023,
+    "venue": "Test Data Letters",
+    "oa_status": null,
+    "arxiv_id": null,
+    "authors_json": "[\"Demo Author Zhang\",\"Demo Author Li\"]",
+    "abs_url": "https://doi.org/10.9999/simple-test-0001",
+    "pdf_url": "https://doi.org/10.9999/simple-test-0001"
+  },
+  {
+    "paper_id": "local:simple-demo-2",
+    "doi": "10.9999/simple-test-0002",
+    "title": "Beta Survey on Graph Neural Networks",
+    "abstract": "Second fixture for merge and dedupe tests. Mentions GNN and citation networks.",
+    "year": 2022,
+    "venue": "Demo Workshop",
+    "oa_status": null,
+    "arxiv_id": null,
+    "authors_json": "[\"Beta Researcher\"]",
+    "abs_url": "https://doi.org/10.9999/simple-test-0002",
+    "pdf_url": "https://doi.org/10.9999/simple-test-0002"
+  }
+]

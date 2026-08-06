@@ -1,0 +1,12 @@
+node_modules
+.run/
+.env
+dist
+frontend/dist
+*.db
+*.db-wal
+*.db-shm
+tsconfig.tsbuildinfo
+scihub_pdf_out/
+.venv-mineru/
+backend/data/deep-mine-temp/

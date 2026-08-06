@@ -1,0 +1,708 @@
+2026-04-22 09:27:43 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:27:43 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:27:43 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:31:28 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:31:28 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:31:28 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:31:28 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:33:39 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:33:39 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:33:39 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:33:39 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:33:48 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:33:48 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:33:58 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:33:58 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:34:23 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:34:23 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:34:41 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:34:41 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:35:03 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:35:03 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:35:59 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:35:59 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:37:28 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:37:28 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:38:00 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:38:00 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:38:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:38:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:39:04 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:39:04 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:39:29 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:39:29 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:41:17 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:41:17 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:41:17 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:41:17 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:41:46 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:41:46 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:41:46 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:41:46 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:42:51 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:42:51 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:42:51 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:42:51 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:43:14 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:43:14 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:43:14 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:43:41 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:43:41 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:45:35 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:45:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:49:52 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:49:52 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:49:52 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:49:52 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:49:59 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:49:59 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:49:59 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:49:59 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:07 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:07 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:14 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:14 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:14 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:14 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:50:14 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:50:22 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:22 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:22 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:22 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:30 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:30 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:30 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:30 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:37 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:37 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:37 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:45 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:45 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:52 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:52 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:52 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:50:52 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:50:53 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:51:00 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:00 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:00 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:00 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:08 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:08 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:08 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:08 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:16 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:16 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:16 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:16 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:23 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:23 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:23 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:23 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:31 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:31 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:31 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:31 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:46 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:46 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:46 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:46 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:54 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:51:54 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:54 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:51:54 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:51:54 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:51:54 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:51:54 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:51:54 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:52:02 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:02 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:10 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:10 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:10 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:17 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:17 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:17 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:25 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:25 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:25 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:33 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:33 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:41 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:41 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:41 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:49 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:49 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:49 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:56 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:56 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:52:56 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:52:56 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:04 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:04 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:04 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:12 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:12 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:12 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:12 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:20 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:20 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:20 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:20 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:28 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:28 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:28 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:28 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:35 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:35 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:35 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:53:35 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:53:35 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:53:35 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:53:35 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:53:36 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:53:43 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:43 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:44 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:44 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:53:44 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:53:44 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /docs | 客户端: 127.0.0.1
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /docs | 客户端: 127.0.0.1
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /docs | 状态: 200 | 耗时: 0.004s
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /docs | 状态: 200 | 耗时: 0.004s
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.010s
+2026-04-22 09:53:44 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-22 09:53:44 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.033s
+2026-04-22 09:53:44 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:53:44 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:53:48 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:53:48 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:54:04 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:54:11 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:54:11 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:54:11 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:54:11 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:54:25 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:54:25 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:54:25 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:54:25 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:54:25 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:54:55 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:54:55 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:56:08 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:56:14 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:56:14 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:56:15 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:56:15 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:56:25 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:56:25 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:57:16 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:57:16 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:57:16 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:57:16 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 09:57:16 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 09:58:34 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 09:58:34 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 09:58:34 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 09:58:34 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:00:31 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:00:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:00:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:00:38 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:00:38 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:00 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:01:00 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:01:07 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:01:07 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:01:07 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:01:07 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:01:08 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:01:15 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:01:15 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:01:15 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:01:15 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:01:15 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:01:15 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:15 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:01:15 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:39 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:01:39 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:01:39 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:01:39 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:01:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 10:01:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.005s
+2026-04-22 10:01:56 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /auth/login | 客户端: 127.0.0.1
+2026-04-22 10:01:56 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-22 10:02:27 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:27 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:27 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:35 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:35 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:35 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:35 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:44 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:44 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:02:53 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:02:53 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:03:01 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:03:01 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:01 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:01 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:03:01 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:03:02 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:03:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 10:03:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.003s
+2026-04-22 10:03:07 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 10:03:07 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-22 10:03:07 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.025s
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:10 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:10 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:03:10 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:03:11 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:11 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:11 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:03:11 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:03:59 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:04:05 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:04:05 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:04:05 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:04:05 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:04:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 10:04:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.003s
+2026-04-22 10:04:49 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 10:04:49 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-22 10:04:49 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.005s
+2026-04-22 10:06:31 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:06:31 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:06:31 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:06:31 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:06:31 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 10:08:52 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:08:52 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:08:52 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:08:52 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:10:04 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:10:04 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:12:30 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 10:12:30 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 10:12:30 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 10:12:30 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 10:14:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 10:14:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.005s
+2026-04-22 10:14:26 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 10:14:26 | ERROR    | api.endpoints.auth:login:72 - 登录失败: hash could not be identified
+2026-04-22 10:14:26 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 500 | 耗时: 0.023s
+2026-04-22 10:25:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-22 10:25:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.001s
+2026-04-22 10:25:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /@vite/client | 客户端: 127.0.0.1
+2026-04-22 10:25:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /@vite/client | 状态: 404 | 耗时: 0.000s
+2026-04-22 11:01:02 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 11:01:02 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 11:01:02 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 11:01:02 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 11:01:02 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 11:03:01 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 11:03:01 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 11:03:01 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 11:03:01 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 11:04:38 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 11:04:38 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 11:04:38 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 11:04:38 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.005s
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 11:05:46 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.251s
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 11:05:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.030s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.003s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/categories | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/categories | 状态: 200 | 耗时: 0.008s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.014s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches | 状态: 200 | 耗时: 0.008s
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/errors | 客户端: 127.0.0.1
+2026-04-22 11:05:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/errors | 状态: 200 | 耗时: 0.005s
+2026-04-22 11:10:24 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /docs | 客户端: 127.0.0.1
+2026-04-22 11:10:24 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /docs | 状态: 200 | 耗时: 0.001s
+2026-04-22 11:10:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /openapi.json | 客户端: 127.0.0.1
+2026-04-22 11:10:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /openapi.json | 状态: 200 | 耗时: 0.051s
+2026-04-22 11:10:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /@vite/client | 客户端: 127.0.0.1
+2026-04-22 11:10:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /@vite/client | 状态: 404 | 耗时: 0.001s
+2026-04-22 11:11:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET / | 客户端: 127.0.0.1
+2026-04-22 11:11:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET / | 状态: 200 | 耗时: 0.001s
+2026-04-22 11:11:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /@vite/client | 客户端: 127.0.0.1
+2026-04-22 11:11:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /@vite/client | 状态: 404 | 耗时: 0.000s
+2026-04-22 12:02:12 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:02:12 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:02:13 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 12:02:13 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 12:02:13 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 12:02:59 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:02:59 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:02:59 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 12:02:59 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 12:06:19 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:06:19 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:06:20 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 12:06:20 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 12:06:20 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 12:06:50 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:06:50 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:07:24 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:07:24 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:07:25 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 12:07:25 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 12:07:25 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 12:07:53 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 12:07:53 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 12:07:54 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 12:07:54 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.005s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.244s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.028s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.007s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/categories | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/categories | 状态: 200 | 耗时: 0.008s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.007s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/searches | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/searches | 状态: 200 | 耗时: 0.007s
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/errors | 客户端: 127.0.0.1
+2026-04-22 12:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/errors | 状态: 200 | 耗时: 0.004s
+2026-04-22 13:39:19 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 13:39:19 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 422 | 耗时: 0.002s
+2026-04-22 13:39:29 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 13:39:30 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 13:39:30 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.214s
+2026-04-22 13:39:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 13:39:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.022s
+2026-04-22 13:39:38 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 13:39:38 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.009s
+2026-04-22 13:39:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 13:39:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-22 13:39:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 13:39:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 13:39:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 13:39:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.008s
+2026-04-22 13:39:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 13:39:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.009s
+2026-04-22 13:39:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 13:39:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-04-22 13:39:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 13:39:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.005s
+2026-04-22 13:45:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 13:45:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.031s
+2026-04-22 13:45:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 13:45:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.009s
+2026-04-22 13:45:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 13:45:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.022s
+2026-04-22 13:45:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 13:45:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.011s
+2026-04-22 13:45:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 13:45:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.022s
+2026-04-22 13:46:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 13:46:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 13:54:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 13:54:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.057s
+2026-04-22 14:34:58 | WARNING  | services.llm_service:__init__:26 - ⚠️ 未配置OpenAI API密钥
+2026-04-22 14:34:58 | WARNING  | services.llm_service:__init__:34 - ⚠️ 未配置Claude API密钥
+2026-04-22 14:34:58 | INFO     | app.main:lifespan:18 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-22 14:34:58 | INFO     | app.main:lifespan:22 - ✅ 数据库连接正常
+2026-04-22 14:40:05 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 14:40:07 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.248s
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/categories | 客户端: 127.0.0.1
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/categories | 状态: 200 | 耗时: 0.023s
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:40:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 14:40:48 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 14:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.213s
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 14:41:33 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.213s
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/categories | 客户端: 127.0.0.1
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/categories | 状态: 200 | 耗时: 0.018s
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:41:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:43:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:43:55 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-22 14:43:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.002s
+2026-04-22 14:44:08 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 14:44:08 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 14:44:08 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.212s
+2026-04-22 14:44:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:44:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.032s
+2026-04-22 14:44:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:44:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:44:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:44:13 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:44:13 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:44:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:44:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.005s
+2026-04-22 14:44:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 14:44:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.005s
+2026-04-22 14:44:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:44:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.011s
+2026-04-22 14:44:23 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:23 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.011s
+2026-04-22 14:44:24 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:44:24 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:44:27 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:44:27 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.024s
+2026-04-22 14:44:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:44:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.009s
+2026-04-22 14:44:35 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.012s
+2026-04-22 14:44:38 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:44:38 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:44:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:44:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:44:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 14:44:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:44:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:44:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:44:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:44:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.016s
+2026-04-22 14:44:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:44:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:44:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:44:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:44:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:44:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:45:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:45:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:45:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:45:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:45:18 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:45:18 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:45:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 14:45:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:45:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:45:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.005s
+2026-04-22 14:47:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:47:01 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-22 14:47:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 401 | 耗时: 0.003s
+2026-04-22 14:47:14 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-22 14:47:14 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-22 14:47:14 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.212s
+2026-04-22 14:47:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:47:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.022s
+2026-04-22 14:47:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:47:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:47:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:47:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:47:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:47:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:47:24 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 14:47:24 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.003s
+2026-04-22 14:47:32 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:47:32 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:47:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:47:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:47:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:47:34 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-22 14:47:37 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:47:37 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.022s
+2026-04-22 14:47:37 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:47:37 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:47:38 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:47:38 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:47:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:47:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.011s
+2026-04-22 14:48:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:48:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:48:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:48:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.011s
+2026-04-22 14:48:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:48:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:48:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:48:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:48:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:48:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:48:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:48:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.024s
+2026-04-22 14:48:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:48:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:48:35 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:48:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:48:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:48:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:49:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.035s
+2026-04-22 14:49:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:49:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.012s
+2026-04-22 14:49:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:49:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:49:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-22 14:49:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:49:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:49:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:49:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:50:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:50:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:50:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:12 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:12 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-22 14:50:14 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:14 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:23 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:50:23 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.012s
+2026-04-22 14:50:27 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-22 14:50:27 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:50:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:50:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:50:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-22 14:50:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:50:29 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-22 14:50:29 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.004s
+2026-04-22 14:50:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-22 14:50:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-22 14:50:32 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 14:50:32 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.010s
+2026-04-22 14:50:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-22 14:50:34 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.026s
+2026-04-22 16:02:15 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 16:02:31 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭
+2026-04-22 16:57:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-22 16:57:05 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-22 16:57:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 401 | 耗时: 0.012s
+2026-04-22 16:59:19 | INFO     | app.main:lifespan:30 - 👋 材料AI知识库 已关闭

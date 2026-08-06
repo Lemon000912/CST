@@ -1,0 +1,600 @@
+2026-04-30 10:28:21 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-04-30 10:28:21 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-04-30 10:28:21 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-04-30 10:28:21 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-30 10:28:21 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-30 10:28:21 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-30 10:28:52 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:28:52 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:28:55 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:28:55 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:29:05 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:29:05 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:29:26 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:29:26 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:29:47 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:29:47 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:30:26 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:30:26 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 404 | 耗时: 0.001s
+2026-04-30 10:31:21 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-04-30 10:31:21 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-04-30 10:31:21 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-04-30 10:31:21 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-30 10:31:21 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-30 10:31:21 | INFO     | core.database:connect:129 - ✅ Redis连接成功
+2026-04-30 10:31:31 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:31:31 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 10:31:31 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.281s
+2026-04-30 10:32:48 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:32:48 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 10:32:48 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.221s
+2026-04-30 10:32:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:32:48 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:32:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.025s
+2026-04-30 10:33:33 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 10:33:33 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 10:33:33 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.225s
+2026-04-30 10:33:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:33:33 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:33:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.010s
+2026-04-30 10:33:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:33:34 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:33:34 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.013s
+2026-04-30 10:33:41 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:33:41 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.010s
+2026-04-30 10:33:43 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:43 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.081s
+2026-04-30 10:33:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:33:44 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:33:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.018s
+2026-04-30 10:33:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:33:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:33:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.043s
+2026-04-30 10:33:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-30 10:33:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.012s
+2026-04-30 10:33:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.033s
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.034s
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.033s
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.032s
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.034s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.033s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.035s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.035s
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.034s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.035s
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.044s
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.038s
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.037s
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.035s
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:33:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:33:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.038s
+2026-04-30 10:33:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-30 10:33:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:34:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-30 10:34:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:34:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-30 10:34:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:34:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:34:01 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:34:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.008s
+2026-04-30 10:36:15 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-04-30 10:36:15 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-04-30 10:36:15 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-04-30 10:36:15 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-30 10:36:15 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-30 10:36:15 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-04-30 10:39:40 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:39:40 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:39:40 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.048s
+2026-04-30 10:40:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:40:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.008s
+2026-04-30 10:40:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.063s
+2026-04-30 10:40:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:40:25 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-30 10:40:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.002s
+2026-04-30 10:40:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.009s
+2026-04-30 10:40:32 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:32 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.012s
+2026-04-30 10:40:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:40:34 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:34 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:40:35 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/e2d848d0-0e2d-4d5b-90ca-64f4c027e580/process | 客户端: 127.0.0.1
+2026-04-30 10:40:35 | INFO     | api.endpoints.admin:process_pdf:817 - 管理员手动处理PDF: e2d848d0-0e2d-4d5b-90ca-64f4c027e580
+2026-04-30 10:40:35 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/e2d848d0-0e2d-4d5b-90ca-64f4c027e580/process | 状态: 200 | 耗时: 0.011s
+2026-04-30 10:40:35 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:35 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 10:40:36 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:36 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.032s
+2026-04-30 10:40:37 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/admin/pdfs/a7127ea8-29d3-4757-9ee9-dac9248d449f/process | 客户端: 127.0.0.1
+2026-04-30 10:40:37 | INFO     | api.endpoints.admin:process_pdf:817 - 管理员手动处理PDF: a7127ea8-29d3-4757-9ee9-dac9248d449f
+2026-04-30 10:40:37 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/admin/pdfs/a7127ea8-29d3-4757-9ee9-dac9248d449f/process | 状态: 200 | 耗时: 0.004s
+2026-04-30 10:40:37 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:37 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:39 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /health | 客户端: 127.0.0.1
+2026-04-30 10:40:39 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /health | 状态: 200 | 耗时: 0.003s
+2026-04-30 10:40:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:40:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:45 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.004s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.004s
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:46 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:48 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:40:57 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:57 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:40:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.008s
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:08 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.011s
+2026-04-30 10:41:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:41:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:41:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.032s
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.032s
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.033s
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.032s
+2026-04-30 10:41:18 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:18 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:41:18 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:18 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 10:41:19 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:19 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:41:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.029s
+2026-04-30 10:41:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.031s
+2026-04-30 10:41:21 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:41:21 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 10:41:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-30 10:41:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.010s
+2026-04-30 10:41:38 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-30 10:41:38 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.003s
+2026-04-30 10:41:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/config | 客户端: 127.0.0.1
+2026-04-30 10:41:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/config | 状态: 200 | 耗时: 0.003s
+2026-04-30 10:41:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:41:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:42:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:42:30 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:42:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.014s
+2026-04-30 10:43:13 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:43:13 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:43:13 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.017s
+2026-04-30 10:43:15 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:43:15 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:43:15 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.008s
+2026-04-30 10:44:16 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:44:16 | WARNING  | services.auth_service:decode_token:126 - 无效令牌: Not enough segments
+2026-04-30 10:44:16 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.001s
+2026-04-30 10:44:17 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-30 10:44:17 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:46:30 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:46:30 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:46:30 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.018s
+2026-04-30 10:46:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:46:47 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:46:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.005s
+2026-04-30 10:46:49 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:46:49 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:46:49 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.010s
+2026-04-30 10:46:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:46:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.004s
+2026-04-30 10:46:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:46:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:46:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:46:55 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:46:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.009s
+2026-04-30 10:46:56 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:46:56 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:46:56 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.012s
+2026-04-30 10:48:10 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:48:10 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-30 10:48:10 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.001s
+2026-04-30 10:52:05 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:52:05 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-04-30 10:52:05 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 500 | 耗时: 0.010s
+2026-04-30 10:53:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:53:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.076s
+2026-04-30 10:56:42 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:56:42 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.038s
+2026-04-30 10:56:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:56:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-04-30 10:56:50 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:56:50 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.036s
+2026-04-30 10:56:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:56:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.007s
+2026-04-30 10:56:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/keywords | 客户端: 127.0.0.1
+2026-04-30 10:56:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/keywords | 状态: 200 | 耗时: 0.004s
+2026-04-30 10:57:01 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-30 10:57:01 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.003s
+2026-04-30 10:57:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 10:57:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.029s
+2026-04-30 10:57:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 10:57:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-04-30 10:57:06 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 10:57:06 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.035s
+2026-04-30 11:25:11 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 11:25:11 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.095s
+2026-04-30 13:08:33 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:08:33 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-30 13:08:33 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 401 | 耗时: 0.002s
+2026-04-30 13:08:47 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 13:08:47 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 13:08:47 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.406s
+2026-04-30 13:08:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 13:08:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.063s
+2026-04-30 13:08:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 13:08:51 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-30 13:08:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 401 | 耗时: 0.001s
+2026-04-30 13:08:52 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 13:08:52 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 13:08:52 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.211s
+2026-04-30 13:08:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 13:08:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.045s
+2026-04-30 13:08:54 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 13:08:54 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-04-30 13:08:55 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:08:55 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.040s
+2026-04-30 13:08:58 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 客户端: 127.0.0.1
+2026-04-30 13:08:58 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 状态: 404 | 耗时: 0.001s
+2026-04-30 13:08:59 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 客户端: 127.0.0.1
+2026-04-30 13:08:59 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 状态: 404 | 耗时: 0.001s
+2026-04-30 13:09:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 客户端: 127.0.0.1
+2026-04-30 13:09:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/87057988-d8bc-40a6-bc4c-de4902672888 | 状态: 404 | 耗时: 0.001s
+2026-04-30 13:09:09 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:09 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.035s
+2026-04-30 13:09:13 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:13 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.038s
+2026-04-30 13:09:20 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:20 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 13:09:22 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:22 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 13:09:23 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:23 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.030s
+2026-04-30 13:09:24 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:24 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.028s
+2026-04-30 13:09:25 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 13:09:25 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.042s
+2026-04-30 13:45:13 | WARNING  | services.llm_service:__init__:28 - ⚠️ 未配置通义千问API密钥
+2026-04-30 13:45:13 | WARNING  | services.llm_service:__init__:37 - ⚠️ 未配置OpenAI API密钥
+2026-04-30 13:45:13 | WARNING  | services.llm_service:__init__:45 - ⚠️ 未配置Claude API密钥
+2026-04-30 13:45:13 | INFO     | app.main:lifespan:19 - 🚀 材料AI知识库 v1.0.0 启动中...
+2026-04-30 13:45:13 | INFO     | app.main:lifespan:23 - ✅ 数据库连接正常
+2026-04-30 13:45:13 | INFO     | core.database:connect:135 - ✅ Redis连接成功
+2026-04-30 13:45:47 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 13:45:47 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.093s
+2026-04-30 14:03:44 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 14:03:44 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.011s
+2026-04-30 14:03:51 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 14:03:51 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.081s
+2026-04-30 14:03:52 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/fe158a02-ee18-4af5-b0d5-396d160548eb | 客户端: 127.0.0.1
+2026-04-30 14:03:52 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/fe158a02-ee18-4af5-b0d5-396d160548eb | 状态: 404 | 耗时: 0.001s
+2026-04-30 14:03:53 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs/fe158a02-ee18-4af5-b0d5-396d160548eb | 客户端: 127.0.0.1
+2026-04-30 14:03:53 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs/fe158a02-ee18-4af5-b0d5-396d160548eb | 状态: 404 | 耗时: 0.001s
+2026-04-30 14:04:07 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/logs/system | 客户端: 127.0.0.1
+2026-04-30 14:04:07 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/logs/system | 状态: 200 | 耗时: 0.006s
+2026-04-30 16:25:00 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 16:25:00 | WARNING  | services.auth_service:decode_token:123 - 令牌已过期
+2026-04-30 16:25:00 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 401 | 耗时: 0.002s
+2026-04-30 16:25:01 | INFO     | core.logging:log_requests:78 - 请求开始 | POST /api/v1/auth/login | 客户端: 127.0.0.1
+2026-04-30 16:25:02 | INFO     | api.endpoints.auth:login:56 - 用户登录成功: admin
+2026-04-30 16:25:02 | INFO     | core.logging:log_requests:90 - 请求完成 | POST /api/v1/auth/login | 状态: 200 | 耗时: 0.360s
+2026-04-30 16:25:02 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 16:25:02 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.082s
+2026-04-30 16:25:03 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 16:25:03 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.006s
+2026-04-30 16:25:04 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/pdfs | 客户端: 127.0.0.1
+2026-04-30 16:25:04 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/pdfs | 状态: 200 | 耗时: 0.034s
+2026-04-30 16:36:26 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 16:36:26 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.037s
+2026-04-30 16:36:27 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/users | 客户端: 127.0.0.1
+2026-04-30 16:36:27 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/users | 状态: 200 | 耗时: 0.005s
+2026-04-30 16:36:28 | INFO     | core.logging:log_requests:78 - 请求开始 | GET /api/v1/admin/dashboard | 客户端: 127.0.0.1
+2026-04-30 16:36:28 | INFO     | core.logging:log_requests:90 - 请求完成 | GET /api/v1/admin/dashboard | 状态: 200 | 耗时: 0.039s

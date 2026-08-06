@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: material_kb_postgres
+    environment:
+      POSTGRES_DB: material_kb
+      POSTGRES_USER: material_user
+      POSTGRES_PASSWORD: material_pass_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - material_kb_network
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: material_kb_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - material_kb_network
+
+  # 后端API服务
+  backend:
+    build: .
+    container_name: material_kb_backend
+    environment:
+      DB_TYPE: postgresql
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: material_user
+      POSTGRES_PASSWORD: material_pass_2024
+      POSTGRES_DATABASE: material_kb
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_ENABLED: "true"
+    ports:
+      - "9003:9003"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./documents:/app/documents
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - material_kb_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  material_kb_network:
+    driver: bridge

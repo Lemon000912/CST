@@ -1,0 +1,636 @@
+import type { ArxivSearchField, ChatSession, Paper, PaperSortKey, SearchChannel, SearchResultMeta } from "./types";
+import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openaiKey";
+import { getPersonaId } from "./persona";
+import { getAuthToken, getEffectiveUserId } from "./authSession";
+import { getOutputAvoidanceForRequest } from "./outputPreferences";
+
+/** 带超时的 fetch（检索/综述等长请求） */
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const timeoutMs = init.timeoutMs ?? 900_000;
+  const { timeoutMs: _drop, ...rest } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...rest, signal: controller.signal });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(
+        `请求超时（已等待 ${Math.round(timeoutMs / 1000)} 秒）。联网检索与综合回答可能需 1～3 分钟，请稍后重试或缩短问题。`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchUserSkillFavoriteKeywords(): Promise<string[] | undefined> {
+  const t = getAuthToken();
+  if (!t) return undefined;
+  try {
+    const res = await fetch("/api/v1/user/skill", {
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "X-User-Id": getEffectiveUserId(),
+      },
+    });
+    if (!res.ok) return undefined;
+    const j = (await res.json()) as { favoriteKeywords?: unknown };
+    const fk = j.favoriteKeywords;
+    if (!Array.isArray(fk)) return undefined;
+    return fk.map((x) => String(x).trim()).filter(Boolean).slice(0, 24);
+  } catch {
+    return undefined;
+  }
+}
+
+type SearchResponse = {
+  papers: Paper[];
+  effectiveQuery?: string;
+  rewriteNote?: string;
+  queryIntent?: SearchResultMeta["queryIntent"];
+  sourcesUsed?: string[];
+  channel?: SearchChannel;
+  sort?: PaperSortKey;
+  latencyMs?: number;
+  field?: ArxivSearchField;
+  error?: string;
+  synthesis?: string | null;
+  synthesisNote?: string | null;
+  synthesisPlan?: Record<string, unknown> | null;
+  synthesisPlanNote?: string | null;
+  /** 双模型 / 三密钥综述：modelA / modelB / modelC / mode（single | dual_consensus | dual_partial | tri_arbitration | tri_partial） */
+  synthesisModels?: {
+    modelA?: string;
+    modelB?: string | null;
+    modelC?: string | null;
+    mode?: string;
+  } | null;
+  webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"];
+  persona?: string;
+  personaLabel?: string;
+  deepMine?: SearchResultMeta["deepMine"];
+  deepSynthesis?: string | null;
+  deepSynthesisNote?: string | null;
+  artifacts?: SearchResultMeta["artifacts"];
+  /** 与请求体 patentsOnly 一致；仅专利检索时后端为 true */
+  patentsOnly?: boolean;
+};
+
+function headersJson(extra?: Record<string, string>): HeadersInit {
+  const h: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-User-Id": getEffectiveUserId(),
+    ...extra,
+  };
+  const t = getAuthToken();
+  if (t) h.Authorization = `Bearer ${t}`;
+  const k = getOpenAiKey();
+  if (k) h["X-OpenAI-Key"] = k;
+  const m = getOpenAiModel();
+  if (m) h["X-OpenAI-Model"] = m;
+  h["X-Persona"] = getPersonaId();
+  const chatUrl = getLlmChatCompletionsUrl();
+  if (chatUrl) h["X-Llm-Chat-Url"] = chatUrl.slice(0, 2048);
+  return h;
+}
+
+/** 规格 `/v1/search` 主检索 */
+export async function searchPapersV1(
+  query: string,
+  opts: {
+    max?: number;
+    field?: ArxivSearchField;
+    channel?: SearchChannel;
+    sort?: PaperSortKey;
+    useLlmRewrite?: boolean;
+    /** 由 /api/v1/extract 得到的正文，服务端与检索词合并参与检索与重写 */
+    attachmentContext?: string;
+    /** 上传文件名（展示用，附件优先合成时写入 prompt） */
+    attachmentFilename?: string;
+    /** 本对话内上一轮之前的上文（不含其它会话）；与 query 分开发送，新对话应为空 */
+    conversationContext?: string;
+    /** 默认 true：检索后调用 LLM 生成带 DOI 标注的文献综述 */
+    includeSynthesis?: boolean;
+    /** 默认 true：为 false 时不外呼专利与全网网页（DDG/Dataify/MCP）；其它检索不变 */
+    useMcpWeb?: boolean;
+    /** 为 true 时仅返回专利条目（OpenAlex 专利 + 专利网页），并尽量补全 patentNumber；默认不生成综述除非 includeSynthesis 显式为 true */
+    patentsOnly?: boolean;
+    /** 深度：下载 PDF（默认全部返回篇数，可用 maxPapers 限制）→ MinerU → 三模型各抽关键词 → deepSynthesis */
+    deepMine?: boolean | { enabled?: boolean; maxPapers?: number; maxPdfMb?: number };
+    /** 为 false 时不附加本机「不满意」偏好（默认 true） */
+    attachOutputAvoidance?: boolean;
+    /** 与问题一起收紧文献相关性；不传且已登录时会尝试从 /api/v1/user/skill 读取 favoriteKeywords */
+    preferenceKeywords?: string[];
+  } = {},
+): Promise<SearchResponse & SearchResultMeta> {
+  const dm = opts.deepMine;
+  const deepBody =
+    dm === true
+      ? { enabled: true, maxPdfMb: 20 }
+      : dm && typeof dm === "object" && dm.enabled !== false
+        ? { enabled: true, maxPdfMb: 20, ...dm }
+        : undefined;
+  const outputAvoidance =
+    opts.attachOutputAvoidance === false ? "" : getOutputAvoidanceForRequest().trim();
+  let prefKw = opts.preferenceKeywords;
+  if (prefKw === undefined) {
+    prefKw = await fetchUserSkillFavoriteKeywords();
+  }
+  const res = await fetchWithTimeout("/api/v1/search", {
+    method: "POST",
+    headers: headersJson(),
+    timeoutMs: 900_000,
+    body: JSON.stringify({
+      query,
+      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
+      field: opts.field ?? "all",
+      channel: opts.channel ?? "web",
+      sort: opts.sort ?? "relevance",
+      useLlmRewrite: opts.useLlmRewrite !== false,
+      attachmentContext: opts.attachmentContext?.slice(0, 200_000),
+      attachmentFilename: opts.attachmentFilename?.slice(0, 512),
+      conversationContext: opts.conversationContext?.slice(0, 12_000),
+      includeSynthesis: opts.patentsOnly
+        ? opts.includeSynthesis === true
+        : opts.includeSynthesis !== false,
+      useMcpWeb: opts.useMcpWeb !== false,
+      ...(opts.patentsOnly ? { patentsOnly: true } : {}),
+      ...(deepBody ? { deepMine: deepBody } : {}),
+      ...(outputAvoidance ? { outputAvoidance } : {}),
+      ...(prefKw?.length ? { preferenceKeywords: prefKw } : {}),
+    }),
+  });
+  const text = await res.text();
+  let data: SearchResponse & { error?: string };
+  try {
+    data = JSON.parse(text) as SearchResponse & { error?: string };
+  } catch {
+    const htmlish = text.trimStart().startsWith("<");
+    if (htmlish) {
+      throw new Error(
+        "检索接口返回了网页而不是 JSON，通常是未启动后端或未走 API 代理。请在项目根目录运行「npm run dev」（同时起前端与 8787 API），或在使用「预览」时先执行「npm run dev:server」再执行「npm run preview」。",
+      );
+    }
+    const hint =
+      res.status === 500 && !text.trim()
+        ? "（后端可能崩溃或代理超时：请确认 8787 上 node backend/index.js 在跑，并查看该终端报错）"
+        : "";
+    throw new Error(`检索响应不是合法 JSON（HTTP ${res.status}）${hint}`);
+  }
+  if (!res.ok) {
+    throw new Error(data.error || `请求失败 (${res.status})`);
+  }
+  return data as SearchResponse & SearchResultMeta;
+}
+
+export async function submitFeedback(payload: {
+  messageId: string;
+  value: 1 | -1;
+  channel?: SearchChannel;
+}): Promise<void> {
+  const res = await fetch("/api/v1/feedback", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      ...payload,
+      userId: getEffectiveUserId(),
+    }),
+  });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(j.error || `反馈失败 (${res.status})`);
+  }
+}
+
+const EXTRACT_MAX_MB = 100;
+const EXTRACT_MAX_BYTES = EXTRACT_MAX_MB * 1024 * 1024;
+const EXTRACT_ALLOWED_EXT = /\.(pdf|md|markdown|txt|text|docx?|docm|pptx|ppsx)$/i;
+
+function isExtractAllowedFile(file: File): boolean {
+  const name = file.name || "";
+  if (EXTRACT_ALLOWED_EXT.test(name)) return true;
+  const t = (file.type || "").toLowerCase();
+  return (
+    t === "application/pdf" ||
+    t === "application/msword" ||
+    t === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    t === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    t === "text/plain" ||
+    t === "text/markdown"
+  );
+}
+
+/** 上传并解析 pdf / pptx / markdown / txt / doc / docx（multipart，字段名 file） */
+export async function extractUploadedDocument(
+  file: File,
+): Promise<{ filename: string; text: string; charCount: number }> {
+  const name = file.name || "file";
+  if (!isExtractAllowedFile(file)) {
+    throw new Error(
+      `不支持「${name}」：请使用 PDF、PPTX、Markdown、TXT、Word（.doc / .docx），单文件 ≤${EXTRACT_MAX_MB}MB`,
+    );
+  }
+  if (file.size > EXTRACT_MAX_BYTES) {
+    throw new Error(`文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），单文件上限 ${EXTRACT_MAX_MB}MB`);
+  }
+  if (file.size === 0) {
+    throw new Error("空文件，请选择有内容的文件");
+  }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/v1/extract", {
+      method: "POST",
+      headers: {
+        "X-User-Id": getEffectiveUserId(),
+        ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+      },
+      body: fd,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `无法连接上传接口（${msg}）。请用 npm run dev 打开页面（5175 会代理到 8787），并确认后端在运行。`,
+    );
+  }
+
+  const text = await res.text();
+  let data: { filename?: string; text?: string; charCount?: number; error?: string };
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    const htmlish = text.trimStart().startsWith("<");
+    if (htmlish) {
+      throw new Error(
+        "上传接口返回了网页而不是 JSON。请用 npm run dev 同时启动前后端，不要只打开静态 dist 页面。",
+      );
+    }
+    throw new Error(`上传响应不是合法 JSON（HTTP ${res.status}）`);
+  }
+  if (!res.ok) {
+    throw new Error(data.error || `解析失败 (${res.status})`);
+  }
+  return {
+    filename: data.filename || name,
+    text: data.text || "",
+    charCount: data.charCount ?? (data.text?.length ?? 0),
+  };
+}
+
+/** BR-006：记录 PDF 点击并返回当日次数 */
+export async function trackPdfOpen(paperId: string): Promise<{ downloadsToday: number; softLimit: number }> {
+  const res = await fetch("/api/v1/pdf-click", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({ userId: getEffectiveUserId(), paperId }),
+  });
+  const data = (await res.json()) as { downloadsToday?: number; softLimit?: number; error?: string };
+  if (!res.ok) throw new Error(data.error || "记录失败");
+  return {
+    downloadsToday: data.downloadsToday ?? 0,
+    softLimit: data.softLimit ?? 5,
+  };
+}
+
+export type PaperChartApiResult = {
+  mime: string;
+  pngBase64: string | null;
+  svgBase64: string | null;
+  title: string;
+  spec: Record<string, unknown>;
+  matplotlibStderr?: string;
+  note?: string;
+};
+
+function slimPaperForChartApi(p: Paper) {
+  const id = String(p.id ?? "");
+  const arx = id.replace(/^arxiv:/i, "").trim();
+  return {
+    id,
+    paper_id: p.paper_id,
+    title: p.title,
+    summary: p.summary,
+    abstract: p.summary,
+    doi: p.doi ?? null,
+    year: p.year ?? null,
+    arxiv_id: /^arxiv:/i.test(id) ? arx : undefined,
+    source: p.source ?? null,
+    absUrl: p.absUrl ?? null,
+    patentNumber: p.patentNumber ?? null,
+  };
+}
+
+
+
+/** 从服务端加载聊天会话（登录用户，后端持久化） */
+export async function fetchChatSessionsFromServer(): Promise<{
+  sessions: ChatSession[];
+  updatedAt: number;
+} | null> {
+  const res = await fetch("/api/v1/chat/sessions", { headers: headersJson() });
+  if (res.status === 401) return null;
+  if (!res.ok) {
+    console.warn("[api] fetchChatSessions failed", res.status);
+    return null;
+  }
+  const data = (await res.json()) as { sessions?: ChatSession[]; updatedAt?: number };
+  return {
+    sessions: Array.isArray(data.sessions) ? data.sessions : [],
+    updatedAt: Number(data.updatedAt) || 0,
+  };
+}
+
+/** 保存聊天会话到服务端 */
+export async function saveChatSessionsToServer(
+  sessions: ChatSession[],
+  updatedAt?: number,
+): Promise<void> {
+  const res = await fetch("/api/v1/chat/sessions", {
+    method: "PUT",
+    headers: headersJson(),
+    body: JSON.stringify({
+      sessions,
+      updatedAt: updatedAt ?? Date.now(),
+    }),
+  });
+  if (res.status === 401) return;
+  if (!res.ok) {
+    let err = `保存会话失败（${res.status}）`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) err = j.error;
+    } catch {
+      /* ignore */
+    }
+    console.warn("[api] saveChatSessions:", err);
+  }
+}
+
+/** 从当前检索文献摘要用 LLM 抽数值 + 本机 Matplotlib 出图（需 Python3 与 matplotlib） */
+export async function requestPaperChartFromPapers(
+  papers: Paper[],
+  opts?: { hint?: string; synthesisMarkdown?: string | null },
+): Promise<PaperChartApiResult> {
+  const res = await fetch("/api/v1/chart/from-papers", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      papers: papers.map(slimPaperForChartApi),
+      hint: opts?.hint?.trim().slice(0, 500) || undefined,
+      synthesisMarkdown: opts?.synthesisMarkdown?.trim().slice(0, 8000) || undefined,
+    }),
+  });
+  const text = await res.text();
+  // #region agent log
+  const _dbgPayload = {
+    sessionId: "ef7a54",
+    hypothesisId: "H4",
+    location: "api.ts:requestPaperChartFromPapers:response",
+    message: "chart fetch raw response",
+    data: {
+      status: res.status,
+      ct: res.headers.get("content-type"),
+      textLen: text.length,
+      textHead: text.slice(0, 280).replace(/\s+/g, " "),
+    },
+    timestamp: Date.now(),
+  };
+  fetch("http://127.0.0.1:7467/ingest/0e8c1981-4719-4a28-ab2f-2d5a4ae28120", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ef7a54" },
+    body: JSON.stringify(_dbgPayload),
+  }).catch(() => {});
+  // #endregion
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    // #region agent log
+    const _dbgFail = {
+      sessionId: "ef7a54",
+      hypothesisId: "H4",
+      location: "api.ts:requestPaperChartFromPapers:json-parse-fail",
+      message: "chart response not valid JSON",
+      data: {
+        status: res.status,
+        ct: res.headers.get("content-type"),
+        textLen: text.length,
+        textHead: text.slice(0, 400).replace(/\s+/g, " "),
+      },
+      timestamp: Date.now(),
+    };
+    fetch("http://127.0.0.1:7467/ingest/0e8c1981-4719-4a28-ab2f-2d5a4ae28120", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ef7a54" },
+      body: JSON.stringify(_dbgFail),
+    }).catch(() => {});
+    // #endregion
+    const looksHtml = text.trimStart().startsWith("<");
+    if (res.status === 404 && looksHtml) {
+      throw new Error(
+        "图表接口返回 404（多为 HTML）：8787 上的后端仍是旧版本或未加载当前代码。请先结束占用端口的旧 node 进程，再在项目根目录执行 npm run dev 或 npm run dev:server，然后重试「生成图表」。可在浏览器打开 /api/health 确认已连到新服务。",
+      );
+    }
+    if (res.status === 502 || res.status === 503) {
+      throw new Error(
+        `图表接口不可用（HTTP ${res.status}）：请确认本机 API 已在 127.0.0.1:8787 启动。`,
+      );
+    }
+    throw new Error(
+      looksHtml
+        ? `图表接口返回了网页而非 JSON（HTTP ${res.status}），请确认通过 npm run dev 访问且 Vite 已将 /api 代理到后端。`
+        : `图表接口返回非 JSON（HTTP ${res.status}）`,
+    );
+  }
+  if (!res.ok) {
+    throw new Error(String(data.error || `生成图表失败（${res.status}）`));
+  }
+  const png = data.pngBase64;
+  const svg = data.svgBase64;
+  const title = data.title;
+  if (typeof title !== "string" || !title) {
+    throw new Error("图表响应不完整");
+  }
+  if (typeof png === "string" && png) {
+    const spec = data.spec;
+    return {
+      mime: "image/png",
+      pngBase64: png,
+      svgBase64: null,
+      title,
+      spec: spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {},
+      matplotlibStderr:
+        typeof data.matplotlibStderr === "string" ? data.matplotlibStderr : undefined,
+      note: typeof data.note === "string" ? data.note : undefined,
+    };
+  }
+  if (typeof svg === "string" && svg) {
+    const spec = data.spec;
+    return {
+      mime: "image/svg+xml",
+      pngBase64: null,
+      svgBase64: svg,
+      title,
+      spec: spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {},
+      note: typeof data.note === "string" ? data.note : undefined,
+    };
+  }
+  throw new Error("图表响应不完整（无 PNG 也无 SVG）");
+}
+
+export type UnpaywallOaResponse = {
+  ok: true;
+  doi: string;
+  is_oa: boolean;
+  oa_status: string | null;
+  pdf_url: string | null;
+  landing_url: string | null;
+};
+
+/** 通过 Unpaywall 查询 DOI 的合法开放获取 PDF 或落地页（服务端读 .env 邮箱） */
+export async function fetchUnpaywallOaByDoi(doi: string): Promise<UnpaywallOaResponse> {
+  const d = doi.trim();
+  if (!d) throw new Error("缺少 DOI");
+  const res = await fetch(`/api/v1/papers/unpaywall-oa?doi=${encodeURIComponent(d)}`, {
+    method: "GET",
+    headers: headersJson(),
+  });
+  const text = await res.text();
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`OA 查询返回非 JSON（HTTP ${res.status}）`);
+  }
+  if (!res.ok) {
+    throw new Error(String(data.error || `OA 查询失败（${res.status}）`));
+  }
+  return {
+    ok: true,
+    doi: String(data.doi ?? d),
+    is_oa: Boolean(data.is_oa),
+    oa_status: data.oa_status != null ? String(data.oa_status) : null,
+    pdf_url: data.pdf_url != null ? String(data.pdf_url) : null,
+    landing_url: data.landing_url != null ? String(data.landing_url) : null,
+  };
+}
+
+export type FlowchartArtifactResult = {
+  mermaid: string;
+  steps?: Array<{
+    step_no?: number | string;
+    action: string;
+    inputs?: string;
+    outputs?: string;
+    note?: string;
+  }>;
+  recipeLines?: string[];
+  svgBase64?: string | null;
+  title?: string;
+  note?: string;
+};
+
+/** 从综述 / synthesisPlan 生成 Mermaid 工艺流程图 */
+export async function requestFlowchartArtifact(opts: {
+  synthesisMarkdown?: string | null;
+  synthesisPlan?: Record<string, unknown> | null;
+  title?: string;
+  query?: string;
+}): Promise<FlowchartArtifactResult> {
+  const res = await fetch("/api/v1/artifacts/flowchart", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      synthesisMarkdown: opts.synthesisMarkdown?.trim().slice(0, 80_000) || undefined,
+      synthesisPlan: opts.synthesisPlan ?? undefined,
+      title: opts.title?.trim().slice(0, 200) || undefined,
+      query: opts.query?.trim().slice(0, 2000) || undefined,
+    }),
+  });
+  const data = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(String(data.error || `流程图生成失败（${res.status}）`));
+  }
+  return {
+    mermaid: String(data.mermaid ?? ""),
+    steps: Array.isArray(data.steps) ? (data.steps as FlowchartArtifactResult["steps"]) : undefined,
+    recipeLines: Array.isArray(data.recipeLines) ? data.recipeLines.map(String) : undefined,
+    svgBase64: data.svgBase64 != null ? String(data.svgBase64) : null,
+    title: data.title != null ? String(data.title) : undefined,
+    note: data.note != null ? String(data.note) : undefined,
+  };
+}
+
+/** 下载 PPTX（含要点、配方、工序、数据表与流程图） */
+export async function downloadPptxArtifact(opts: {
+  synthesisMarkdown?: string | null;
+  synthesisPlan?: Record<string, unknown> | null;
+  title?: string;
+  query?: string;
+}): Promise<Blob> {
+  const res = await fetch("/api/v1/artifacts/pptx", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      synthesisMarkdown: opts.synthesisMarkdown?.trim().slice(0, 80_000) || undefined,
+      synthesisPlan: opts.synthesisPlan ?? undefined,
+      title: opts.title?.trim().slice(0, 200) || undefined,
+      query: opts.query?.trim().slice(0, 2000) || undefined,
+    }),
+  });
+  if (!res.ok) {
+    let err = `PPT 生成失败（${res.status}）`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) err = j.error;
+    } catch {
+      /* binary or empty */
+    }
+    throw new Error(err);
+  }
+  return res.blob();
+}
+
+/** 数据库渠道：按预设类型生成结构化数据表 */
+export async function requestGenerateDataTable(
+  papers: Paper[],
+  tableType: string,
+  opts?: { synthesisMarkdown?: string | null },
+): Promise<{
+  tableType: string;
+  title: string;
+  rows: Array<Record<string, string | undefined>>;
+  note?: string;
+}> {
+  const res = await fetch("/api/v1/data-table/generate", {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      papers: papers.map(slimPaperForChartApi),
+      tableType,
+      synthesisMarkdown: opts?.synthesisMarkdown?.trim().slice(0, 8000) || undefined,
+    }),
+  });
+  const text = await res.text();
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`数据表接口返回非 JSON（HTTP ${res.status}）`);
+  }
+  if (!res.ok) {
+    throw new Error(String(data.error || `生成数据表失败（${res.status}）`));
+  }
+  return {
+    tableType: String(data.tableType ?? tableType),
+    title: String(data.title ?? "数据表"),
+    rows: Array.isArray(data.rows) ? (data.rows as Array<Record<string, string | undefined>>) : [],
+    note: data.note != null ? String(data.note) : undefined,
+  };
+}

@@ -1,0 +1,100 @@
+2026-04-30 10:32:48 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:33:33 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:33:34 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:33:44 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:34:01 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:39:40 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:42:30 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:43:13 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:43:15 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.citation_count does not exist
+[SQL: SELECT avg(papers.citation_count) AS avg_1 
+FROM papers]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:46:30 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:46:47 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:46:49 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:46:55 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:46:56 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-04-30 10:52:05 | ERROR    | api.endpoints.admin:get_dashboard_stats:128 - 获取仪表盘数据失败: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column papers.journal does not exist
+[SQL: SELECT papers.journal, count(*) AS count 
+FROM papers GROUP BY papers.journal ORDER BY count DESC 
+ LIMIT $1::INTEGER]
+[parameters: (10,)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+
+2026-05-06 15:40:12 | ERROR    | api.endpoints.admin:get_search_stats:480 - 获取搜索统计失败: (sqlalchemy.dialects.postgresql.asyncpg.InterfaceError) <class 'asyncpg.exceptions._base.InterfaceError'>: the server expects 0 arguments for this query, 1 was passed
+HINT:  Check the query against the passed list of arguments.  Note that parameters are supported only in SELECT, INSERT, UPDATE, DELETE, MERGE and VALUES statements, and will *not* work in statements  like CREATE VIEW or DECLARE CURSOR.
+[SQL: 
+                    SELECT query, COUNT(*) as count
+                    FROM search_histories
+                    WHERE created_at >= NOW() - INTERVAL '$1 days'
+                    GROUP BY query
+                    ORDER BY count DESC
+                    LIMIT 20
+                ]
+[parameters: (7,)]
+(Background on this error at: https://sqlalche.me/e/20/rvf5)
+
