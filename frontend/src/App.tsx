@@ -3251,7 +3251,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 ) : null}
                 <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
                   <div className={m.role === "user" ? "qp-avatar-user" : "qp-avatar-assistant"}>
-                    {m.role === "user" ? "我" : "AI"}
+                    {m.role === "user" ? (
+                      "我"
+                    ) : (
+                      <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1 pt-1">
                     {m.role === "user" ? (
@@ -3278,7 +3282,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             ))}
             {busy && (
               <div className="qp-message-enter flex gap-3 sm:gap-4">
-                <div className="qp-avatar-assistant">AI</div>
+                <div className="qp-avatar-assistant">
+                  <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                </div>
                 <div className="min-w-0 flex-1">
                   <LoadingIndicator
                     label={getMainSearchLoadingText({

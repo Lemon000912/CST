@@ -278,7 +278,7 @@ html {
   .qp-avatar-assistant {
     @apply mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white shadow-lg ring-2;
     --tw-ring-color: var(--t-accent-ring);
-    background: linear-gradient(145deg, var(--t-accent-hover) 0%, var(--t-accent) 45%, var(--t-accent-deep) 100%);
+    background: transparent;
     box-shadow: 0 2px 12px var(--t-accent-muted);
   }
 
