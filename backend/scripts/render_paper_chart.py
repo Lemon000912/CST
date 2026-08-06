@@ -82,13 +82,22 @@ def main() -> int:
         else:
             offsets.append((4 + idx * 14, 4 + idx * 14))
 
-    fig = plt.figure(figsize=(10, 7.2), dpi=120)
-    gs = gridspec.GridSpec(2, 1, height_ratios=[2.2, 1], hspace=0.35)
+    # 表格行数会随数据点数量变化，固定 7.2 英寸高度会让 20～50 行表格
+    # 挤进散点图区域。按行数扩展画布，并为图和表保留独立空间。
+    table_height = max(2.8, 0.24 * (len(xs) + 1))
+    fig = plt.figure(figsize=(12, 5.2 + table_height), dpi=120)
+    gs = gridspec.GridSpec(
+        2,
+        1,
+        height_ratios=[4.6, table_height],
+        hspace=0.48,
+    )
+    fig.subplots_adjust(left=0.1, right=0.98, top=0.96, bottom=0.035)
     ax = fig.add_subplot(gs[0])
     ax.scatter(xs, ys, s=56, c="#0d8f6e", edgecolors="#065f46", linewidths=0.6, zorder=3)
     ax.set_title(title, fontsize=12, pad=10)
-    ax.set_xlabel(x_lab + "\n（下表：每点横/纵坐标对应 DOI）", fontsize=10)
-    ax.set_ylabel(y_lab + "\n（下表：每点横/纵坐标对应 DOI）", fontsize=10)
+    ax.set_xlabel(x_lab, fontsize=10, labelpad=8)
+    ax.set_ylabel(y_lab, fontsize=10, labelpad=10)
     ax.grid(True, linestyle="--", alpha=0.35)
 
     for i, (x, y) in enumerate(zip(xs, ys)):
@@ -116,6 +125,7 @@ def main() -> int:
 
     ax_tbl = fig.add_subplot(gs[1])
     ax_tbl.axis("off")
+    ax_tbl.set_title("数据点与文献 DOI 对应表", fontsize=10, loc="left", pad=10)
     rows = []
     for i, (x, y, ix, iy, ttl) in enumerate(zip(xs, ys, dx, dy, titles), start=1):
         ttl_short = _short(ttl, 40) if ttl else "—"
@@ -124,13 +134,13 @@ def main() -> int:
     tbl = ax_tbl.table(
         cellText=rows,
         colLabels=col_labels,
-        loc="center",
+        colWidths=[0.045, 0.285, 0.09, 0.09, 0.245, 0.245],
+        bbox=[0, 0, 1, 0.96],
         cellLoc="left",
         colLoc="left",
     )
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(7)
-    tbl.scale(1.05, 1.35)
     for (r, c), cell in tbl.get_celld().items():
         if r == 0:
             cell.set_facecolor("#e5e7eb")
