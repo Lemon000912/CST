@@ -323,16 +323,16 @@ function ComposerToolbar({
     <div className="qp-composer-bar flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-[color:var(--t-br05)] bg-[var(--t-muted)] px-2 py-1">
       <div className="qp-seg-track qp-seg-track--compact w-[min(100%,11.5rem)] shrink-0" role="radiogroup" aria-label="检索来源">
         {seg(
-          "database",
-          "数据库",
-          <IconDatabase className="h-3 w-3" />,
-          "自建库 / DOI / 文献库 + 并行全网检索；综述与网络回答合并输出",
-        )}
-        {seg(
           "web",
           "网页",
           <IconGlobe className="h-3 w-3" />,
           "全网网页检索；可选专利；不查论文库",
+        )}
+        {seg(
+          "database",
+          "数据库",
+          <IconDatabase className="h-3 w-3" />,
+          "自建库 / DOI / 文献库 + 并行全网检索；综述与网络回答合并输出",
         )}
       </div>
 
