@@ -41,6 +41,5 @@ export async function seedDevAdminIfEnabled() {
   const id = randomUUID();
   const passwordHash = await hashUserPassword(password);
   await createUserRecord(id, username, passwordHash);
-  const shown = process.env.DEV_ADMIN_PASSWORD ? "（自定义，未在日志中打印）" : "TestAdmin_888（默认，见 .env.example）";
-  console.log("[dev-admin] 已创建测试账号 — 用户名:", username, "| 密码:", shown);
+  console.log("[dev-admin] 已创建测试账号并发放注册积分 — 用户名:", username, "| 密码：已配置（未在日志中打印）");
 }

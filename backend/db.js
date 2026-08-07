@@ -9,9 +9,11 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+dotenv.config();
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** SQLite 文件与 db.js 同目录下的 data/，不依赖进程 cwd */
-const SQLITE_FILE = path.join(__dirname, "data", "app.sqlite");
+const SQLITE_FILE = process.env.SQLITE_FILE || path.join(__dirname, "data", "app.sqlite");
 
 // 尝试加载 sqlite3，如果失败则使用 sql.js
 try {
@@ -21,13 +23,12 @@ try {
   console.log("[db] sqlite3 not available, using sql.js fallback");
 }
 
-dotenv.config();
-
 const { Pool } = pg;
 
 // ==================== 配置 ====================
 const USE_POSTGRES = process.env.USE_POSTGRES === "true" || !!process.env.DATABASE_URL;
 const POSTGRES_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+export const INITIAL_POINT_GRANT_UNITS = 20_000;
 
 // ==================== PostgreSQL 连接池 ====================
 let pgPool = null;
@@ -54,19 +55,119 @@ export { pgPool };
 
 // ==================== SQLite 连接（降级）====================
 let sqliteDbPromise = null;
+let sqliteAccessTail = Promise.resolve();
+let sqlJsLockFd;
+
+function acquireSqlJsProcessLock() {
+  const lockFile = `${SQLITE_FILE}.sqljs.lock`;
+  fs.mkdirSync(path.dirname(SQLITE_FILE), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      sqlJsLockFd = fs.openSync(lockFile, "wx", 0o600);
+      fs.writeFileSync(sqlJsLockFd, String(process.pid));
+      const release = () => {
+        if (sqlJsLockFd === undefined) return;
+        try {
+          fs.closeSync(sqlJsLockFd);
+        } catch {
+          // Best-effort cleanup during process shutdown.
+        }
+        sqlJsLockFd = undefined;
+        try {
+          fs.rmSync(lockFile, { force: true });
+        } catch {
+          // Best-effort cleanup during process shutdown.
+        }
+      };
+      process.once("exit", release);
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      let ownerPid;
+      try {
+        ownerPid = Number(fs.readFileSync(lockFile, "utf8"));
+        if (Number.isSafeInteger(ownerPid) && ownerPid > 0) process.kill(ownerPid, 0);
+      } catch (ownerError) {
+        if (ownerError?.code === "ESRCH") {
+          fs.rmSync(lockFile, { force: true });
+          continue;
+        }
+        if (ownerError?.code && ownerError.code !== "EPERM") throw ownerError;
+      }
+      throw new Error(
+        `sql.js database is already open by process ${ownerPid || "unknown"}; use PostgreSQL or native SQLite for multiple server processes`,
+      );
+    }
+  }
+  throw new Error("Unable to acquire sql.js database process lock");
+}
+
+/** Serialize access to the single SQLite connection, including reads. */
+async function withSqliteAccess(task) {
+  const previous = sqliteAccessTail;
+  let release;
+  sqliteAccessTail = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
+function makeSqliteFacade(raw, transaction) {
+  return {
+    dialect: "sqlite",
+    run: (sql, params = []) => withSqliteAccess(() => raw.run(sql, params)),
+    get: (sql, params = []) => withSqliteAccess(() => raw.get(sql, params)),
+    all: (sql, params = []) => withSqliteAccess(() => raw.all(sql, params)),
+    exec: (sql) => withSqliteAccess(() => raw.exec(sql)),
+    _transaction: (callback) => withSqliteAccess(() => transaction(callback)),
+  };
+}
+
 export async function getSqliteDb() {
   if (!sqliteDbPromise) {
-    if (typeof open === "function" && sqlite3) {
-      // 使用 sqlite3
-      sqliteDbPromise = open({
-        filename: SQLITE_FILE,
-        driver: sqlite3.Database,
-      });
-    } else {
-      // 使用 sql.js 作为降级
+    sqliteDbPromise = (async () => {
+      if (typeof open === "function" && sqlite3) {
+        const db = await open({
+          filename: SQLITE_FILE,
+          driver: sqlite3.Database,
+        });
+        await db.exec("PRAGMA foreign_keys = ON");
+        const raw = {
+          run: (sql, params = []) => db.run(sql, params),
+          get: (sql, params = []) => db.get(sql, params),
+          all: (sql, params = []) => db.all(sql, params),
+          exec: (sql) => db.exec(sql),
+        };
+        return makeSqliteFacade(raw, async (callback) => {
+          await raw.exec("BEGIN IMMEDIATE");
+          const tx = { dialect: "sqlite", ...raw };
+          try {
+            const result = await callback(tx);
+            await raw.exec("COMMIT");
+            return result;
+          } catch (error) {
+            try {
+              await raw.exec("ROLLBACK");
+            } catch {
+              // Preserve the transaction error.
+            }
+            throw error;
+          }
+        });
+      }
+
+      // sql.js is an in-memory SQLite engine. Successful mutations are
+      // atomically exported; transactions export exactly once after commit.
+      acquireSqlJsProcessLock();
       const initSqlJs = await import("sql.js");
       const SQL = await initSqlJs.default();
       let db;
+      const enableSqlJsForeignKeys = () => db.run("PRAGMA foreign_keys = ON");
       try {
         const data = fs.readFileSync(SQLITE_FILE);
         db = new SQL.Database(data);
@@ -79,10 +180,8 @@ export async function getSqliteDb() {
           );
         }
       }
+      enableSqlJsForeignKeys();
 
-      // sql.js is an in-memory SQLite engine. Every successful mutation must
-      // be exported to disk before the API reports success. Write to a new
-      // file and atomically rename it so a crash cannot leave a partial DB.
       const persistSqlJsDb = () => {
         fs.mkdirSync(path.dirname(SQLITE_FILE), { recursive: true });
         const tempFile = `${SQLITE_FILE}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
@@ -111,44 +210,131 @@ export async function getSqliteDb() {
         }
       };
 
-      sqliteDbPromise = Promise.resolve({
+      const raw = {
         run: async (sql, params = []) => {
           db.run(sql, params);
-          persistSqlJsDb();
           const lastIdResult = db.exec("SELECT last_insert_rowid() AS id");
-          return { lastID: lastIdResult?.[0]?.values?.[0]?.[0] };
+          return {
+            lastID: lastIdResult?.[0]?.values?.[0]?.[0],
+            changes: db.getRowsModified(),
+          };
         },
         get: async (sql, params = []) => {
           const stmt = db.prepare(sql);
-          stmt.bind(params);
-          const result = stmt.step() ? stmt.getAsObject() : null;
-          stmt.free();
-          return result;
+          try {
+            stmt.bind(params);
+            return stmt.step() ? stmt.getAsObject() : null;
+          } finally {
+            stmt.free();
+          }
         },
         all: async (sql, params = []) => {
           const stmt = db.prepare(sql);
-          stmt.bind(params);
-          const results = [];
-          while (stmt.step()) {
-            results.push(stmt.getAsObject());
+          try {
+            stmt.bind(params);
+            const results = [];
+            while (stmt.step()) results.push(stmt.getAsObject());
+            return results;
+          } finally {
+            stmt.free();
           }
-          stmt.free();
-          return results;
         },
         exec: async (sql) => {
           db.run(sql);
-          persistSqlJsDb();
         },
-      });
-    }
+      };
+
+      const facade = makeSqliteFacade(
+        {
+          ...raw,
+          run: async (sql, params = []) => {
+            const result = await raw.run(sql, params);
+            persistSqlJsDb();
+            return result;
+          },
+          exec: async (sql) => {
+            await raw.exec(sql);
+            persistSqlJsDb();
+          },
+        },
+        async (callback) => {
+          const snapshot = db.export();
+          try {
+            await raw.exec("BEGIN IMMEDIATE");
+            const result = await callback({ dialect: "sqlite", ...raw });
+            await raw.exec("COMMIT");
+            persistSqlJsDb();
+            return result;
+          } catch (error) {
+            try {
+              db.close();
+            } catch {
+              // Continue restoring the pre-transaction snapshot.
+            }
+            db = new SQL.Database(snapshot);
+            enableSqlJsForeignKeys();
+            throw error;
+          }
+        },
+      );
+      return facade;
+    })();
   }
   return sqliteDbPromise;
+}
+
+/**
+ * Run work atomically against the active application database.
+ * PostgreSQL failures are propagated and never trigger a mid-request fallback.
+ */
+export async function withDatabaseTransaction(callback) {
+  if (pgPool) {
+    const client = await pgPool.connect();
+    try {
+      await client.query("BEGIN");
+      const tx = {
+        dialect: "postgres",
+        query: (sql, params = []) => client.query(sql, params),
+        run: async (sql, params = []) => {
+          const result = await client.query(sql, params);
+          return { changes: result.rowCount, rows: result.rows };
+        },
+        get: async (sql, params = []) => {
+          const result = await client.query(sql, params);
+          return result.rows[0] || null;
+        },
+        all: async (sql, params = []) => {
+          const result = await client.query(sql, params);
+          return result.rows;
+        },
+      };
+      const result = await callback(tx);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original transaction error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const db = await getSqliteDb();
+  return db._transaction(callback);
 }
 
 // ==================== 初始化 ====================
 export async function initDatabase() {
   if (pgPool) {
+    let postgresReachable = false;
+    let billingClient = null;
     try {
+      await pgPool.query("SELECT 1");
+      postgresReachable = true;
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS search_histories (
           id SERIAL PRIMARY KEY,
@@ -207,9 +393,103 @@ export async function initDatabase() {
           updated_at BIGINT NOT NULL
         )
       `);
+      billingClient = await pgPool.connect();
+      await billingClient.query("BEGIN");
+      await billingClient.query(`
+        CREATE TABLE IF NOT EXISTS point_wallets (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+          balance_units BIGINT NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await billingClient.query(`
+        CREATE TABLE IF NOT EXISTS point_operations (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          operation_type TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          request_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
+          cost_units BIGINT,
+          billing_details_json TEXT,
+          result_json TEXT,
+          receipt_json TEXT,
+          error_code TEXT,
+          lease_expires_at BIGINT,
+          lease_token TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          completed_at BIGINT,
+          UNIQUE(user_id, operation_type, idempotency_key)
+        )
+      `);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS lease_token TEXT`);
+      await billingClient.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS point_operations_one_processing_per_user
+        ON point_operations(user_id) WHERE status = 'processing'
+      `);
+      await billingClient.query(`
+        CREATE TABLE IF NOT EXISTS point_ledger (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          operation_id TEXT REFERENCES point_operations(id) ON DELETE RESTRICT,
+          entry_type TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          delta_units BIGINT NOT NULL,
+          balance_after_units BIGINT NOT NULL,
+          metadata_json TEXT,
+          created_at BIGINT NOT NULL,
+          UNIQUE(user_id, idempotency_key)
+        )
+      `);
+      await billingClient.query(`
+        CREATE OR REPLACE FUNCTION reject_point_ledger_mutation() RETURNS trigger AS $$
+        BEGIN
+          RAISE EXCEPTION 'point_ledger is immutable';
+        END;
+        $$ LANGUAGE plpgsql
+      `);
+      await billingClient.query(`
+        DROP TRIGGER IF EXISTS point_ledger_immutable ON point_ledger;
+        CREATE TRIGGER point_ledger_immutable
+        BEFORE UPDATE OR DELETE ON point_ledger
+        FOR EACH ROW EXECUTE FUNCTION reject_point_ledger_mutation()
+      `);
+      await billingClient.query(`
+        CREATE OR REPLACE FUNCTION reject_point_ledger_truncate() RETURNS trigger AS $$
+        BEGIN
+          RAISE EXCEPTION 'point_ledger is immutable';
+        END;
+        $$ LANGUAGE plpgsql
+      `);
+      await billingClient.query(`
+        DROP TRIGGER IF EXISTS point_ledger_no_truncate ON point_ledger;
+        CREATE TRIGGER point_ledger_no_truncate
+        BEFORE TRUNCATE ON point_ledger
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_point_ledger_truncate()
+      `);
+      await billingClient.query("COMMIT");
+      billingClient.release();
+      billingClient = null;
+      await backfillPointWallets();
+      databaseReady = true;
       console.log("[db] PostgreSQL tables initialized");
+      return;
     } catch (e) {
+      if (billingClient) {
+        try {
+          await billingClient.query("ROLLBACK");
+        } catch {
+          // Preserve the initialization error.
+        }
+        billingClient.release();
+      }
       console.error("[db] PostgreSQL init error:", e.message);
+      if (postgresReachable) {
+        databaseReady = false;
+        throw e;
+      }
       if (pgPool) {
         try {
           await pgPool.end();
@@ -218,7 +498,7 @@ export async function initDatabase() {
         }
         pgPool = null;
       }
-      console.warn("[db] 已关闭 PostgreSQL 连接池并降级为 SQLite（请检查服务是否启动、DATABASE_URL 是否正确）");
+      console.warn("[db] PostgreSQL 不可连接，降级为 SQLite（请检查服务是否启动、DATABASE_URL 是否正确）");
     }
   }
 
@@ -283,6 +563,58 @@ export async function initDatabase() {
         updated_at INTEGER NOT NULL
       )
     `);
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS point_wallets (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+        balance_units INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS point_operations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        operation_type TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
+        cost_units INTEGER,
+        billing_details_json TEXT,
+        result_json TEXT,
+        receipt_json TEXT,
+        error_code TEXT,
+        lease_expires_at INTEGER,
+        lease_token TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        UNIQUE(user_id, operation_type, idempotency_key)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS point_operations_one_processing_per_user
+      ON point_operations(user_id) WHERE status = 'processing';
+      CREATE TABLE IF NOT EXISTS point_ledger (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        operation_id TEXT REFERENCES point_operations(id) ON DELETE RESTRICT,
+        entry_type TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        delta_units INTEGER NOT NULL,
+        balance_after_units INTEGER NOT NULL,
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(user_id, idempotency_key)
+      );
+      CREATE TRIGGER IF NOT EXISTS point_ledger_no_update
+      BEFORE UPDATE ON point_ledger
+      BEGIN SELECT RAISE(ABORT, 'point_ledger is immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS point_ledger_no_delete
+      BEFORE DELETE ON point_ledger
+      BEGIN SELECT RAISE(ABORT, 'point_ledger is immutable'); END
+    `);
+    try {
+      await db.exec(`ALTER TABLE point_operations ADD COLUMN lease_token TEXT`);
+    } catch (_) {
+      /* Existing database already has the lease fencing column. */
+    }
     // papers 表（本地文献库）
     await db.exec(`
       CREATE TABLE IF NOT EXISTS papers (
@@ -358,6 +690,7 @@ export async function initDatabase() {
     throw e;
   }
 
+  await backfillPointWallets();
   databaseReady = true;
 }
 
@@ -396,18 +729,80 @@ export async function getSearchHistory(limit = 50) {
 // ==================== 用户认证 ====================
 export async function createUserRecord(id, username, passwordHash, email = null, phone = null) {
   const ts = Date.now();
-  if (pgPool) {
-    await pgPool.query(
-      `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
-      [id, username, passwordHash, email, phone, ts]
-    );
-  } else {
-    const db = await getSqliteDb();
-    await db.run(
-      `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES (?,?,?,?,?,?)`,
-      [id, username, passwordHash, email, phone, ts]
-    );
-  }
+  return withDatabaseTransaction(async (tx) => {
+    if (tx.dialect === "postgres") {
+      await tx.run(
+        `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [id, username, passwordHash, email, phone, ts],
+      );
+      await tx.run(
+        `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES ($1,$2,$3,$3)`,
+        [id, INITIAL_POINT_GRANT_UNITS, ts],
+      );
+      await tx.run(
+        `INSERT INTO point_ledger
+         (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+         VALUES ($1,$2,NULL,'signup_grant',$3,$4,$4,$5,$6)`,
+        [crypto.randomUUID(), id, "signup_grant", INITIAL_POINT_GRANT_UNITS, JSON.stringify({ reason: "signup" }), ts],
+      );
+    } else {
+      await tx.run(
+        `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES (?,?,?,?,?,?)`,
+        [id, username, passwordHash, email, phone, ts],
+      );
+      await tx.run(
+        `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES (?,?,?,?)`,
+        [id, INITIAL_POINT_GRANT_UNITS, ts, ts],
+      );
+      await tx.run(
+        `INSERT INTO point_ledger
+         (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+         VALUES (?,?,NULL,'signup_grant',?,?,?,?,?)`,
+        [crypto.randomUUID(), id, "signup_grant", INITIAL_POINT_GRANT_UNITS, INITIAL_POINT_GRANT_UNITS, JSON.stringify({ reason: "signup" }), ts],
+      );
+    }
+    return { id, username, balanceUnits: INITIAL_POINT_GRANT_UNITS };
+  });
+}
+
+async function backfillPointWallets() {
+  const ts = Date.now();
+  await withDatabaseTransaction(async (tx) => {
+    if (tx.dialect === "postgres") {
+      await tx.run(
+        `WITH created_wallets AS (
+           INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
+           SELECT u.id, $1, $2, $2 FROM users u
+           WHERE NOT EXISTS (SELECT 1 FROM point_wallets w WHERE w.user_id = u.id)
+           ON CONFLICT (user_id) DO NOTHING
+           RETURNING user_id, balance_units
+         )
+         INSERT INTO point_ledger
+         (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+         SELECT md5(random()::text || clock_timestamp()::text || cw.user_id), cw.user_id, NULL,
+                'backfill_grant', 'backfill_grant', $1, cw.balance_units, $3, $2
+         FROM created_wallets cw
+         ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+        [INITIAL_POINT_GRANT_UNITS, ts, JSON.stringify({ reason: "existing_user_backfill" })],
+      );
+    } else {
+      const missingUsers = await tx.all(
+        `SELECT u.id FROM users u LEFT JOIN point_wallets w ON w.user_id = u.id WHERE w.user_id IS NULL`,
+      );
+      for (const user of missingUsers) {
+        await tx.run(
+          `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES (?,?,?,?)`,
+          [user.id, INITIAL_POINT_GRANT_UNITS, ts, ts],
+        );
+        await tx.run(
+          `INSERT INTO point_ledger
+           (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+           VALUES (?,?,NULL,'backfill_grant',?,?,?,?,?)`,
+          [crypto.randomUUID(), user.id, "backfill_grant", INITIAL_POINT_GRANT_UNITS, INITIAL_POINT_GRANT_UNITS, JSON.stringify({ reason: "existing_user_backfill" }), ts],
+        );
+      }
+    }
+  });
 }
 
 export async function findUserByUsernameKey(username) {

@@ -15,6 +15,7 @@
     "install:prod": "bash scripts/install-prod.sh",
     "update:prod": "bash scripts/update-prod.sh",
     "build": "npx tsc -p frontend/tsconfig.json --noEmit && vite build --config frontend/vite.config.ts",
+    "test": "node --test backend/test/*.test.js",
     "preview": "vite preview --config frontend/vite.config.ts"
   },
   "dependencies": {

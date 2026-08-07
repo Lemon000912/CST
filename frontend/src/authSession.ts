@@ -1,9 +1,10 @@
+import type { PointBalance } from "./types";
 import { getUserId } from "./userId";
 
 const TOKEN_KEY = "paper-query-jwt-v1";
 const PROFILE_KEY = "paper-query-auth-profile-v1";
 
-export type AuthProfile = { userId: string; username: string };
+export type AuthProfile = { userId: string; username: string; billing?: PointBalance };
 
 export function getAuthToken(): string | null {
   try {

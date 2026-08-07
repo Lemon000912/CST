@@ -1,3 +1,47 @@
+export type PointBalance = {
+  userId?: string;
+  balanceUnits: number;
+  availableUnits: number;
+  balance: number;
+};
+
+export type Pricing = {
+  unitsPerPoint: number;
+  characterUnitCost: number;
+  chartPointUnitCost: number;
+  pdfUnitCost: number;
+  [key: string]: number | string | undefined;
+};
+
+export type BillingLineItem = {
+  type?: string;
+  description?: string;
+  quantity?: number;
+  unitCostUnits?: number;
+  costUnits?: number;
+  cost?: number;
+  [key: string]: unknown;
+};
+
+export type BillingReceipt = {
+  operationId: string;
+  costUnits: number;
+  cost: number;
+  balanceUnits: number;
+  balance: number;
+  billingDetails?: {
+    characterCount?: number;
+    pointCount?: number;
+    validPointCount?: number;
+    chartPointCount?: number;
+    pdfCount?: number;
+    deepPaperCount?: number;
+    [key: string]: unknown;
+  };
+  lineItems?: BillingLineItem[];
+  [key: string]: unknown;
+};
+
 export type Paper = {
   id: string;
   title: string;
@@ -6,6 +50,9 @@ export type Paper = {
   authors: string[];
   pdfUrl: string;
   absUrl: string;
+  /** 服务端计费 PDF 交付的不透明来源 id（字段名兼容后端演进） */
+  pdfSourceId?: string;
+  sourceId?: string;
   /** 后端归一化 id（SQLite / 融合去重） */
   paper_id?: string;
   /** 专利公开号/申请号（网页渠道专利补充等） */
@@ -106,6 +153,12 @@ export type SearchResultMeta = {
   /** 本次检索使用的身份 id（与侧栏「身份/用途」一致） */
   persona?: string;
   personaLabel?: string;
+  /** 父搜索操作 id（图表/PDF 交付只关联已完成的本人搜索） */
+  parentOperationId?: string;
+  /** 本次搜索的服务端计费收据 */
+  billing?: BillingReceipt | null;
+  /** 当前回答内成功交付的 PDF 收据 */
+  pdfReceipts?: BillingReceipt[];
   /** Matplotlib 数值图等 */
   paperChart?: {
     mime: string;
@@ -114,6 +167,7 @@ export type SearchResultMeta = {
     title: string;
     spec?: Record<string, unknown> | null;
     note?: string;
+    billing?: BillingReceipt | null;
   } | null;
   /** 最近一次「生成图表」失败时的说明（成功后会清除） */
   paperChartError?: string | null;

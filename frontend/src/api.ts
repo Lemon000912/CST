@@ -1,4 +1,15 @@
-import type { ArxivSearchField, ChatSession, Paper, PaperSortKey, SearchChannel, SearchResultMeta } from "./types";
+import type {
+  ArxivSearchField,
+  BillingLineItem,
+  BillingReceipt,
+  ChatSession,
+  Paper,
+  PaperSortKey,
+  PointBalance,
+  Pricing,
+  SearchChannel,
+  SearchResultMeta,
+} from "./types";
 import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openaiKey";
 import { getPersonaId } from "./persona";
 import { getAuthToken, getEffectiveUserId } from "./authSession";
@@ -25,6 +36,111 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly details?: unknown;
+  readonly balance?: PointBalance;
+
+  constructor(message: string, opts: { status: number; code?: string; details?: unknown; balance?: PointBalance }) {
+    super(message);
+    this.name = "ApiError";
+    this.status = opts.status;
+    this.code = opts.code;
+    this.details = opts.details;
+    this.balance = opts.balance;
+  }
+}
+
+export function createIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parsePointBalance(value: unknown): PointBalance | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const unitsPerPoint = finiteNumber(raw.unitsPerPoint, 20) || 20;
+  const balanceUnits = finiteNumber(raw.balanceUnits ?? raw.availableUnits, finiteNumber(raw.balance) * unitsPerPoint);
+  const availableUnits = finiteNumber(raw.availableUnits, balanceUnits);
+  const balance = finiteNumber(raw.balance, balanceUnits / unitsPerPoint);
+  return {
+    userId: raw.userId != null ? String(raw.userId) : undefined,
+    balanceUnits,
+    availableUnits,
+    balance,
+  };
+}
+
+function parsePricing(value: unknown): Pricing | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const unitsPerPoint = finiteNumber(raw.unitsPerPoint ?? raw.units_per_point, 20) || 20;
+  return {
+    ...raw,
+    unitsPerPoint,
+    characterUnitCost: finiteNumber(raw.characterUnitCost ?? raw.charUnitCost ?? raw.characterUnits, 1),
+    chartPointUnitCost: finiteNumber(raw.chartPointUnitCost ?? raw.chartUnitCost ?? raw.chartPointUnits, 2),
+    pdfUnitCost: finiteNumber(raw.pdfUnitCost ?? raw.pdfUnits, 20),
+  } as Pricing;
+}
+
+function parseBillingReceipt(value: unknown): BillingReceipt | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const operationId = raw.operationId ?? raw.operation_id;
+  if (operationId == null || String(operationId).trim() === "") return undefined;
+  const balanceUnits = finiteNumber(raw.balanceUnits ?? raw.availableUnits);
+  const costUnits = finiteNumber(raw.costUnits ?? raw.units);
+  return {
+    ...raw,
+    operationId: String(operationId),
+    costUnits,
+    cost: finiteNumber(raw.cost, costUnits / 20),
+    balanceUnits,
+    balance: finiteNumber(raw.balance, balanceUnits / 20),
+    billingDetails:
+      raw.billingDetails && typeof raw.billingDetails === "object" && !Array.isArray(raw.billingDetails)
+        ? (raw.billingDetails as BillingReceipt["billingDetails"])
+        : undefined,
+    lineItems: Array.isArray(raw.lineItems) ? (raw.lineItems as BillingLineItem[]) : undefined,
+  };
+}
+
+function errorBalance(data: Record<string, unknown>): PointBalance | undefined {
+  return parsePointBalance(data.billing ?? data.balance ?? data.details);
+}
+
+function apiErrorFrom(status: number, data: Record<string, unknown>, fallback: string): ApiError {
+  const details = data.details;
+  const message = String(data.error ?? data.message ?? fallback);
+  return new ApiError(message, {
+    status,
+    code: data.code != null ? String(data.code) : undefined,
+    details,
+    balance: errorBalance(data),
+  });
+}
+
+export async function fetchPointBalance(): Promise<{ billing: PointBalance; pricing?: Pricing }> {
+  const res = await fetch("/api/v1/billing/balance", { headers: headersJson() });
+  const text = await res.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    throw new ApiError(`积分余额响应不是合法 JSON（HTTP ${res.status}）`, { status: res.status });
+  }
+  if (!res.ok) throw apiErrorFrom(res.status, data, `获取积分余额失败（${res.status}）`);
+  const billing = parsePointBalance(data.billing ?? data.balance ?? data);
+  if (!billing) throw new ApiError("积分余额响应不完整", { status: res.status });
+  return { billing, pricing: parsePricing(data.pricing) };
 }
 
 export async function fetchUserSkillFavoriteKeywords(): Promise<string[] | undefined> {
@@ -78,6 +194,9 @@ type SearchResponse = {
   artifacts?: SearchResultMeta["artifacts"];
   /** 与请求体 patentsOnly 一致；仅专利检索时后端为 true */
   patentsOnly?: boolean;
+  billing?: BillingReceipt | null;
+  billingReceipt?: BillingReceipt | null;
+  parentOperationId?: string;
 };
 
 function headersJson(extra?: Record<string, string>): HeadersInit {
@@ -125,6 +244,8 @@ export async function searchPapersV1(
     attachOutputAvoidance?: boolean;
     /** 与问题一起收紧文献相关性；不传且已登录时会尝试从 /api/v1/user/skill 读取 favoriteKeywords */
     preferenceKeywords?: string[];
+    /** 同一次用户动作及其重试必须复用 */
+    idempotencyKey?: string;
   } = {},
 ): Promise<SearchResponse & SearchResultMeta> {
   const dm = opts.deepMine;
@@ -140,9 +261,10 @@ export async function searchPapersV1(
   if (prefKw === undefined) {
     prefKw = await fetchUserSkillFavoriteKeywords();
   }
+  const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();
   const res = await fetchWithTimeout("/api/v1/search", {
     method: "POST",
-    headers: headersJson(),
+    headers: headersJson({ "Idempotency-Key": idempotencyKey }),
     timeoutMs: 900_000,
     body: JSON.stringify({
       query,
@@ -182,8 +304,10 @@ export async function searchPapersV1(
     throw new Error(`检索响应不是合法 JSON（HTTP ${res.status}）${hint}`);
   }
   if (!res.ok) {
-    throw new Error(data.error || `请求失败 (${res.status})`);
+    throw apiErrorFrom(res.status, data as Record<string, unknown>, `请求失败 (${res.status})`);
   }
+  data.billing = parseBillingReceipt(data.billing ?? data.billingReceipt) ?? null;
+  data.parentOperationId = String(data.parentOperationId ?? data.billing?.operationId ?? "") || undefined;
   return data as SearchResponse & SearchResultMeta;
 }
 
@@ -283,18 +407,100 @@ export async function extractUploadedDocument(
   };
 }
 
-/** BR-006：记录 PDF 点击并返回当日次数 */
-export async function trackPdfOpen(paperId: string): Promise<{ downloadsToday: number; softLimit: number }> {
-  const res = await fetch("/api/v1/pdf-click", {
-    method: "POST",
-    headers: headersJson(),
-    body: JSON.stringify({ userId: getEffectiveUserId(), paperId }),
+export type FulfillPdfResult = {
+  blob: Blob;
+  receipt?: BillingReceipt;
+  filename?: string;
+};
+
+function decodeReceiptHeader(raw: string | null): BillingReceipt | undefined {
+  if (!raw) return undefined;
+  const candidates = [raw];
+  try {
+    candidates.push(decodeURIComponent(raw));
+  } catch {
+    /* not URI encoded */
+  }
+  try {
+    candidates.push(atob(raw.replace(/^base64:/i, "")));
+  } catch {
+    /* not base64 */
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const receipt = parseBillingReceipt(parsed);
+      if (receipt) return receipt;
+    } catch {
+      /* try next representation */
+    }
+  }
+  return undefined;
+}
+
+function receiptFromHeaders(headers: Headers): BillingReceipt | undefined {
+  for (const name of ["Billing-Receipt", "X-Billing-Receipt", "X-Points-Receipt"]) {
+    const receipt = decodeReceiptHeader(headers.get(name));
+    if (receipt) return receipt;
+  }
+  const operationId = headers.get("Billing-Operation-Id") ?? headers.get("X-Billing-Operation-Id");
+  if (!operationId) return undefined;
+  return parseBillingReceipt({
+    operationId,
+    costUnits: headers.get("Billing-Cost-Units") ?? headers.get("X-Billing-Cost-Units"),
+    cost: headers.get("Billing-Cost") ?? headers.get("X-Billing-Cost"),
+    balanceUnits: headers.get("Billing-Balance-Units") ?? headers.get("X-Billing-Balance-Units"),
+    balance: headers.get("Billing-Balance") ?? headers.get("X-Billing-Balance"),
+    billingDetails: { pdfCount: 1 },
   });
-  const data = (await res.json()) as { downloadsToday?: number; softLimit?: number; error?: string };
-  if (!res.ok) throw new Error(data.error || "记录失败");
+}
+
+/** 经鉴权的 PDF 获取；成功后才由服务端结算。 */
+export async function fulfillPdf(opts: {
+  parentOperationId: string;
+  paperId?: string;
+  paperIndex?: number;
+  sourceId?: string;
+  idempotencyKey?: string;
+}): Promise<FulfillPdfResult> {
+  const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();
+  const res = await fetch("/api/v1/pdfs/fulfill", {
+    method: "POST",
+    headers: headersJson({ "Idempotency-Key": idempotencyKey }),
+    body: JSON.stringify({
+      parentOperationId: opts.parentOperationId,
+      ...(opts.sourceId ? { sourceId: opts.sourceId, pdfSourceId: opts.sourceId } : {}),
+      ...(opts.paperId ? { paperId: opts.paperId } : {}),
+      ...(opts.paperIndex != null ? { paperIndex: opts.paperIndex } : {}),
+    }),
+  });
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok) {
+    let data: Record<string, unknown> = {};
+    if (contentType.includes("json")) {
+      data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    }
+    throw apiErrorFrom(res.status, data, `PDF 获取失败（${res.status}）`);
+  }
+  if (contentType.includes("json")) {
+    const data = (await res.json()) as Record<string, unknown>;
+    const encoded = data.pdfBase64 ?? data.base64 ?? data.data;
+    if (typeof encoded !== "string" || !encoded) {
+      throw new ApiError("PDF 响应未包含文件", { status: res.status });
+    }
+    const bytes = Uint8Array.from(atob(encoded.replace(/^data:application\/pdf;base64,/i, "")), (c) => c.charCodeAt(0));
+    return {
+      blob: new Blob([bytes], { type: "application/pdf" }),
+      receipt: parseBillingReceipt(data.billing ?? data.receipt) ?? receiptFromHeaders(res.headers),
+      filename: data.filename != null ? String(data.filename) : undefined,
+    };
+  }
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^";]+)/i);
   return {
-    downloadsToday: data.downloadsToday ?? 0,
-    softLimit: data.softLimit ?? 5,
+    blob: await res.blob(),
+    receipt: receiptFromHeaders(res.headers),
+    filename: filenameMatch ? decodeURIComponent(filenameMatch[1].replace(/^"|"$/g, "")) : undefined,
   };
 }
 
@@ -306,6 +512,7 @@ export type PaperChartApiResult = {
   spec: Record<string, unknown>;
   matplotlibStderr?: string;
   note?: string;
+  billing?: BillingReceipt;
 };
 
 function slimPaperForChartApi(p: Paper) {
@@ -375,15 +582,22 @@ export async function saveChatSessionsToServer(
 /** 从当前检索文献摘要用 LLM 抽数值 + 本机 Matplotlib 出图（需 Python3 与 matplotlib） */
 export async function requestPaperChartFromPapers(
   papers: Paper[],
-  opts?: { hint?: string; synthesisMarkdown?: string | null },
+  opts: {
+    parentOperationId: string;
+    hint?: string;
+    synthesisMarkdown?: string | null;
+    idempotencyKey?: string;
+  },
 ): Promise<PaperChartApiResult> {
+  const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();
   const res = await fetch("/api/v1/chart/from-papers", {
     method: "POST",
-    headers: headersJson(),
+    headers: headersJson({ "Idempotency-Key": idempotencyKey }),
     body: JSON.stringify({
+      parentOperationId: opts.parentOperationId,
       papers: papers.map(slimPaperForChartApi),
-      hint: opts?.hint?.trim().slice(0, 500) || undefined,
-      synthesisMarkdown: opts?.synthesisMarkdown?.trim().slice(0, 8000) || undefined,
+      hint: opts.hint?.trim().slice(0, 500) || undefined,
+      synthesisMarkdown: opts.synthesisMarkdown?.trim().slice(0, 8000) || undefined,
     }),
   });
   const text = await res.text();
@@ -449,8 +663,9 @@ export async function requestPaperChartFromPapers(
     );
   }
   if (!res.ok) {
-    throw new Error(String(data.error || `生成图表失败（${res.status}）`));
+    throw apiErrorFrom(res.status, data, `生成图表失败（${res.status}）`);
   }
+  const billing = parseBillingReceipt(data.billing ?? data.billingReceipt ?? data.receipt);
   const png = data.pngBase64;
   const svg = data.svgBase64;
   const title = data.title;
@@ -468,6 +683,7 @@ export async function requestPaperChartFromPapers(
       matplotlibStderr:
         typeof data.matplotlibStderr === "string" ? data.matplotlibStderr : undefined,
       note: typeof data.note === "string" ? data.note : undefined,
+      billing,
     };
   }
   if (typeof svg === "string" && svg) {
@@ -479,6 +695,7 @@ export async function requestPaperChartFromPapers(
       title,
       spec: spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {},
       note: typeof data.note === "string" ? data.note : undefined,
+      billing,
     };
   }
   throw new Error("图表响应不完整（无 PNG 也无 SVG）");

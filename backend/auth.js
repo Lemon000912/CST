@@ -9,14 +9,23 @@ import {
   findUserById,
   normalizeUsernameKey,
 } from "./db.js";
+import { BillingError, getPointBalance } from "./billing.js";
 
 const JWT_ISS = "paper-query";
+
+export class AuthConfigurationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AuthConfigurationError";
+    this.code = "auth-configuration-error";
+  }
+}
 
 function getJwtSecret() {
   const s = String(process.env.JWT_SECRET ?? "").trim();
   if (s.length >= 32) return new TextEncoder().encode(s);
   if (String(process.env.NODE_ENV ?? "").toLowerCase() === "production") {
-    throw new Error("JWT_SECRET must contain at least 32 characters in production");
+    throw new AuthConfigurationError("JWT_SECRET must contain at least 32 characters in production");
   }
   console.warn(
     "[auth] JWT_SECRET 未设置或短于 32 字符，使用内置开发密钥；生产环境请务必在 .env 设置强随机 JWT_SECRET",
@@ -77,7 +86,8 @@ export async function verifyAuthToken(token) {
     const sub = payload.sub;
     if (!sub) return null;
     return { userId: String(sub), username: String(payload.name ?? "") };
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthConfigurationError) throw error;
     return null;
   }
 }
@@ -93,6 +103,36 @@ export async function resolveUserIdFromRequest(req) {
   // Never trust caller-controlled identity fields. Private user data may only
   // be addressed by the subject of a server-verified bearer token.
   return "anonymous";
+}
+
+/**
+ * Verify a bearer token and reload its subject from the active database.
+ * Downstream handlers must use req.auth.userId rather than client fields.
+ */
+export async function requireAuthenticatedUser(req, res, next) {
+  try {
+    const header = req.headers.authorization || req.headers.Authorization;
+    if (typeof header !== "string" || !/^Bearer\s+\S+/i.test(header)) {
+      return res.status(401).json({ error: "未提供令牌", code: "authentication-required" });
+    }
+    const verified = await verifyAuthToken(header.replace(/^Bearer\s+/i, "").trim());
+    if (!verified?.userId) {
+      return res.status(401).json({ error: "令牌无效或已过期", code: "invalid-token" });
+    }
+    const currentUser = await findUserById(verified.userId);
+    if (!currentUser) {
+      return res.status(401).json({ error: "令牌对应的用户不存在", code: "user-not-found" });
+    }
+    req.auth = {
+      userId: String(currentUser.id),
+      username: String(currentUser.username),
+      isAdmin: isConfiguredAdminUsername(currentUser.username),
+    };
+    return next();
+  } catch (error) {
+    console.error("[auth/user]", error instanceof Error ? error.message : error);
+    return res.status(503).json({ error: "鉴权服务暂不可用", code: "authentication-unavailable" });
+  }
 }
 
 /**
@@ -210,11 +250,23 @@ export async function handleRegister(req, res) {
 
     const id = randomUUID();
     const hash = await hashUserPassword(p.password);
-    await createUserRecord(id, u.username, hash, e.email, ph.phone);
+    const created = await createUserRecord(id, u.username, hash, e.email, ph.phone);
     const token = await signAuthToken(id, u.username);
-    return res.status(201).json({ token, user: { id, username: u.username, email: e.email, phone: ph.phone } });
+    return res.status(201).json({
+      token,
+      user: { id, username: u.username, email: e.email, phone: ph.phone },
+      billing: {
+        userId: id,
+        balanceUnits: created.balanceUnits,
+        availableUnits: created.balanceUnits,
+        balance: "1000.00",
+      },
+    });
   } catch (err) {
     console.error("[auth/register]", err);
+    if (err instanceof AuthConfigurationError) {
+      return res.status(503).json({ error: "鉴权服务未正确配置", code: err.code });
+    }
     return res.status(500).json({ error: "注册失败" });
   }
 }
@@ -235,6 +287,7 @@ export async function handleLogin(req, res) {
       return res.status(401).json({ error: "用户名或密码错误" });
     }
     const token = await signAuthToken(row.id, row.username);
+    const billing = await getPointBalance(row.id);
     return res.json({
       token,
       user: {
@@ -242,9 +295,16 @@ export async function handleLogin(req, res) {
         username: row.username,
         isAdmin: isConfiguredAdminUsername(row.username),
       },
+      billing,
     });
   } catch (e) {
     console.error("[auth/login]", e);
+    if (e instanceof BillingError) {
+      return res.status(e.status).json({ error: e.message, code: e.code });
+    }
+    if (e instanceof AuthConfigurationError) {
+      return res.status(503).json({ error: "鉴权服务未正确配置", code: e.code });
+    }
     return res.status(500).json({ error: "登录失败" });
   }
 }
@@ -254,18 +314,30 @@ export async function handleLogin(req, res) {
  * @param {import("express").Response} res
  */
 export async function handleMe(req, res) {
-  const h = req.headers.authorization || req.headers.Authorization;
-  if (!h || typeof h !== "string" || !/^Bearer\s+/i.test(h)) {
-    return res.status(401).json({ error: "未提供令牌" });
+  try {
+    const h = req.headers.authorization || req.headers.Authorization;
+    if (!h || typeof h !== "string" || !/^Bearer\s+/i.test(h)) {
+      return res.status(401).json({ error: "未提供令牌" });
+    }
+    const token = h.replace(/^Bearer\s+/i, "").trim();
+    const v = await verifyAuthToken(token);
+    if (!v) return res.status(401).json({ error: "令牌无效或已过期" });
+    const currentUser = await findUserById(v.userId);
+    if (!currentUser) return res.status(401).json({ error: "令牌对应的用户不存在" });
+    const billing = await getPointBalance(currentUser.id);
+    return res.json({
+      user: {
+        id: currentUser.id,
+        username: currentUser.username,
+        isAdmin: isConfiguredAdminUsername(currentUser.username),
+      },
+      billing,
+    });
+  } catch (error) {
+    if (error instanceof BillingError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/me]", error);
+    return res.status(503).json({ error: "鉴权服务暂不可用" });
   }
-  const token = h.replace(/^Bearer\s+/i, "").trim();
-  const v = await verifyAuthToken(token);
-  if (!v) return res.status(401).json({ error: "令牌无效或已过期" });
-  return res.json({
-    user: {
-      id: v.userId,
-      username: v.username,
-      isAdmin: isConfiguredAdminUsername(v.username),
-    },
-  });
 }

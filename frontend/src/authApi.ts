@@ -1,11 +1,13 @@
+import type { PointBalance } from "./types";
 import type { AuthProfile } from "./authSession";
 import { setAuthSession } from "./authSession";
 
-type UserDto = { id: string; username: string };
+type UserDto = { id: string; username: string; billing?: PointBalance };
+type AuthJson = { error?: string; token?: string; user?: UserDto; billing?: PointBalance };
 
-function parseAuthJson(text: string): { error?: string; token?: string; user?: UserDto } {
+function parseAuthJson(text: string): AuthJson {
   try {
-    return JSON.parse(text) as { error?: string; token?: string; user?: UserDto };
+    return JSON.parse(text) as AuthJson;
   } catch {
     return {};
   }
@@ -62,7 +64,11 @@ async function postAuth(
       [`${action}响应无效（缺少 token 或 user）`, hint].filter(Boolean).join(" — "),
     );
   }
-  const profile: AuthProfile = { userId: data.user.id, username: data.user.username };
+  const profile: AuthProfile = {
+    userId: data.user.id,
+    username: data.user.username,
+    billing: data.billing ?? data.user.billing,
+  };
   setAuthSession(data.token, profile);
   return { token: data.token, user: profile };
 }

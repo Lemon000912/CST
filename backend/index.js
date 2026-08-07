@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { validateHeaderValue as httpValidateHeaderValue } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
@@ -27,8 +28,6 @@ import {
   isPostgres,
   logQuery,
   insertFeedback,
-  logPdfDownload,
-  countPdfDownloadsSince,
   getSqliteDb,
   pgPool,
 } from "./db.js";
@@ -64,7 +63,27 @@ import {
   shouldUseBookClueSynthesis,
   synthesizeBookFromWebClues,
 } from "./bookWebSynthesize.js";
-import { handleLogin, handleMe, handleRegister, requireAdmin, resolveUserIdFromRequest } from "./auth.js";
+import {
+  handleLogin,
+  handleMe,
+  handleRegister,
+  requireAdmin,
+  requireAuthenticatedUser,
+  resolveUserIdFromRequest,
+} from "./auth.js";
+import {
+  BillingError,
+  PRICING_CATALOG,
+  beginBillableOperation,
+  calculateCostUnits,
+  completeBillableOperation,
+  countUnicodeCodePoints,
+  failBillableOperation,
+  getBillableOperation,
+  getPointBalance,
+  stableRequestHash,
+} from "./billing.js";
+import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
 import {
   saveUserSkill,
   getUserSkill,
@@ -112,6 +131,154 @@ function clientIp(req) {
   const xf = req.headers["x-forwarded-for"];
   if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
   return req.socket?.remoteAddress || "local";
+}
+
+class ApiRouteError extends Error {
+  constructor(status, code, message, details = undefined) {
+    super(message);
+    this.name = "ApiRouteError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function sendStructuredError(res, error, fallback = {}) {
+  if (error instanceof BillingError) {
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
+  if (error instanceof ApiRouteError || error instanceof PdfFulfillmentError) {
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
+  const status = Number.isInteger(fallback.status) ? fallback.status : 500;
+  return res.status(status).json({
+    error: fallback.message || error?.message || "服务器错误",
+    ...(fallback.code ? { code: fallback.code } : {}),
+    ...(fallback.extra || {}),
+  });
+}
+
+function requireIdempotencyKey(req) {
+  const value = String(req.headers["idempotency-key"] ?? "").trim();
+  if (!value) {
+    throw new BillingError("idempotency-key-required", "Idempotency-Key header is required", 400);
+  }
+  if (value.length > 200) {
+    throw new BillingError("invalid-idempotency-key", "Idempotency-Key must not exceed 200 characters", 400);
+  }
+  return value;
+}
+
+async function failOperationBestEffort(operation, userId, error) {
+  if (!operation?.id || !operation?.leaseToken) return;
+  const rawCode = String(error?.code || "operation-failed").toLowerCase();
+  const errorCode = rawCode.replace(/[^a-z0-9_-]/g, "-").slice(0, 100) || "operation-failed";
+  try {
+    await failBillableOperation({
+      operationId: operation.id,
+      userId,
+      leaseToken: operation.leaseToken,
+      errorCode,
+    });
+  } catch (billingFailure) {
+    console.error("[billing/fail]", billingFailure?.message || billingFailure);
+  }
+}
+
+function searchBillingDetails(payload) {
+  const synthesisCharacterCount = countUnicodeCodePoints(payload?.synthesis);
+  const deepSynthesisCharacterCount = countUnicodeCodePoints(payload?.deepSynthesis);
+  const uniqueDeepPapers = new Set();
+  for (const [index, paper] of (payload?.deepMine?.papers ?? []).entries()) {
+    if (!Array.isArray(paper?.steps) || !paper.steps.includes("mineru:ok")) continue;
+    const key = String(
+      paper?.paper_id ?? paper?.paperId ?? paper?.id ?? paper?.doi ?? paper?.pdfUrl ?? paper?.title ?? index,
+    ).trim().toLowerCase();
+    uniqueDeepPapers.add(key || `index:${index}`);
+  }
+  const characterCount = synthesisCharacterCount + deepSynthesisCharacterCount;
+  const deepPaperCount = uniqueDeepPapers.size;
+  return {
+    characterCount,
+    synthesisCharacterCount,
+    deepSynthesisCharacterCount,
+    deepPaperCount,
+    characterUnits: calculateCostUnits({ characterCount }),
+    deepPaperUnits: calculateCostUnits({ pdfCount: deepPaperCount }),
+  };
+}
+
+function getStoredSearchPapers(parentOperation) {
+  if (parentOperation?.operationType !== "search" || parentOperation?.status !== "completed") {
+    throw new ApiRouteError(409, "invalid-parent-operation", "Parent operation must be a completed search");
+  }
+  const papers = parentOperation?.result?.papers;
+  if (!Array.isArray(papers)) {
+    throw new ApiRouteError(409, "parent-result-unavailable", "Parent search has no stored paper result");
+  }
+  return papers;
+}
+
+function paperIdentity(paper, index) {
+  return String(paper?.paper_id ?? paper?.paperId ?? paper?.id ?? paper?.doi ?? `index:${index}`).trim();
+}
+
+function selectStoredPapers(parentPapers, body, maxCount = 22) {
+  const indices = Array.isArray(body?.paperIndices)
+    ? body.paperIndices.filter((value) => Number.isInteger(value) && value >= 0 && value < parentPapers.length)
+    : [];
+  const ids = new Set(
+    (Array.isArray(body?.paperIds) ? body.paperIds : [])
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean),
+  );
+  let selected = parentPapers;
+  if (indices.length) selected = [...new Set(indices)].map((index) => parentPapers[index]);
+  else if (ids.size) selected = parentPapers.filter((paper, index) => ids.has(paperIdentity(paper, index)));
+  if (!selected.length) {
+    throw new ApiRouteError(400, "papers-not-found", "No selected papers exist in the parent search result");
+  }
+  return selected.slice(0, maxCount);
+}
+
+const pdfArtifactCache = new Map();
+const PDF_ARTIFACT_CACHE_MAX_ENTRIES = 8;
+function cachePdfArtifact(operationId, artifact) {
+  pdfArtifactCache.delete(operationId);
+  pdfArtifactCache.set(operationId, artifact);
+  while (pdfArtifactCache.size > PDF_ARTIFACT_CACHE_MAX_ENTRIES) {
+    pdfArtifactCache.delete(pdfArtifactCache.keys().next().value);
+  }
+}
+
+function pdfContentDisposition(rawTitle) {
+  const unicodeName = `${String(rawTitle || "paper")
+    .replace(/[\x00-\x1f\x7f\\/]/g, "_")
+    .trim()
+    .slice(0, 120) || "paper"}.pdf`;
+  const asciiStem = unicodeName
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\/;=]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 120) || "paper.pdf";
+  const asciiName = asciiStem.toLowerCase().endsWith(".pdf") ? asciiStem : `${asciiStem}.pdf`;
+  const attrSafe = /^[A-Za-z0-9!#$&+.^_`|~-]$/;
+  const encodedName = [...Buffer.from(unicodeName, "utf8")]
+    .map((byte) => {
+      const character = String.fromCharCode(byte);
+      return attrSafe.test(character) ? character : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+    })
+    .join("");
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
 }
 
 const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
@@ -221,6 +388,27 @@ app.post("/api/v1/auth/login", async (req, res) => {
 
 app.get("/api/v1/auth/me", async (req, res) => {
   await handleMe(req, res);
+});
+
+app.get("/api/v1/billing/balance", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const balance = await getPointBalance(req.auth.userId);
+    return res.json({ balance, pricing: PRICING_CATALOG });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "Unable to read point balance" });
+  }
+});
+
+app.get("/api/v1/billing/operations/:id", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const operation = await getBillableOperation({
+      operationId: req.params.id,
+      userId: req.auth.userId,
+    });
+    return res.json({ operation, pricing: PRICING_CATALOG });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "Unable to read billing operation" });
+  }
 });
 
 /** 聊天会话：服务端持久化（后端重启/更新不丢记录） */
@@ -414,9 +602,97 @@ app.post("/api/v1/user/info", async (req, res) => {
 });
 
 /**
- * 从检索到的文献摘录用 LLM 抽取数值点（带 doi_x/doi_y），再用本机 Python+Matplotlib 渲染 PNG。
- * 请求体：{ papers: [...], hint?: string, synthesisMarkdown?: string }；需本机可执行 python 且已 pip install matplotlib。LLM Key 缺失时仍可能仅靠摘要后备出图。
+ * Chart generation is source-bound to a completed search. The client may select
+ * stored papers by paperIndices/paperIds, but cannot submit arbitrary sources.
  */
+app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
+  let activeOperation = null;
+  try {
+    const idempotencyKey = requireIdempotencyKey(req);
+    const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
+    if (!parentOperationId) {
+      throw new ApiRouteError(400, "parent-operation-required", "parentOperationId is required");
+    }
+    const parentOperation = await getBillableOperation({
+      operationId: parentOperationId,
+      userId: req.auth.userId,
+    });
+    const parentPapers = getStoredSearchPapers(parentOperation);
+    const papersForChart = selectStoredPapers(parentPapers, req.body, 22);
+    const requestDescriptor = {
+      parentOperationId,
+      paperIds: papersForChart.map(paperIdentity),
+      hint: String(req.body?.hint ?? "").trim().slice(0, 500),
+      synthesisMarkdown: String(req.body?.synthesisMarkdown ?? "").trim().slice(0, 8000),
+      model: String(req.headers["x-openai-model"] ?? "").trim().slice(0, 96),
+    };
+    const begun = await beginBillableOperation({
+      userId: req.auth.userId,
+      operationType: "chart",
+      idempotencyKey,
+      requestHash: stableRequestHash(requestDescriptor),
+    });
+    if (begun.replayed) {
+      return res.json({
+        ...begun.operation.result,
+        parentOperationId,
+        operationId: begun.operation.id,
+        billingReceipt: begun.operation.receipt,
+        replayed: true,
+      });
+    }
+    activeOperation = begun.operation;
+    req.body = { ...req.body, papers: papersForChart };
+    res.locals.chartParentOperationId = parentOperationId;
+    const originalJson = res.json.bind(res);
+    res.json = async (body) => {
+      if (res.statusCode >= 200 && res.statusCode < 300 && body?.spec && (body?.mime || res.statusCode === 200)) {
+        try {
+          const fallbackGenerated = res.locals.chartBillingSource !== "llm";
+          const chartPointCount = fallbackGenerated ? 0 : Array.isArray(body.spec.points) ? body.spec.points.length : 0;
+          const billingDetails = {
+            parentOperationId,
+            chartPointCount,
+            fallbackGenerated,
+            chartPointUnits: calculateCostUnits({ chartPointCount }),
+          };
+          const completed = await completeBillableOperation({
+            operationId: activeOperation.id,
+            userId: req.auth.userId,
+            leaseToken: activeOperation.leaseToken,
+            costUnits: billingDetails.chartPointUnits,
+            billingDetails,
+            result: body,
+            receipt: { parentOperationId },
+          });
+          return originalJson({
+            ...body,
+            parentOperationId,
+            operationId: activeOperation.id,
+            billingReceipt: completed.receipt,
+            replayed: false,
+          });
+        } catch (error) {
+          await failOperationBestEffort(activeOperation, req.auth.userId, error);
+          res.json = originalJson;
+          if (!res.headersSent) return sendStructuredError(res, error, { message: "Chart billing failed" });
+          return res;
+        }
+      }
+      await failOperationBestEffort(
+        activeOperation,
+        req.auth.userId,
+        new ApiRouteError(res.statusCode || 500, "chart-generation-failed", "Chart generation failed"),
+      );
+      return originalJson(body);
+    };
+    return next();
+  } catch (error) {
+    await failOperationBestEffort(activeOperation, req.auth?.userId, error);
+    return sendStructuredError(res, error, { message: "Unable to begin chart generation" });
+  }
+});
+
 app.post("/api/v1/chart/from-papers", async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimitHit(ip, { max: 20, windowMs: 60_000 })) {
@@ -473,10 +749,14 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
     });
     // #endregion
     let spec = null;
-    if (extracted.ok) spec = normalizeChartSpec(extracted.spec, papersForChart);
+    if (extracted.ok) {
+      spec = normalizeChartSpec(extracted.spec, papersForChart);
+      if (spec) res.locals.chartBillingSource = "llm";
+    }
     if (!spec) {
       const fb = buildFallbackChartSpecFromAbstracts(papersForChart);
       if (fb) spec = normalizeChartSpec(fb, papersForChart);
+      if (spec) res.locals.chartBillingSource = "fallback";
     }
     if (!spec) {
       // #region agent log
@@ -796,19 +1076,110 @@ app.get("/api/v1/mcp/status", (_req, res) => {
   });
 });
 
-app.post("/api/v1/pdf-click", async (req, res) => {
+app.post("/api/v1/pdf-click", (_req, res) => {
+  return res.status(410).json({
+    error: "Legacy PDF click logging has been retired; use /api/v1/pdfs/fulfill",
+    code: "legacy-route-retired",
+  });
+});
+
+app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
+  let activeOperation = null;
   try {
-    const userId = await resolveUserIdFromRequest(req);
-    const paperId = String(req.body?.paperId ?? "").slice(0, 256);
-    if (!paperId) return res.status(400).json({ error: "缺少 paperId" });
-    await logPdfDownload(userId, paperId);
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    const n = await countPdfDownloadsSince(userId, dayStart.getTime());
-    res.json({ ok: true, downloadsToday: n, softLimit: 5 });
-  } catch (e) {
-    console.error("[pdf-click]", e);
-    res.status(500).json({ error: "记录失败" });
+    const idempotencyKey = requireIdempotencyKey(req);
+    const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
+    if (!parentOperationId) {
+      throw new ApiRouteError(400, "parent-operation-required", "parentOperationId is required");
+    }
+    const parentOperation = await getBillableOperation({
+      operationId: parentOperationId,
+      userId: req.auth.userId,
+    });
+    const parentPapers = getStoredSearchPapers(parentOperation);
+    const requestedIndex = Number.isInteger(req.body?.paperIndex) ? req.body.paperIndex : null;
+    const requestedId = String(req.body?.paperId ?? "").trim();
+    let paperIndex = requestedIndex;
+    if (paperIndex === null && requestedId) {
+      paperIndex = parentPapers.findIndex((paper, index) => paperIdentity(paper, index) === requestedId);
+    }
+    if (!Number.isInteger(paperIndex) || paperIndex < 0 || paperIndex >= parentPapers.length) {
+      throw new ApiRouteError(400, "paper-not-found", "paperIndex or paperId must identify a paper in the parent search");
+    }
+    const paper = parentPapers[paperIndex];
+    const paperId = paperIdentity(paper, paperIndex);
+    const pdfUrl = String(paper?.pdfUrl ?? paper?.pdf_url ?? "").trim();
+    if (!pdfUrl) {
+      throw new ApiRouteError(422, "pdf-source-unavailable", "The selected search result has no PDF source URL");
+    }
+    const requestDescriptor = { parentOperationId, paperIndex, paperId };
+    const begun = await beginBillableOperation({
+      userId: req.auth.userId,
+      operationType: "pdf",
+      idempotencyKey,
+      requestHash: stableRequestHash(requestDescriptor),
+    });
+    activeOperation = begun.operation;
+
+    let artifact = pdfArtifactCache.get(activeOperation.id);
+    if (!artifact) {
+      artifact = await fetchPdfSecurely(pdfUrl);
+      cachePdfArtifact(activeOperation.id, artifact);
+    }
+
+    let receipt = begun.operation.receipt;
+    const responseHeaders = {
+      "Content-Type": "application/pdf",
+      "Content-Length": String(artifact.buffer.length),
+      "Content-Disposition": pdfContentDisposition(paper?.title),
+      "Cache-Control": "private, no-store",
+      "X-Billing-Operation-Id": activeOperation.id,
+      "X-Billing-Cost-Units": String(receipt?.costUnits ?? calculateCostUnits({ pdfCount: 1 })),
+      "X-Billing-Balance-Units": String(receipt?.balanceUnits ?? ""),
+      "X-Billing-Replayed": begun.replayed ? "true" : "false",
+      "X-Parent-Operation-Id": parentOperationId,
+      "Access-Control-Expose-Headers": "X-Billing-Operation-Id, X-Billing-Cost-Units, X-Billing-Balance-Units, X-Billing-Replayed, X-Parent-Operation-Id, Content-Disposition",
+    };
+    // Build and validate all response headers before completion so a bad title
+    // can never debit points and then fail while constructing the response.
+    for (const [name, value] of Object.entries(responseHeaders)) {
+      httpValidateHeaderValue(name, value);
+    }
+
+    if (!begun.replayed) {
+      const billingDetails = {
+        parentOperationId,
+        paperId,
+        paperIndex,
+        pdfCount: 1,
+        byteLength: artifact.buffer.length,
+        contentType: "application/pdf",
+      };
+      const metadata = {
+        parentOperationId,
+        paperId,
+        paperIndex,
+        byteLength: artifact.buffer.length,
+        contentType: "application/pdf",
+      };
+      const completed = await completeBillableOperation({
+        operationId: activeOperation.id,
+        userId: req.auth.userId,
+        leaseToken: activeOperation.leaseToken,
+        costUnits: calculateCostUnits({ pdfCount: 1 }),
+        billingDetails,
+        result: metadata,
+        receipt: { parentOperationId },
+      });
+      receipt = completed.receipt;
+      responseHeaders["X-Billing-Cost-Units"] = String(receipt.costUnits);
+      responseHeaders["X-Billing-Balance-Units"] = String(receipt.balanceUnits);
+    }
+
+    res.set(responseHeaders);
+    return res.send(artifact.buffer);
+  } catch (error) {
+    await failOperationBestEffort(activeOperation, req.auth?.userId, error);
+    return sendStructuredError(res, error, { message: "PDF fulfillment failed", code: "pdf-fulfillment-failed" });
   }
 });
 
@@ -866,6 +1237,79 @@ app.post("/api/v1/feedback", async (req, res) => {
   }
 });
 
+app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
+  let activeOperation = null;
+  try {
+    const idempotencyKey = requireIdempotencyKey(req);
+    const requestHash = stableRequestHash({
+      body: req.body ?? {},
+      llmHeaders: {
+        model: req.headers["x-openai-model"] ?? "",
+        modelB: req.headers["x-model-b"] ?? "",
+        chatUrl: req.headers["x-llm-chat-url"] ?? "",
+        persona: req.headers["x-persona"] ?? "",
+      },
+    });
+    const begun = await beginBillableOperation({
+      userId: req.auth.userId,
+      operationType: "search",
+      idempotencyKey,
+      requestHash,
+    });
+    if (begun.replayed) {
+      return res.json({
+        ...begun.operation.result,
+        parentOperationId: begun.operation.id,
+        billingReceipt: begun.operation.receipt,
+        replayed: true,
+      });
+    }
+    activeOperation = begun.operation;
+    res.locals.searchBillingOperation = activeOperation;
+    const originalJson = res.json.bind(res);
+    res.json = async (body) => {
+      if (res.statusCode >= 200 && res.statusCode < 300 && Array.isArray(body?.papers)) {
+        try {
+          const billingDetails = searchBillingDetails(body);
+          const costUnits = calculateCostUnits({
+            characterCount: billingDetails.characterCount,
+            pdfCount: billingDetails.deepPaperCount,
+          });
+          const completed = await completeBillableOperation({
+            operationId: activeOperation.id,
+            userId: req.auth.userId,
+            leaseToken: activeOperation.leaseToken,
+            costUnits,
+            billingDetails,
+            result: body,
+          });
+          return originalJson({
+            ...body,
+            parentOperationId: activeOperation.id,
+            billingReceipt: completed.receipt,
+            replayed: false,
+          });
+        } catch (error) {
+          await failOperationBestEffort(activeOperation, req.auth.userId, error);
+          res.json = originalJson;
+          if (!res.headersSent) return sendStructuredError(res, error, { message: "Search billing failed" });
+          return res;
+        }
+      }
+      await failOperationBestEffort(
+        activeOperation,
+        req.auth.userId,
+        new ApiRouteError(res.statusCode || 500, "search-failed", "Search failed"),
+      );
+      return originalJson(body);
+    };
+    return next();
+  } catch (error) {
+    await failOperationBestEffort(activeOperation, req.auth?.userId, error);
+    return sendStructuredError(res, error, { message: "Unable to begin search" });
+  }
+});
+
 app.post("/api/v1/search", async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimitHit(ip)) {
@@ -912,7 +1356,7 @@ app.post("/api/v1/search", async (req, res) => {
         ? 80
         : Math.min(maxCap, Math.max(48, Number(process.env.WEB_SEARCH_DEFAULT_MAX) || 128));
     const max = Math.min(maxCap, Math.max(1, Number(req.body?.max) || defaultMax));
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth.userId;
     const useLlmRewrite = req.body?.useLlmRewrite !== false;
     const openaiApiKey = String(
       req.headers["x-openai-key"] ??
@@ -1340,38 +1784,11 @@ app.post("/api/v1/search", async (req, res) => {
   }
 });
 
-app.post("/api/search", async (req, res) => {
-  const ip = clientIp(req);
-  if (!rateLimitHit(ip)) return res.status(429).json({ error: "请求过于频繁" });
-  try {
-    const rawQuery = String(req.body?.query ?? "").trim();
-    if (!rawQuery) return res.status(400).json({ error: "缺少 query" });
-    const field = req.body?.field === "ti" || req.body?.field === "abs" ? req.body.field : "all";
-    const max = Math.min(80, Math.max(1, Number(req.body?.max) || 40));
-    const userId = await resolveUserIdFromRequest(req);
-    const result = await runPaperSearch({
-      rawQuery,
-      channel: "web",
-      field,
-      sort: "relevance",
-      max,
-      useLlmRewrite: false,
-    });
-    await logQuery({
-      userId,
-      query: rawQuery,
-      filters: { legacy: true, field, effectiveQuery: result.effectiveQuery },
-      resultCount: result.papers.length,
-      latencyMs: result.latencyMs,
-    });
-    res.json({ papers: result.papers, source: "arxiv", field });
-  } catch (e) {
-    console.error("[api/search]", e);
-    if (e?.code === "ELSEVIER_REQUIRED") {
-      return res.status(400).json({ error: e.message, code: "ELSEVIER_REQUIRED" });
-    }
-    res.status(500).json({ error: "服务器检索出错" });
-  }
+app.post("/api/search", (_req, res) => {
+  return res.status(410).json({
+    error: "Legacy search has been retired; use authenticated POST /api/v1/search",
+    code: "legacy-route-retired",
+  });
 });
 
 // ==================== GStack & GBrain API ====================

@@ -29,10 +29,13 @@ import type {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import {
+  ApiError,
+  createIdempotencyKey,
   extractUploadedDocument,
+  fetchPointBalance,
+  fulfillPdf,
   searchPapersV1,
   submitFeedback,
-  trackPdfOpen,
   requestPaperChartFromPapers,
   requestGenerateDataTable,
   fetchUnpaywallOaByDoi,
@@ -67,9 +70,12 @@ import { getAuthToken } from "./authSession";
 import { DEFAULT_PERSONA_LIST, fetchPersonaList, getPersonaId, setPersonaId } from "./persona";
 import type {
   ArxivSearchField,
+  BillingReceipt,
   ChatMessage,
   ChatSession,
   Paper,
+  PointBalance,
+  Pricing,
   PaperDataPoint,
   PaperSortKey,
   SearchChannel,
@@ -468,13 +474,15 @@ function paperExcerptBody(p: Paper, maxChars: number): string {
 
 function PaperCard({
   p,
-  onPdfClick,
+  onPdfFulfill,
+  pdfDisabled,
   open,
   onOpenChange,
   maxExcerptChars = 420,
 }: {
   p: Paper;
-  onPdfClick?: (p: Paper) => void;
+  onPdfFulfill?: (p: Paper, mode: "open" | "save") => void | Promise<void>;
+  pdfDisabled?: boolean;
   open: boolean;
   onOpenChange: (next: boolean) => void;
   /** 网页渠道展开区可显示更长摘录 */
@@ -581,32 +589,32 @@ function PaperCard({
                 ? "专利来源"
                 : "摘要页"}
           </a>
-          <a
-            className="inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover"
-            href={p.pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => onPdfClick?.(p)}
-          >
-            PDF
-          </a>
-          {pdfHref ? (
-            <a
-              className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
-              href={pdfHref}
-              download={safePdfDownloadName(p)}
-              target="_blank"
-              rel="noreferrer"
-              title="尽量以文件形式保存；若站点禁止跨域下载，浏览器可能改为新标签打开"
-              onClick={() => onPdfClick?.(p)}
-            >
-              下载
-            </a>
+          {pdfHref || p.pdfSourceId || p.sourceId ? (
+            <>
+              <button
+                type="button"
+                disabled={pdfDisabled}
+                className="inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={() => void onPdfFulfill?.(p, "open")}
+                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : "经服务端验证并获取 PDF，成功后收费 1 积分"}
+              >
+                PDF
+              </button>
+              <button
+                type="button"
+                disabled={pdfDisabled}
+                className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={() => void onPdfFulfill?.(p, "save")}
+                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : "成功获取并验证 PDF 后保存，收费 1 积分"}
+              >
+                下载
+              </button>
+            </>
           ) : null}
           {doiNorm && /^10\.\d{4,9}\//.test(doiNorm) ? (
             <button
               type="button"
-              disabled={oaBusy}
+              disabled={oaBusy || pdfDisabled}
               onClick={() => {
                 if (!doiNorm || !/^10\.\d{4,9}\//.test(doiNorm)) {
                   setOaErr("无有效 DOI");
@@ -616,6 +624,10 @@ function PaperCard({
                 setOaErr(null);
                 void (async () => {
                   try {
+                    if (onPdfFulfill && (p.pdfSourceId || p.sourceId)) {
+                      await onPdfFulfill(p, "open");
+                      return;
+                    }
                     const r = await fetchUnpaywallOaByDoi(doiNorm);
                     const url = (r.pdf_url || r.landing_url || "").trim();
                     if (url) {
@@ -634,7 +646,11 @@ function PaperCard({
                   }
                 })();
               }}
-              title="通过 Unpaywall 查询合法开放获取链接（.env 须配置 UNPAYWALL_EMAIL 或 OPENALEX_CONTACT_EMAIL）"
+              title={
+                p.pdfSourceId || p.sourceId
+                  ? "通过服务端验证并获取 OA PDF，成功后收费 1 积分"
+                  : "仅查询 Unpaywall 外部链接；落地页不表示已完成收费 PDF 交付"
+              }
               className="inline-flex items-center rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-muted)] px-3 py-1.5 text-xs font-medium text-[var(--t-text)] hover:bg-[var(--t-muted-hover)] disabled:opacity-50"
             >
               {oaBusy ? LOADING_OA : "OA PDF（Unpaywall）"}
@@ -1029,10 +1045,35 @@ type AssistantFeedbackDetail = {
   skipPreference?: boolean;
 };
 
+function formatPoints(value: number | undefined): string {
+  return Number.isFinite(value) ? Number(value).toFixed(2) : "—";
+}
+
+function BillingReceiptBadge({ receipt, kind }: { receipt?: BillingReceipt | null; kind: "回答" | "图表" | "PDF" }) {
+  if (!receipt) return null;
+  const details = receipt.billingDetails ?? {};
+  const quantity =
+    kind === "回答"
+      ? details.characterCount
+      : kind === "图表"
+        ? details.validPointCount ?? details.pointCount ?? details.chartPointCount
+        : details.pdfCount ?? details.deepPaperCount;
+  const unit = kind === "回答" ? "字符" : kind === "图表" ? "有效数据点" : "文件";
+  return (
+    <div className="not-prose mt-2 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md border border-[color:var(--t-br07)] bg-[var(--t-muted)] px-2 py-1 text-[10px] leading-snug text-[var(--t-text-muted)]">
+      <span className="font-semibold text-[var(--t-text)]">{kind}计费</span>
+      {typeof quantity === "number" ? <span>{quantity.toLocaleString()} {unit}</span> : null}
+      <span>· 消费 {formatPoints(receipt.cost)} 积分</span>
+      <span>· 余额 {formatPoints(receipt.balance)}</span>
+    </div>
+  );
+}
+
 function AssistantBlock({
   msg,
   onFeedback,
-  onPdfClick,
+  onPdfFulfill,
+  billingDisabled,
   feedbackLock,
   chartBusy,
   onMatplotlibChart,
@@ -1045,7 +1086,8 @@ function AssistantBlock({
 }: {
   msg: ChatMessage;
   onFeedback?: (id: string, v: 1 | -1, detail?: AssistantFeedbackDetail) => void | Promise<void>;
-  onPdfClick?: (p: Paper) => void;
+  onPdfFulfill?: (msg: ChatMessage, p: Paper, mode: "open" | "save") => void | Promise<void>;
+  billingDisabled?: boolean;
   feedbackLock?: 1 | -1;
   chartBusy?: boolean;
   onMatplotlibChart?: (msg: ChatMessage, hint?: string) => void | Promise<void>;
@@ -1631,6 +1673,7 @@ function AssistantBlock({
             ) : null}
           </div>
         ) : null}
+        {!msg.error ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
         {!msg.error &&
         msg.papers &&
         msg.papers.length > 0 &&
@@ -1709,7 +1752,8 @@ function AssistantBlock({
                         return nextSet;
                       });
                     }}
-                    onPdfClick={onPdfClick}
+                    onPdfFulfill={(paper, mode) => onPdfFulfill?.(msg, paper, mode)}
+                    pdfDisabled={billingDisabled}
                   />
                 );
               })}
@@ -1723,6 +1767,9 @@ function AssistantBlock({
           )}
         </div>
       )}
+      {msg.meta?.pdfReceipts?.map((receipt) => (
+        <BillingReceiptBadge key={receipt.operationId} receipt={receipt} kind="PDF" />
+      ))}
       {!msg.error && channelSupportsPaperChart(msg.meta?.channel) && msg.papers && msg.papers.length > 0 && onMatplotlibChart ? (
         <div className="mt-4 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-3">
           <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">文献数值图（可点击散点 + Matplotlib PNG）</p>
@@ -1749,7 +1796,7 @@ function AssistantBlock({
             </label>
             <button
               type="button"
-              disabled={!!chartBusy}
+              disabled={!!chartBusy || billingDisabled}
               onClick={() => void onMatplotlibChart(msg, chartHint.trim() || undefined)}
               className="qp-btn-accent shrink-0 rounded-lg px-3 py-2 text-[11px] disabled:opacity-50"
             >
@@ -1764,6 +1811,7 @@ function AssistantBlock({
                   <span className="ml-1 text-[10px] font-normal text-[var(--t-text-muted)]">({msg.meta.paperChart.note})</span>
                 ) : null}
               </p>
+              <BillingReceiptBadge receipt={msg.meta.paperChart.billing} kind="图表" />
               {msg.meta.paperChart.spec &&
               typeof msg.meta.paperChart.spec === "object" &&
               !Array.isArray(msg.meta.paperChart.spec) ? (
@@ -2093,6 +2141,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [pointBalance, setPointBalance] = useState<PointBalance | null>(() => getAuthProfile()?.billing ?? null);
+  const [pricing, setPricing] = useState<Pricing | null>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
 
   const active = useMemo(
     () => sessions.find((s) => s.id === activeId) ?? null,
@@ -2112,6 +2164,34 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   useEffect(() => {
     void fetchPersonaList().then(setPersonaList);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPointBalance()
+      .then(({ billing, pricing: nextPricing }) => {
+        if (cancelled) return;
+        setPointBalance(billing);
+        if (nextPricing) setPricing(nextPricing);
+        setBalanceError(null);
+      })
+      .catch((e) => {
+        if (!cancelled) setBalanceError(e instanceof Error ? e.message : "积分余额加载失败");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
+    if (!receipt) return;
+    setPointBalance((prev) => ({
+      userId: prev?.userId,
+      balanceUnits: receipt.balanceUnits,
+      availableUnits: receipt.balanceUnits,
+      balance: receipt.balance,
+    }));
+    setBalanceError(null);
   }, []);
 
   useEffect(() => {
@@ -2448,6 +2528,21 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     });
   };
 
+  const patchMessageMeta = useCallback((msgId: string, patch: Record<string, unknown>) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (!s.messages.some((m) => m.id === msgId)) return s;
+        return {
+          ...s,
+          messages: s.messages.map((m) =>
+            m.id === msgId ? { ...m, meta: { ...(m.meta ?? {}), ...patch } } : m,
+          ),
+          updatedAt: Date.now(),
+        };
+      }),
+    );
+  }, []);
+
   const handleFeedback = async (messageId: string, value: 1 | -1, detail?: AssistantFeedbackDetail) => {
     const m = active?.messages.find((x) => x.id === messageId);
     try {
@@ -2471,6 +2566,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   const handleMatplotlibChart = useCallback(async (msg: ChatMessage, hint?: string) => {
     if (!msg.papers?.length || msg.error || !channelSupportsPaperChart(msg.meta?.channel)) return;
+    const parentOperationId = msg.meta?.parentOperationId ?? msg.meta?.billing?.operationId;
+    if (!parentOperationId) {
+      patchMessageMeta(msg.id, { paperChartError: "此历史回答缺少搜索操作 ID，无法生成收费图表，请重新检索。" });
+      return;
+    }
+    if (pointBalance && pointBalance.balance <= 0) {
+      patchMessageMeta(msg.id, { paperChartError: `积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），暂不支持充值。` });
+      return;
+    }
+    const idempotencyKey = createIdempotencyKey();
     setChartBusyMessageId(msg.id);
     const errText = (e: unknown) => (e instanceof Error ? e.message : "生成图表失败");
     const patchMsg = (m: ChatMessage, patch: Record<string, unknown>) => ({
@@ -2489,9 +2594,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     );
     try {
       const r = await requestPaperChartFromPapers(msg.papers, {
+        parentOperationId,
         hint,
         synthesisMarkdown: msg.meta?.synthesis ?? undefined,
+        idempotencyKey,
       });
+      applyReceipt(r.billing);
       setSessions((prev) =>
         prev.map((s) => {
           if (!s.messages.some((m) => m.id === msg.id)) return s;
@@ -2509,6 +2617,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                       title: r.title,
                       spec: r.spec,
                       note: r.note,
+                      billing: r.billing,
                     },
                   }),
             ),
@@ -2533,7 +2642,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     } finally {
       setChartBusyMessageId(null);
     }
-  }, []);
+  }, [applyReceipt, patchMessageMeta, pointBalance?.balance]);
 
   const handleGenerateDataTable = useCallback(async (msg: ChatMessage, tableType: DataTablePresetId) => {
     if (!msg.papers?.length || msg.error || !channelSupportsPaperChart(msg.meta?.channel)) return;
@@ -2602,21 +2711,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     }
   }, []);
 
-  const patchMessageMeta = useCallback((msgId: string, patch: Record<string, unknown>) => {
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (!s.messages.some((m) => m.id === msgId)) return s;
-        return {
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === msgId ? { ...m, meta: { ...(m.meta ?? {}), ...patch } } : m,
-          ),
-          updatedAt: Date.now(),
-        };
-      }),
-    );
-  }, []);
-
   const handleBuildFlowchart = useCallback(
     async (msg: ChatMessage) => {
       if (!msg.meta?.synthesis?.trim() && !msg.meta?.synthesisPlan) return;
@@ -2679,19 +2773,49 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     [patchMessageMeta],
   );
 
-  const handlePdfClick = async (p: Paper) => {
-    try {
-      const pid = p.paper_id || p.id;
-      const r = await trackPdfOpen(pid);
-      if (r.downloadsToday > r.softLimit) {
-        alert(
-          "演示规则（BR-006）：今日 PDF 打开已超过 5 次；正式环境将触发计费/审批。当前仍可继续访问。",
-        );
-      }
-    } catch {
-      /* 静默 */
+  const handlePdfFulfill = useCallback(async (msg: ChatMessage, p: Paper, mode: "open" | "save") => {
+    const parentOperationId = msg.meta?.parentOperationId ?? msg.meta?.billing?.operationId;
+    if (!parentOperationId) {
+      window.alert("此历史回答缺少搜索操作 ID，无法获取收费 PDF，请重新检索。");
+      return;
     }
-  };
+    if (pointBalance && pointBalance.balance <= 0) {
+      window.alert(`积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），暂不支持充值。`);
+      return;
+    }
+    const busyKey = `${msg.id}:${paperRowKey(p)}`;
+    if (pdfBusyKey === busyKey) return;
+    const idempotencyKey = createIdempotencyKey();
+    setPdfBusyKey(busyKey);
+    try {
+      const result = await fulfillPdf({
+        parentOperationId,
+        paperId: p.paper_id || p.id,
+        sourceId: p.pdfSourceId ?? p.sourceId,
+        idempotencyKey,
+      });
+      applyReceipt(result.receipt);
+      if (result.receipt) {
+        patchMessageMeta(msg.id, {
+          pdfReceipts: [...(msg.meta?.pdfReceipts ?? []), result.receipt],
+        });
+      }
+      const filename = result.filename || safePdfDownloadName(p);
+      if (mode === "save") {
+        saveAs(result.blob, filename);
+      } else {
+        const objectUrl = URL.createObjectURL(result.blob);
+        window.open(objectUrl, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "PDF 获取失败";
+      window.alert(message);
+      if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
+    } finally {
+      setPdfBusyKey(null);
+    }
+  }, [applyReceipt, patchMessageMeta, pdfBusyKey, pointBalance?.balance]);
 
   const send = async (text: string) => {
     const q = text.trim();
@@ -2743,7 +2867,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         ? "根据上传文件中的主题与关键词进行全网搜索并综合回答"
         : "根据上传文件中的主题与关键词搜索相关资料");
     try {
+      const searchIdempotencyKey = createIdempotencyKey();
       const res = await searchPapersV1(baseQ.slice(0, 12_000), {
+        idempotencyKey: searchIdempotencyKey,
         field: fieldAtSend,
         channel: channelAtSend,
         sort: sortAtSend,
@@ -2753,6 +2879,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         ...(patentsAtSend ? { patentsOnly: true } : {}),
         ...(deepMineEnabled && !patentsAtSend ? { deepMine: { maxPdfMb: 20 } } : {}),
       });
+      applyReceipt(res.billing);
       const assistant: ChatMessage = {
         id: uid(),
         role: "assistant",
@@ -2780,6 +2907,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           deepSynthesis: res.deepSynthesis ?? null,
           deepSynthesisNote: res.deepSynthesisNote ?? null,
           artifacts: res.artifacts ?? null,
+          parentOperationId: res.parentOperationId ?? res.billing?.operationId,
+          billing: res.billing ?? null,
         },
       };
       setSessions((prev) =>
@@ -2798,12 +2927,22 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       /** 数据库渠道：有文献时后台自动尝试 Matplotlib 作图 */
       const assistantIdForChart = assistant.id;
       const papersForAutoChart = res.papers;
-      if (papersForAutoChart.length > 0 && channelSupportsPaperChart(res.channel)) {
+      const parentOperationId = res.parentOperationId ?? res.billing?.operationId;
+      if (
+        papersForAutoChart.length > 0 &&
+        channelSupportsPaperChart(res.channel) &&
+        parentOperationId &&
+        (res.billing?.balance ?? pointBalance?.balance ?? 0) > 0
+      ) {
+        const chartIdempotencyKey = createIdempotencyKey();
         void (async () => {
           try {
             const r = await requestPaperChartFromPapers(papersForAutoChart, {
+              parentOperationId,
               synthesisMarkdown: res.synthesis ?? undefined,
+              idempotencyKey: chartIdempotencyKey,
             });
+            applyReceipt(r.billing);
             setSessions((prev) =>
               prev.map((s) => {
                 if (!s.messages.some((m) => m.id === assistantIdForChart)) return s;
@@ -2824,6 +2963,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                               title: r.title,
                               spec: r.spec,
                               note: r.note,
+                              billing: r.billing,
                             },
                           },
                         },
@@ -2858,8 +2998,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             );
           }
         })();
+      } else if (
+        papersForAutoChart.length > 0 &&
+        channelSupportsPaperChart(res.channel) &&
+        (res.billing?.balance ?? pointBalance?.balance ?? 0) <= 0
+      ) {
+        patchMessageMeta(assistantIdForChart, {
+          paperChartError: "搜索结算后余额不足，未自动生成图表。",
+        });
       }
     } catch (e) {
+      if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
       const err = e instanceof Error ? e.message : "未知错误";
       const assistant: ChatMessage = {
         id: uid(),
@@ -2886,8 +3035,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   const willAttachConvoContext = (active?.messages.length ?? 0) > 0;
 
+  const billingDisabled = pointBalance != null && pointBalance.balance <= 0;
   const canSend =
-    (input.trim().length > 0 || attachments.length > 0) && !busy && !uploadBusy && !exportPickMode;
+    (input.trim().length > 0 || attachments.length > 0) &&
+    !busy &&
+    !uploadBusy &&
+    !exportPickMode &&
+    !billingDisabled;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -3051,6 +3205,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <div className="truncate text-[11px] text-[var(--t-text)]" title={getAuthProfile()?.username ?? ""}>
               {getAuthProfile()?.username ?? "—"}
             </div>
+            <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)]">
+              积分 {pointBalance ? formatPoints(pointBalance.balance) : balanceError ? "加载失败" : "加载中"}
+            </div>
           </div>
           {onLogout ? (
             <button
@@ -3210,7 +3367,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <div className="min-w-0 flex-1 text-center">
             <h1 className="truncate text-[13px] font-semibold tracking-tight text-[var(--t-text)]">{APP_NAME}</h1>
           </div>
-          <div className="h-11 w-11 shrink-0 lg:hidden" aria-hidden />
+          <div className="shrink-0 whitespace-nowrap text-right text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)] lg:hidden">
+            {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
+          </div>
         </header>
 
         <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
@@ -3265,7 +3424,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                         msg={m}
                         onFeedback={handleFeedback}
                         feedbackLock={feedbackByMessage[m.id]}
-                        onPdfClick={handlePdfClick}
+                        onPdfFulfill={handlePdfFulfill}
+                        billingDisabled={billingDisabled || pdfBusyKey != null}
                         chartBusy={chartBusyMessageId === m.id}
                         onMatplotlibChart={handleMatplotlibChart}
                         dataTableBusy={dataTableBusyMessageId === m.id}
@@ -3416,13 +3576,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  disabled={busy || uploadBusy || exportPickMode}
+                  disabled={busy || uploadBusy || exportPickMode || billingDisabled}
                   placeholder={
-                    exportPickMode
-                      ? "请先完成或取消上方的导出消息选择…"
-                      : uploadBusy
-                        ? LOADING_UPLOAD
-                        : "发消息…（可拖放文件）"
+                    billingDisabled
+                      ? `积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），暂不支持充值`
+                      : exportPickMode
+                        ? "请先完成或取消上方的导出消息选择…"
+                        : uploadBusy
+                          ? LOADING_UPLOAD
+                          : "发消息…（可拖放文件）"
                   }
                   className="max-h-40 min-h-[40px] w-full resize-none bg-transparent px-2.5 py-2 pl-9 pr-11 text-[13px] leading-snug text-[var(--t-text)] placeholder:text-[var(--t-placeholder)] focus:outline-none disabled:opacity-60"
                 />
@@ -3464,9 +3626,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </button>
               </div>
             </div>
-            <p className="mt-1 hidden text-center text-[9px] leading-snug text-[var(--t-text-footer)] sm:block">
-              发送即检索并生成回答
-              {willAttachConvoContext ? " · 含本对话上文" : ""} · 附件 ≤100MB
+            <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
+              回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件
+              {pricing ? ` · 1 积分=${pricing.unitsPerPoint} units` : ""}
+              {willAttachConvoContext ? " · 含本对话上文" : ""}
+              {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），暂不支持充值` : ""}
             </p>
           </div>
         </div>
