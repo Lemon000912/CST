@@ -63,7 +63,7 @@ import {
 import { useTheme } from "./theme";
 import { ExportChatModal } from "./ExportChatModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
-import { getAuthProfile } from "./authSession";
+import { clearAuthSession, getAuthProfile } from "./authSession";
 import { loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
 import { fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
 import { getAuthToken } from "./authSession";
@@ -2176,12 +2176,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         setBalanceError(null);
       })
       .catch((e) => {
-        if (!cancelled) setBalanceError(e instanceof Error ? e.message : "积分余额加载失败");
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 401) {
+          clearAuthSession();
+          onLogout?.();
+          return;
+        }
+        setBalanceError(e instanceof Error ? e.message : "积分余额加载失败");
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onLogout]);
 
   const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
     if (!receipt) return;
