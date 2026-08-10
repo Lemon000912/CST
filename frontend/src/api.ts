@@ -539,6 +539,8 @@ function slimPaperForChartApi(p: Paper) {
 export async function fetchChatSessionsFromServer(): Promise<{
   sessions: ChatSession[];
   updatedAt: number;
+  revision: number;
+  schemaVersion: number;
 } | null> {
   const res = await fetch("/api/v1/chat/sessions", { headers: headersJson() });
   if (res.status === 401) return null;
@@ -546,10 +548,17 @@ export async function fetchChatSessionsFromServer(): Promise<{
     console.warn("[api] fetchChatSessions failed", res.status);
     return null;
   }
-  const data = (await res.json()) as { sessions?: ChatSession[]; updatedAt?: number };
+  const data = (await res.json()) as {
+    sessions?: ChatSession[];
+    updatedAt?: number;
+    revision?: number;
+    schema_version?: number;
+  };
   return {
     sessions: Array.isArray(data.sessions) ? data.sessions : [],
     updatedAt: Number(data.updatedAt) || 0,
+    revision: Number(data.revision) || 0,
+    schemaVersion: Number(data.schema_version) || 1,
   };
 }
 
@@ -557,16 +566,43 @@ export async function fetchChatSessionsFromServer(): Promise<{
 export async function saveChatSessionsToServer(
   sessions: ChatSession[],
   updatedAt?: number,
-): Promise<void> {
+  baseRevision?: number | null,
+): Promise<{
+  ok: boolean;
+  revision?: number;
+  updatedAt?: number;
+  conflict?: boolean;
+  sessions?: ChatSession[];
+}> {
   const res = await fetch("/api/v1/chat/sessions", {
     method: "PUT",
     headers: headersJson(),
     body: JSON.stringify({
       sessions,
       updatedAt: updatedAt ?? Date.now(),
+      ...(baseRevision != null ? { baseRevision } : {}),
     }),
   });
-  if (res.status === 401) return;
+  if (res.status === 401) return { ok: false };
+  if (res.status === 409) {
+    try {
+      const j = (await res.json()) as {
+        code?: string;
+        revision?: number;
+        sessions?: ChatSession[];
+        updatedAt?: number;
+      };
+      return {
+        ok: false,
+        conflict: true,
+        revision: Number(j.revision) || 0,
+        sessions: Array.isArray(j.sessions) ? j.sessions : [],
+        updatedAt: Number(j.updatedAt) || 0,
+      };
+    } catch {
+      return { ok: false, conflict: true };
+    }
+  }
   if (!res.ok) {
     let err = `保存会话失败（${res.status}）`;
     try {
@@ -576,6 +612,13 @@ export async function saveChatSessionsToServer(
       /* ignore */
     }
     console.warn("[api] saveChatSessions:", err);
+    return { ok: false };
+  }
+  try {
+    const j = (await res.json()) as { ok?: boolean; revision?: number; updatedAt?: number };
+    return { ok: true, revision: Number(j.revision) || 0, updatedAt: Number(j.updatedAt) || 0 };
+  } catch {
+    return { ok: true };
   }
 }
 

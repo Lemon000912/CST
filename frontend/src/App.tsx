@@ -73,6 +73,7 @@ import type {
   BillingReceipt,
   ChatMessage,
   ChatSession,
+  ChatSessionsSyncState,
   Paper,
   PointBalance,
   Pricing,
@@ -2094,7 +2095,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     return loaded.length ? loaded : [createSession()];
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
+  const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverSaveInflightRef = useRef<Promise<void> | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [input, setInput] = useState("");
@@ -2239,10 +2242,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       const local = loadSessions(getAuthProfile()?.userId);
       const remote = await fetchChatSessionsFromServer();
       if (cancelled) return;
-      if (remote && (remote.sessions.length > 0 || local.length > 0)) {
-        const merged = mergeChatSessions(local, remote.sessions);
-        setSessions(merged.length ? merged : [createSession()]);
-        saveSessions(merged, getAuthProfile()?.userId);
+      if (remote) {
+        if (remote.sessions.length > 0 || local.length > 0) {
+          const merged = mergeChatSessions(local, remote.sessions);
+          setSessions(merged.length ? merged : [createSession()]);
+          saveSessions(merged, getAuthProfile()?.userId);
+        }
+        setSessionSyncState({
+          revision: remote.revision,
+          schemaVersion: remote.schemaVersion,
+          updatedAt: remote.updatedAt,
+        });
       }
       setSessionsHydrated(true);
     };
@@ -2262,12 +2272,52 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (!getAuthToken()) return;
     if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     serverSaveTimerRef.current = setTimeout(() => {
-      void saveChatSessionsToServer(sessionsPayloadForServer(sessions));
+      // Guard: don't start a new PUT while one is already in flight
+      if (serverSaveInflightRef.current) return;
+      const baseRevision = sessionSyncState?.revision ?? null;
+      const payload = sessionsPayloadForServer(sessions);
+      const doSave = async (): Promise<void> => {
+        const result = await saveChatSessionsToServer(payload, undefined, baseRevision);
+        if (result.ok) {
+          if (typeof result.revision === "number") {
+            setSessionSyncState((prev) => ({
+              revision: result.revision!,
+              schemaVersion: prev?.schemaVersion ?? 1,
+              updatedAt: result.updatedAt ?? Date.now(),
+            }));
+          }
+        } else if (result.conflict) {
+          console.warn("[App] chat sessions conflict (409); merging and retrying", {
+            serverRevision: result.revision,
+          });
+          const serverSessions = Array.isArray(result.sessions) ? result.sessions : [];
+          const merged = mergeChatSessions(serverSessions, sessions);
+          setSessions(merged.length ? merged : [createSession()]);
+          saveSessions(merged, getAuthProfile()?.userId);
+          // Retry once with the server's revision
+          const retryRevision = result.revision ?? 0;
+          const retryResult = await saveChatSessionsToServer(
+            sessionsPayloadForServer(merged),
+            undefined,
+            retryRevision,
+          );
+          if (retryResult.ok && typeof retryResult.revision === "number") {
+            setSessionSyncState((prev) => ({
+              revision: retryResult.revision!,
+              schemaVersion: prev?.schemaVersion ?? 1,
+              updatedAt: retryResult.updatedAt ?? Date.now(),
+            }));
+          }
+        }
+      };
+      serverSaveInflightRef.current = doSave().finally(() => {
+        serverSaveInflightRef.current = null;
+      });
     }, 1200);
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     };
-  }, [sessions, sessionsHydrated]);
+  }, [sessions, sessionsHydrated, sessionSyncState]);
 
   useLayoutEffect(() => {
     setActiveId((id) => {
