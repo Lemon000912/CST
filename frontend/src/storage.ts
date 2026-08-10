@@ -1,7 +1,33 @@
 import type { ChatSession } from "./types";
 
+/** Legacy key used when no userId is available (anonymous / pre-auth). */
 const KEY = "paper-query-sessions-v1";
 const MAX_SESSIONS = 30;
+
+/**
+ * Returns the localStorage key for the given user.
+ * Authenticated users get an isolated v2 key; anonymous state falls back to
+ * the legacy v1 key so existing anonymous sessions are not lost.
+ */
+export function getSessionKey(userId?: string | null): string {
+  if (userId && typeof userId === "string" && userId.trim().length > 0) {
+    return `paper-query-sessions-v2:${userId.trim()}`;
+  }
+  return KEY;
+}
+
+/**
+ * Remove the v2 sessions key for a specific user.
+ * Does NOT touch other users' keys or the anonymous v1 key.
+ */
+export function clearUserSessions(userId: string): void {
+  if (!userId || typeof userId !== "string") return;
+  try {
+    localStorage.removeItem(getSessionKey(userId));
+  } catch {
+    /* ignore */
+  }
+}
 
 /** 写入 localStorage 前精简体积（图表 PNG 等） */
 export function slimSessionForStorage(s: ChatSession): ChatSession {
@@ -87,9 +113,9 @@ export function mergeChatSessions(local: ChatSession[], remote: ChatSession[]): 
   return [...map.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
-export function loadSessions(): ChatSession[] {
+export function loadSessions(userId?: string | null): ChatSession[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(getSessionKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ChatSession[];
     return Array.isArray(parsed) ? parsed : [];
@@ -98,15 +124,16 @@ export function loadSessions(): ChatSession[] {
   }
 }
 
-export function saveSessions(sessions: ChatSession[]) {
+export function saveSessions(sessions: ChatSession[], userId?: string | null) {
+  const storageKey = getSessionKey(userId);
   try {
     const trimmed = progressiveTrim(sessions);
-    localStorage.setItem(KEY, JSON.stringify(trimmed));
+    localStorage.setItem(storageKey, JSON.stringify(trimmed));
   } catch (e) {
     console.warn("[storage] saveSessions failed:", e);
     try {
       const fallback = progressiveTrim(sessions).slice(-8);
-      localStorage.setItem(KEY, JSON.stringify(fallback));
+      localStorage.setItem(storageKey, JSON.stringify(fallback));
     } catch (e2) {
       console.error("[storage] saveSessions fallback failed, 保留内存中的会话直至下次成功保存", e2);
     }

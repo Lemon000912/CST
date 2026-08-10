@@ -490,6 +490,9 @@ export async function initDatabase() {
         databaseReady = false;
         throw e;
       }
+      if (!postgresReachable && (process.env.POSTGRES_URL || process.env.DATABASE_URL) && String(process.env.NODE_ENV ?? "").toLowerCase() === "production") {
+        throw new Error(`[db] 生产环境 PostgreSQL 不可达，拒绝降级到 SQLite。请检查 DATABASE_URL 和 PostgreSQL 服务状态。原始错误: ${e.message}`);
+      }
       if (pgPool) {
         try {
           await pgPool.end();

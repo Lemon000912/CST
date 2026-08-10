@@ -64,7 +64,7 @@ import { useTheme } from "./theme";
 import { ExportChatModal } from "./ExportChatModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
 import { clearAuthSession, getAuthProfile } from "./authSession";
-import { loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
+import { clearUserSessions, getSessionKey, loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
 import { fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
 import { getAuthToken } from "./authSession";
 import { DEFAULT_PERSONA_LIST, fetchPersonaList, getPersonaId, setPersonaId } from "./persona";
@@ -2090,7 +2090,7 @@ function LlmRewriteSettingsModal({
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { theme, setTheme } = useTheme();
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const loaded = loadSessions();
+    const loaded = loadSessions(getAuthProfile()?.userId);
     return loaded.length ? loaded : [createSession()];
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
@@ -2236,13 +2236,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         if (!cancelled) setSessionsHydrated(true);
         return;
       }
-      const local = loadSessions();
+      const local = loadSessions(getAuthProfile()?.userId);
       const remote = await fetchChatSessionsFromServer();
       if (cancelled) return;
       if (remote && (remote.sessions.length > 0 || local.length > 0)) {
         const merged = mergeChatSessions(local, remote.sessions);
         setSessions(merged.length ? merged : [createSession()]);
-        saveSessions(merged);
+        saveSessions(merged, getAuthProfile()?.userId);
       }
       setSessionsHydrated(true);
     };
@@ -2255,7 +2255,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   useEffect(() => {
     if (!sessionsHydrated) return;
     try {
-      saveSessions(sessions);
+      saveSessions(sessions, getAuthProfile()?.userId);
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }

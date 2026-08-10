@@ -54,7 +54,7 @@ import {
 } from "./mcpWebSearch.js";
 import { getElsevierScopusConfig } from "./scopusElsevier.js";
 import { lookupUnpaywallOa } from "./unpaywallOa.js";
-import { rateLimitHit } from "./rateLimit.js";
+import { rateLimitHit, createScopedLimiter } from "./rateLimit.js";
 import { uploadMiddleware, extractDocumentText, MAX_UPLOAD_MB } from "./extract.js";
 import { buildProcessArtifacts } from "./processArtifacts.js";
 import { buildPptxBuffer } from "./buildPptx.js";
@@ -107,7 +107,6 @@ import {
 import { extractDataTableByType } from "./dataTableExtract.js";
 import { augmentQueryWithMatsci, isMatsciAugmentConfigured } from "./matsciNerAugment.js";
 import { GStack, quickGStack } from "./gstack.js";
-import { GBrain, getGBrain } from "./gbrain.js";
 import { searchCache, rewriteCache } from "./cache.js";
 
 const PORT = (() => {
@@ -115,12 +114,14 @@ const PORT = (() => {
   return Number.isFinite(n) && n > 0 && n < 65536 ? n : 8787;
 })();
 
-// 初始化 GStack 和 GBrain
+// 初始化 GStack
 const gstack = new GStack();
-const gbrain = getGBrain();
 
 console.log("[GStack] 图融合引擎已初始化");
-console.log("[GBrain] 知识图谱大脑已初始化");
+
+// 认证端点限速器
+const authLimiter = createScopedLimiter({ max: 10, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
+const regLimiter  = createScopedLimiter({ max: 3,  windowMs: 60 * 60 * 1000, maxBuckets: 2000 });
 
 // 启动时清除缓存（避免旧缓存数据污染）
 searchCache.clear();
@@ -128,9 +129,19 @@ rewriteCache.clear();
 console.log("[cache] 搜索缓存和改写缓存已清除");
 
 function clientIp(req) {
-  const xf = req.headers["x-forwarded-for"];
-  if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
-  return req.socket?.remoteAddress || "local";
+  const remoteAddr = req.socket?.remoteAddress ?? "";
+  // Only trust X-Forwarded-For when the TCP connection itself comes from localhost
+  // (Apache reverse proxy on the same machine). Otherwise an attacker can inject
+  // an arbitrary header from the public internet.
+  const isLoopback =
+    remoteAddr === "127.0.0.1" ||
+    remoteAddr === "::1" ||
+    remoteAddr.startsWith("::ffff:127.");
+  if (isLoopback) {
+    const xf = req.headers["x-forwarded-for"];
+    if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
+  }
+  return remoteAddr || "local";
 }
 
 class ApiRouteError extends Error {
@@ -375,6 +386,13 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.post("/api/v1/auth/register", async (req, res) => {
+  const ip = clientIp(req);
+  if (!authLimiter("reg:ip", ip) || !regLimiter("reg:hour", ip)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "注册请求过于频繁，请稍后再试",
+      code: "rate-limit-exceeded",
+    });
+  }
   await handleRegister(req, res);
 });
 
@@ -383,6 +401,14 @@ app.post("/api/v1/auth/register", async (req, res) => {
 app.use("/api/v1/admin", requireAdmin);
 
 app.post("/api/v1/auth/login", async (req, res) => {
+  const ip = clientIp(req);
+  const loginUser = String(req.body?.username ?? "").toLowerCase().trim().slice(0, 64);
+  if (!authLimiter("login:ip", ip) || !authLimiter("login:user", loginUser)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "登录请求过于频繁，请 10 分钟后再试",
+      code: "rate-limit-exceeded",
+    });
+  }
   await handleLogin(req, res);
 });
 
@@ -1499,15 +1525,6 @@ app.post("/api/v1/search", async (req, res) => {
       }
     }
 
-    // ===== GBrain 记录查询 =====
-    if (process.env.ENABLE_GBRAIN !== "false") {
-      try {
-        gbrain.recordQuery(extractCoreSearchQuery(rawQuery) || rawQuery, result.papers);
-      } catch (e) {
-        console.error("[v1/search] GBrain记录查询失败:", e.message);
-      }
-    }
-
     const synthCore =
       extractCoreSearchQuery(currentQuery) ||
       extractCoreSearchQuery(rawQuery) ||
@@ -1756,9 +1773,7 @@ app.post("/api/v1/search", async (req, res) => {
       deepSynthesis,
       deepSynthesisNote,
       gstack: gstackApplied ? { applied: true, stats: gstackStats } : { applied: false },
-      gbrain: {
-        userSkill: process.env.ENABLE_GBRAIN !== "false" ? gbrain.generateUserSkill() : null,
-      },
+      gbrain: { userSkill: null },
       artifacts,
     };
     try {
@@ -1839,104 +1854,9 @@ app.get("/api/v1/gstack/stats", (_req, res) => {
   });
 });
 
-/** GBrain 记录查询 */
-app.post("/api/v1/gbrain/record-query", async (req, res) => {
-  try {
-    const userId = await resolveUserIdFromRequest(req);
-    const { query, results } = req.body || {};
-    
-    gbrain.recordQuery(query || "", results || []);
-    
-    res.json({ ok: true, stats: gbrain.getStats() });
-  } catch (e) {
-    console.error("[gbrain/record-query]", e);
-    res.status(500).json({ error: "记录查询失败" });
-  }
-});
-
-/** GBrain 记录下载 */
-app.post("/api/v1/gbrain/record-download", async (req, res) => {
-  try {
-    const userId = await resolveUserIdFromRequest(req);
-    const { paper } = req.body || {};
-    
-    if (!paper) return res.status(400).json({ error: "缺少 paper" });
-    
-    gbrain.recordDownload(paper);
-    
-    res.json({ ok: true, stats: gbrain.getStats() });
-  } catch (e) {
-    console.error("[gbrain/record-download]", e);
-    res.status(500).json({ error: "记录下载失败" });
-  }
-});
-
-/** GBrain 记录反馈 */
-app.post("/api/v1/gbrain/record-feedback", async (req, res) => {
-  try {
-    const userId = await resolveUserIdFromRequest(req);
-    const { query, answer, value } = req.body || {};
-    
-    gbrain.recordFeedback(query || "", answer || "", value || 0);
-    
-    res.json({ ok: true, stats: gbrain.getStats() });
-  } catch (e) {
-    console.error("[gbrain/record-feedback]", e);
-    res.status(500).json({ error: "记录反馈失败" });
-  }
-});
-
-/** GBrain 获取用户画像 */
-app.get("/api/v1/gbrain/profile", async (req, res) => {
-  try {
-    const userId = await resolveUserIdFromRequest(req);
-    const profile = gbrain.getUserProfile();
-    
-    res.json({
-      profile,
-      userSkill: gbrain.generateUserSkill(),
-    });
-  } catch (e) {
-    console.error("[gbrain/profile]", e);
-    res.status(500).json({ error: "获取用户画像失败" });
-  }
-});
-
-/** GBrain 获取推荐 */
-app.get("/api/v1/gbrain/recommendations", async (req, res) => {
-  try {
-    const query = String(req.query?.query || "");
-    const limit = Math.min(20, Math.max(1, Number(req.query?.limit) || 5));
-    
-    const recommendations = gbrain.getRecommendations(query, limit);
-    
-    res.json({ recommendations, query });
-  } catch (e) {
-    console.error("[gbrain/recommendations]", e);
-    res.status(500).json({ error: "获取推荐失败" });
-  }
-});
-
-/** GBrain 导出知识图谱 */
-app.get("/api/v1/gbrain/graph", async (req, res) => {
-  try {
-    const graph = gbrain.exportGraph();
-    
-    res.json({
-      graph,
-      stats: gbrain.getStats(),
-    });
-  } catch (e) {
-    console.error("[gbrain/graph]", e);
-    res.status(500).json({ error: "导出图谱失败" });
-  }
-});
-
-/** GBrain 统计信息 */
-app.get("/api/v1/gbrain/stats", (_req, res) => {
-  res.json({
-    stats: gbrain.getStats(),
-  });
+// GBrain API 已停用 — 所有路由返回 410 Gone
+app.all("/api/v1/gbrain/*", (_req, res) => {
+  res.status(410).json({ error: "GBrain API 已停用", code: "gbrain-retired" });
 });
 
 // ==================== 管理端 API ====================
@@ -1945,7 +1865,6 @@ app.get("/api/v1/gbrain/stats", (_req, res) => {
 app.post("/api/v1/auth/login", async (req, res) => {
   await handleLogin(req, res);
 });
-
 /** 仪表盘统计 */
 app.get("/api/v1/admin/dashboard", async (_req, res) => {
   try {
@@ -2626,7 +2545,6 @@ if (String(process.env.SIMPLE_SEED ?? "").trim() === "1") {
 const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`QuantumPinnacle API: http://127.0.0.1:${PORT}  (POST /api/v1/search)`);
   console.log(`[GStack] 图融合API: POST /api/v1/gstack/fuse`);
-  console.log(`[GBrain] 知识图谱API: GET /api/v1/gbrain/profile`);
 });
 server.setTimeout(920_000);
 server.on("error", (err) => {
