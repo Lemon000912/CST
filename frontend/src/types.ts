@@ -257,6 +257,12 @@ export type ChatSession = {
   messages: ChatMessage[];
 };
 
+export type ChatSessionsSyncState = {
+  revision: number;
+  schemaVersion: number;
+  updatedAt: number;
+};
+
 /** 已通过 /api/v1/extract 解析的上传片段（仅存于前端会话发送前） */
 export type UploadedAttachment = {
   id: string;

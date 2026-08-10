@@ -390,7 +390,44 @@ export async function initDatabase() {
         CREATE TABLE IF NOT EXISTS user_chat_sessions (
           user_id TEXT PRIMARY KEY,
           sessions_json TEXT NOT NULL,
-          updated_at BIGINT NOT NULL
+          updated_at BIGINT NOT NULL,
+          revision BIGINT NOT NULL DEFAULT 0,
+          schema_version INTEGER NOT NULL DEFAULT 1
+        )
+      `);
+      await pgPool.query(`ALTER TABLE user_chat_sessions ADD COLUMN IF NOT EXISTS revision BIGINT DEFAULT 0`);
+      await pgPool.query(`ALTER TABLE user_chat_sessions ADD COLUMN IF NOT EXISTS schema_version INTEGER DEFAULT 1`);
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS query_log (
+          id BIGSERIAL PRIMARY KEY,
+          user_id TEXT,
+          query TEXT,
+          filters TEXT,
+          result_count INTEGER DEFAULT 0,
+          latency_ms INTEGER DEFAULT 0,
+          ts BIGINT NOT NULL
+        )
+      `);
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS feedback (
+          id BIGSERIAL PRIMARY KEY,
+          message_id TEXT NOT NULL,
+          user_id TEXT,
+          channel TEXT,
+          value INTEGER NOT NULL,
+          ts BIGINT NOT NULL
+        )
+      `);
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS client_logs (
+          id BIGSERIAL PRIMARY KEY,
+          level TEXT NOT NULL,
+          message TEXT NOT NULL,
+          stack TEXT,
+          user_agent TEXT,
+          url TEXT,
+          timestamp TEXT,
+          created_at BIGINT NOT NULL
         )
       `);
       billingClient = await pgPool.connect();
@@ -563,9 +600,17 @@ export async function initDatabase() {
       CREATE TABLE IF NOT EXISTS user_chat_sessions (
         user_id TEXT PRIMARY KEY,
         sessions_json TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        schema_version INTEGER NOT NULL DEFAULT 1
       )
     `);
+    try {
+      await db.exec(`ALTER TABLE user_chat_sessions ADD COLUMN revision INTEGER DEFAULT 0`);
+    } catch (_) { /* column already exists */ }
+    try {
+      await db.exec(`ALTER TABLE user_chat_sessions ADD COLUMN schema_version INTEGER DEFAULT 1`);
+    } catch (_) { /* column already exists */ }
     await db.exec(`
       CREATE TABLE IF NOT EXISTS point_wallets (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
@@ -1304,10 +1349,17 @@ export async function upsertPapers(rows, sourceBatch = "") {
 /** 记录查询日志 */
 export async function logQuery({ userId, query, filters, resultCount, latencyMs }) {
   try {
+    if (pgPool) {
+      await pgPool.query(
+        `INSERT INTO query_log (user_id, query, filters, result_count, latency_ms, ts) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [userId || null, query || "", JSON.stringify(filters || {}), resultCount || 0, latencyMs || 0, Date.now()],
+      );
+      return;
+    }
     const db = await getSqliteDb();
     await db.run(
       `INSERT INTO query_log (user_id, query, filters, result_count, latency_ms, ts) VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId || null, query || "", JSON.stringify(filters || {}), resultCount || 0, latencyMs || 0, Date.now()]
+      [userId || null, query || "", JSON.stringify(filters || {}), resultCount || 0, latencyMs || 0, Date.now()],
     );
   } catch (e) {
     // query_log 表可能不存在，静默忽略
@@ -1317,10 +1369,17 @@ export async function logQuery({ userId, query, filters, resultCount, latencyMs 
 /** 插入反馈 */
 export async function insertFeedback({ messageId, userId, channel, value }) {
   try {
+    if (pgPool) {
+      await pgPool.query(
+        `INSERT INTO feedback (message_id, user_id, channel, value, ts) VALUES ($1,$2,$3,$4,$5)`,
+        [messageId, userId || null, channel || "", value, Date.now()],
+      );
+      return;
+    }
     const db = await getSqliteDb();
     await db.run(
       `INSERT INTO feedback (message_id, user_id, channel, value, ts) VALUES (?, ?, ?, ?, ?)`,
-      [messageId, userId || null, channel || "", value, Date.now()]
+      [messageId, userId || null, channel || "", value, Date.now()],
     );
   } catch (e) {
     // feedback 表可能不存在，静默忽略
@@ -1360,24 +1419,28 @@ export async function getUserChatSessions(userId) {
   try {
     if (pgPool) {
       const r = await pgPool.query(
-        `SELECT sessions_json, updated_at FROM user_chat_sessions WHERE user_id = $1`,
+        `SELECT sessions_json, updated_at, revision, schema_version FROM user_chat_sessions WHERE user_id = $1`,
         [userId],
       );
       if (!r.rows.length) return null;
       return {
         sessionsJson: r.rows[0].sessions_json,
         updatedAt: Number(r.rows[0].updated_at) || 0,
+        revision: Number(r.rows[0].revision) || 0,
+        schemaVersion: Number(r.rows[0].schema_version) || 1,
       };
     }
     const db = await getSqliteDb();
     const row = await db.get(
-      `SELECT sessions_json, updated_at FROM user_chat_sessions WHERE user_id = ?`,
+      `SELECT sessions_json, updated_at, revision, schema_version FROM user_chat_sessions WHERE user_id = ?`,
       [userId],
     );
     if (!row) return null;
     return {
       sessionsJson: row.sessions_json,
       updatedAt: Number(row.updated_at) || 0,
+      revision: Number(row.revision) || 0,
+      schemaVersion: Number(row.schema_version) || 1,
     };
   } catch (e) {
     console.warn("[db] getUserChatSessions failed", e?.message || e);
@@ -1385,28 +1448,125 @@ export async function getUserChatSessions(userId) {
   }
 }
 
-/** 保存用户聊天会话 */
-export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Date.now()) {
-  if (!userId || userId === "anonymous") return false;
-  const ts = Number(updatedAt) || Date.now();
+/** 保存用户聊天会话（支持乐观并发控制）
+ * @param {string} userId
+ * @param {string} sessionsJson
+ * @param {number} [updatedAt] - ignored; server clock is always used
+ * @param {number|null} [baseRevision] - if a non-negative integer, conditional update; null = legacy unconditional
+ * @returns {{ ok: boolean, revision?: number, updatedAt?: number, conflict?: boolean, sessions_json?: string }}
+ */
+export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Date.now(), baseRevision = null) {
+  if (!userId || userId === "anonymous") return { ok: false };
+  const serverTs = Date.now();
+  const isConditional = typeof baseRevision === "number" && Number.isFinite(baseRevision) && baseRevision >= 0;
   try {
     if (pgPool) {
-      await pgPool.query(
-        `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at) VALUES ($1,$2,$3)
-         ON CONFLICT (user_id) DO UPDATE SET sessions_json = EXCLUDED.sessions_json, updated_at = EXCLUDED.updated_at`,
-        [userId, sessionsJson, ts],
+      if (isConditional) {
+        // Conditional update: only succeeds if revision matches
+        const upd = await pgPool.query(
+          `UPDATE user_chat_sessions
+           SET sessions_json = $1, updated_at = $2, revision = revision + 1, schema_version = 2
+           WHERE user_id = $3 AND revision = $4
+           RETURNING revision, updated_at`,
+          [sessionsJson, serverTs, userId, baseRevision],
+        );
+        if (upd.rowCount > 0) {
+          return { ok: true, revision: Number(upd.rows[0].revision), updatedAt: Number(upd.rows[0].updated_at) };
+        }
+        // Check if row exists at all
+        const cur = await pgPool.query(
+          `SELECT revision, sessions_json, updated_at FROM user_chat_sessions WHERE user_id = $1`,
+          [userId],
+        );
+        if (!cur.rows.length) {
+          // No row yet — do first insert
+          const ins = await pgPool.query(
+            `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
+             VALUES ($1, $2, $3, 1, 2) RETURNING revision, updated_at`,
+            [userId, sessionsJson, serverTs],
+          );
+          return { ok: true, revision: Number(ins.rows[0].revision), updatedAt: Number(ins.rows[0].updated_at) };
+        }
+        // Conflict: return current server state
+        return {
+          ok: false,
+          conflict: true,
+          revision: Number(cur.rows[0].revision),
+          sessions_json: cur.rows[0].sessions_json,
+          updatedAt: Number(cur.rows[0].updated_at),
+        };
+      }
+      // Legacy unconditional upsert — still increments revision
+      const res = await pgPool.query(
+        `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
+         VALUES ($1, $2, $3, 1, 2)
+         ON CONFLICT (user_id) DO UPDATE SET
+           sessions_json = EXCLUDED.sessions_json,
+           updated_at = $3,
+           revision = user_chat_sessions.revision + 1,
+           schema_version = 2
+         RETURNING revision, updated_at`,
+        [userId, sessionsJson, serverTs],
       );
-      return true;
+      return { ok: true, revision: Number(res.rows[0].revision), updatedAt: Number(res.rows[0].updated_at) };
     }
+
+    // SQLite path
     const db = await getSqliteDb();
+    if (isConditional) {
+      const upd = await db.run(
+        `UPDATE user_chat_sessions
+         SET sessions_json = ?, updated_at = ?, revision = revision + 1, schema_version = 2
+         WHERE user_id = ? AND revision = ?`,
+        [sessionsJson, serverTs, userId, baseRevision],
+      );
+      if ((upd?.changes ?? 0) > 0) {
+        const row = await db.get(
+          `SELECT revision, updated_at FROM user_chat_sessions WHERE user_id = ?`,
+          [userId],
+        );
+        return { ok: true, revision: Number(row?.revision ?? 0), updatedAt: Number(row?.updated_at ?? serverTs) };
+      }
+      // Check if row exists
+      const cur = await db.get(
+        `SELECT revision, sessions_json, updated_at FROM user_chat_sessions WHERE user_id = ?`,
+        [userId],
+      );
+      if (!cur) {
+        // No row yet — first insert
+        await db.run(
+          `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
+           VALUES (?, ?, ?, 1, 2)`,
+          [userId, sessionsJson, serverTs],
+        );
+        return { ok: true, revision: 1, updatedAt: serverTs };
+      }
+      return {
+        ok: false,
+        conflict: true,
+        revision: Number(cur.revision),
+        sessions_json: cur.sessions_json,
+        updatedAt: Number(cur.updated_at),
+      };
+    }
+    // Legacy unconditional upsert for SQLite
     await db.run(
-      `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at) VALUES (?,?,?)
-       ON CONFLICT(user_id) DO UPDATE SET sessions_json = excluded.sessions_json, updated_at = excluded.updated_at`,
-      [userId, sessionsJson, ts],
+      `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
+       VALUES (?, ?, ?, 1, 2)
+       ON CONFLICT(user_id) DO UPDATE SET
+         sessions_json = excluded.sessions_json,
+         updated_at = excluded.updated_at,
+         revision = user_chat_sessions.revision + 1,
+         schema_version = 2`,
+      [userId, sessionsJson, serverTs],
     );
-    return true;
+    const row = await db.get(
+      `SELECT revision, updated_at FROM user_chat_sessions WHERE user_id = ?`,
+      [userId],
+    );
+    return { ok: true, revision: Number(row?.revision ?? 1), updatedAt: Number(row?.updated_at ?? serverTs) };
   } catch (e) {
     console.warn("[db] saveUserChatSessions failed", e?.message || e);
-    return false;
+    return { ok: false };
   }
 }

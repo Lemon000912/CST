@@ -446,7 +446,7 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     }
     const row = await getUserChatSessions(userId);
     if (!row?.sessionsJson) {
-      return res.json({ sessions: [], updatedAt: 0 });
+      return res.json({ sessions: [], updatedAt: 0, revision: 0, schema_version: 1 });
     }
     let sessions = [];
     try {
@@ -455,7 +455,12 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     } catch {
       sessions = [];
     }
-    return res.json({ sessions, updatedAt: row.updatedAt });
+    return res.json({
+      sessions,
+      updatedAt: row.updatedAt,
+      revision: row.revision ?? 0,
+      schema_version: row.schemaVersion ?? 1,
+    });
   } catch (e) {
     console.error("[chat/sessions GET]", e);
     return res.status(500).json({ error: e?.message || "读取会话失败" });
@@ -476,14 +481,30 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
     if (!Array.isArray(sessions)) {
       return res.status(400).json({ error: "sessions 须为数组" });
     }
-    const updatedAt = Number(req.body?.updatedAt) || Date.now();
+    const rawBase = req.body?.baseRevision;
+    const baseRevision = rawBase != null && rawBase !== "" ? Number(rawBase) : null;
     const json = JSON.stringify(sessions);
     if (json.length > 6_000_000) {
       return res.status(413).json({ error: "会话数据过大，请导出后清理部分旧对话" });
     }
-    const ok = await saveUserChatSessions(userId, json, updatedAt);
-    if (!ok) return res.status(500).json({ error: "保存失败" });
-    return res.json({ ok: true, updatedAt, count: sessions.length });
+    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision);
+    if (result.conflict) {
+      let parsedSessions = [];
+      try {
+        const p = JSON.parse(result.sessions_json ?? "[]");
+        parsedSessions = Array.isArray(p) ? p : [];
+      } catch {
+        parsedSessions = [];
+      }
+      return res.status(409).json({
+        code: "chat-sessions-conflict",
+        revision: result.revision,
+        sessions: parsedSessions,
+        updatedAt: result.updatedAt,
+      });
+    }
+    if (!result.ok) return res.status(500).json({ error: "保存失败" });
+    return res.json({ ok: true, revision: result.revision, updatedAt: result.updatedAt, count: sessions.length });
   } catch (e) {
     console.error("[chat/sessions PUT]", e);
     return res.status(500).json({ error: e?.message || "保存会话失败" });
@@ -1946,25 +1967,46 @@ app.get("/api/v1/admin/users", async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
     const search = String(req.query.search || "").trim();
 
-    const db = await getSqliteDb();
-    let sql = "SELECT id, username, created_at FROM users";
-    let params = [];
+    let users = [];
+    let total = 0;
 
-    if (search) {
-      sql += " WHERE username LIKE ?";
-      params = [`%${search}%`];
+    if (pgPool) {
+      let countSql = "SELECT COUNT(*) as total FROM users";
+      let countParams = [];
+      if (search) {
+        countSql += " WHERE username ILIKE $1";
+        countParams = [`%${search}%`];
+      }
+      const countResult = await pgPool.query(countSql, countParams);
+      total = parseInt(countResult.rows[0]?.total ?? "0") || 0;
+
+      let sql = "SELECT id, username, created_at FROM users";
+      let params = [];
+      if (search) {
+        sql += " WHERE username ILIKE $1";
+        params = [`%${search}%`];
+      }
+      sql += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, skip);
+      const result = await pgPool.query(sql, params);
+      users = result.rows;
+    } else {
+      const db = await getSqliteDb();
+      let sql = "SELECT id, username, created_at FROM users";
+      let params = [];
+      if (search) {
+        sql += " WHERE username LIKE ?";
+        params = [`%${search}%`];
+      }
+      const countResult = await db.all(
+        `SELECT COUNT(*) as total FROM users ${search ? "WHERE username LIKE ?" : ""}`,
+        search ? [`%${search}%`] : [],
+      );
+      total = countResult[0]?.total || 0;
+      sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+      params.push(limit, skip);
+      users = await db.all(sql, params);
     }
-
-    const countResult = await db.all(
-      `SELECT COUNT(*) as total FROM users ${search ? "WHERE username LIKE ?" : ""}`,
-      search ? [`%${search}%`] : []
-    );
-    const total = countResult[0]?.total || 0;
-
-    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-    params.push(limit, skip);
-
-    const users = await db.all(sql, params);
 
     res.json({
       success: true,
@@ -2272,13 +2314,24 @@ app.get("/api/v1/admin/logs/errors", async (req, res) => {
   try {
     const skip = Math.max(0, Number(req.query.skip) || 0);
     const limit = Math.min(100, Math.max(1, Number(req.query.lines) || Number(req.query.limit) || 50));
-    const db = await getSqliteDb();
-    const logs = await db.all(
-      `SELECT * FROM client_logs
-       WHERE level IS NULL OR lower(level) IN ('error', 'warn', 'warning')
-       ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [limit, skip],
-    );
+    let logs = [];
+    if (pgPool) {
+      const result = await pgPool.query(
+        `SELECT * FROM client_logs
+         WHERE level IS NULL OR lower(level) IN ('error', 'warn', 'warning')
+         ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        [limit, skip],
+      );
+      logs = result.rows;
+    } else {
+      const db = await getSqliteDb();
+      logs = await db.all(
+        `SELECT * FROM client_logs
+         WHERE level IS NULL OR lower(level) IN ('error', 'warn', 'warning')
+         ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+        [limit, skip],
+      );
+    }
     res.json({
       success: true,
       data: {
@@ -2306,13 +2359,20 @@ app.get("/api/v1/admin/logs/searches", async (req, res) => {
   try {
     const skip = Math.max(0, Number(req.query.skip) || 0);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-
-    const db = await getSqliteDb();
-    const logs = await db.all(
-      "SELECT query, result_count, ts FROM query_log ORDER BY ts DESC LIMIT ? OFFSET ?",
-      [limit, skip]
-    );
-
+    let logs = [];
+    if (pgPool) {
+      const result = await pgPool.query(
+        "SELECT query, result_count, ts FROM query_log ORDER BY ts DESC LIMIT $1 OFFSET $2",
+        [limit, skip],
+      );
+      logs = result.rows;
+    } else {
+      const db = await getSqliteDb();
+      logs = await db.all(
+        "SELECT query, result_count, ts FROM query_log ORDER BY ts DESC LIMIT ? OFFSET ?",
+        [limit, skip],
+      );
+    }
     res.json({
       success: true,
       data: {
@@ -2334,7 +2394,7 @@ app.get("/api/v1/admin/logs/searches", async (req, res) => {
 app.post("/api/v1/client/log", async (req, res) => {
   try {
     const { level, message, stack, userAgent, url, timestamp } = req.body;
-    
+
     console.error(`[Client Error] ${level}: ${message}`, {
       stack,
       userAgent,
@@ -2342,14 +2402,20 @@ app.post("/api/v1/client/log", async (req, res) => {
       timestamp,
       ip: req.ip
     });
-    
-    // 保存到SQLite
-    const db = await getSqliteDb();
-    await db.run(
-      "INSERT INTO client_logs (level, message, stack, user_agent, url, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [level, message, stack, userAgent, url, timestamp, Date.now()]
-    );
-    
+
+    if (pgPool) {
+      await pgPool.query(
+        "INSERT INTO client_logs (level, message, stack, user_agent, url, timestamp, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [level, message, stack, userAgent, url, timestamp, Date.now()],
+      );
+    } else {
+      const db = await getSqliteDb();
+      await db.run(
+        "INSERT INTO client_logs (level, message, stack, user_agent, url, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [level, message, stack, userAgent, url, timestamp, Date.now()],
+      );
+    }
+
     res.json({ success: true });
   } catch (e) {
     console.error("[client/log] error:", e);
@@ -2362,13 +2428,21 @@ app.get("/api/v1/admin/logs/client", async (req, res) => {
   try {
     const skip = Math.max(0, Number(req.query.skip) || 0);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-    
-    const db = await getSqliteDb();
-    const logs = await db.all(
-      "SELECT * FROM client_logs ORDER BY created_at DESC LIMIT ? OFFSET ?",
-      [limit, skip]
-    );
-    
+    let logs = [];
+    if (pgPool) {
+      const result = await pgPool.query(
+        "SELECT * FROM client_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        [limit, skip],
+      );
+      logs = result.rows;
+    } else {
+      const db = await getSqliteDb();
+      logs = await db.all(
+        "SELECT * FROM client_logs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        [limit, skip],
+      );
+    }
+
     res.json({
       success: true,
       data: {
