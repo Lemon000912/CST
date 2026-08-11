@@ -22,6 +22,11 @@ export default defineConfig(({ mode }) => {
   return {
     root: __dirname,
     plugins: [react()],
+    build: {
+      // 生产 Apache 固定从仓库根目录 dist 提供静态文件。
+      outDir: path.resolve(repoRoot, "dist"),
+      emptyOutDir: true,
+    },
     server: {
       /** 0.0.0.0：允许局域网/路由器端口转发（仅 127.0.0.1 时外网 19012→5175 会连不上） */
       host: true,

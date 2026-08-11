@@ -168,11 +168,33 @@ export function resolveProviderSlot(slot, hints = {}) {
   });
 }
 
+export function resolveTriProviderStatus(hints = {}) {
+  const providers = Object.freeze({
+    A: resolveProviderSlot("A", hints),
+    B: resolveProviderSlot("B", hints),
+    C: resolveProviderSlot("C", hints),
+  });
+  const missingSlots = Object.freeze(
+    Object.entries(providers)
+      .filter(([, provider]) => !provider)
+      .map(([slot]) => slot),
+  );
+  const descriptions = Object.freeze({
+    A: describeProvider(providers.A),
+    B: describeProvider(providers.B),
+    C: describeProvider(providers.C),
+  });
+  return Object.freeze({
+    complete: missingSlots.length === 0,
+    missingSlots,
+    providers,
+    descriptions,
+  });
+}
+
 export function resolveTriProviders(hints = {}) {
-  const A = resolveProviderSlot("A", hints);
-  const B = resolveProviderSlot("B", hints);
-  const C = resolveProviderSlot("C", hints);
-  return A && B && C ? Object.freeze({ A, B, C }) : null;
+  const status = resolveTriProviderStatus(hints);
+  return status.complete ? status.providers : null;
 }
 
 export function withProviderModel(provider, model, slot = provider?.slot) {

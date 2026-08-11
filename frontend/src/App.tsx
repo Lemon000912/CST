@@ -1172,14 +1172,21 @@ function AssistantBlock({
     return synthShown.slice(directLen + 2);
   }, [synthStreamEnabled, synthesisParts.directMd, synthesisParts.indirectMd, synthShown]);
   const isWebChannel = msg.meta?.channel === "web" && !msg.error;
+  const synthesisMode = String(msg.meta?.synthesisModels?.mode ?? "");
+  const webNoSynthNote = String(msg.meta?.synthesisNote ?? "").trim();
+  const webSynthesisPending = /synth:(pending|streaming)/i.test(webNoSynthNote);
+  const isAttachmentSynthesis = synthesisMode.startsWith("attachment_");
   const isDbHybridAnswer =
     msg.meta?.channel === "database" &&
     !msg.error &&
-    !!(msg.meta?.webAnswerDrafts || msg.meta?.synthesisModels?.mode === "database_hybrid");
-  const isWebTriAnswer =
-    (isWebChannel || isDbHybridAnswer) &&
-    !!(msg.meta?.webAnswerDrafts || msg.meta?.synthesisModels?.mode?.startsWith("web_tri") || msg.meta?.synthesisModels?.mode === "database_hybrid");
-  const webAnswerDrafts = msg.meta?.webAnswerDrafts;
+    !!(msg.meta?.webAnswerDrafts || synthesisMode === "database_hybrid");
+  const isWebTriAnswer = isDbHybridAnswer || (
+    isWebChannel &&
+    !webSynthesisPending &&
+    !isAttachmentSynthesis
+  );
+  const webAnswerDrafts = msg.meta?.webAnswerDrafts ?? {};
+  const webTriConfigIncomplete = synthesisMode.includes("config_incomplete");
   const hasWebSynthesis = !!(synthesisMd && synthesisMd.trim());
   const showWebDualPane = (isWebChannel || isDbHybridAnswer) && n > 0;
   const showWebUnified = showWebDualPane && hasWebSynthesis;
@@ -1189,8 +1196,6 @@ function AssistantBlock({
     if (!m) return null;
     return `联网回答依据 ${m[1]} 条强相关摘录（检索 ${m[2]} 条，已剔除跑题 ${m[3]} 条）`;
   }, [msg.meta?.synthesisNote]);
-  const webNoSynthNote = String(msg.meta?.synthesisNote ?? "").trim();
-  const webSynthesisPending = /synth:(pending|streaming)/i.test(webNoSynthNote);
   /** 确为未配 Key 时才提示配 Key；no-relevant-sources 等勿误导为断网或未配 Key */
   const webNoSynthKeyHint = /no-llm-key|stub:no-llm/i.test(webNoSynthNote);
   const webNoSynthRelevanceHint =
@@ -1606,37 +1611,6 @@ function AssistantBlock({
                     块，可重试或检查模型输出。
                   </p>
                 ) : null}
-                {isWebTriAnswer && webAnswerDrafts ? (
-                  <details className="mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2">
-                    <summary className="cursor-pointer list-none text-[11px] font-semibold text-[var(--t-text)] [&::-webkit-details-marker]:hidden">
-                      三模型各自作答（对照，点击展开）
-                    </summary>
-                    <div className="mt-2 space-y-3 text-[11px] leading-relaxed text-[var(--t-text-muted)]">
-                      {(
-                        [
-                          ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA, msg.meta?.synthesisModels?.modelA],
-                          ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB, msg.meta?.synthesisModels?.modelB],
-                          ["C", webAnswerDrafts.modelC, webAnswerDrafts.noteC, msg.meta?.synthesisModels?.modelC],
-                        ] as const
-                      ).map(([slot, md, note, modelName]) => (
-                        <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
-                          <p className="mb-1 font-semibold text-[var(--t-text)]">
-                            模型 {slot}
-                            {modelName ? ` · ${modelName}` : ""}
-                            {note ? ` · ${note}` : ""}
-                          </p>
-                          {md?.trim() ? (
-                            <ReactMarkdown components={mdLinkComponents}>
-                              {linkifySynthesisCitations(md, msg.papers)}
-                            </ReactMarkdown>
-                          ) : (
-                            <p className="text-[var(--t-text-dim)]">（未生成或调用失败）</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                ) : null}
               </>
             ) : null}
             {hasDeepBlock ? (
@@ -1687,6 +1661,44 @@ function AssistantBlock({
               </>
             ) : null}
           </div>
+        ) : null}
+        {isWebTriAnswer ? (
+          <details className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2">
+            <summary className="cursor-pointer list-none text-[11px] font-semibold text-[var(--t-text)] [&::-webkit-details-marker]:hidden">
+              三模型各自作答（对照，点击展开）
+            </summary>
+            {webTriConfigIncomplete ? (
+              <p className="mt-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-800 dark:text-amber-200">
+                三模型 Provider 配置不完整；已展示实际执行结果，未配置或失败的模型会标记为“未生成或调用失败”。
+              </p>
+            ) : null}
+            <div className="mt-2 space-y-3 text-[11px] leading-relaxed text-[var(--t-text-muted)]">
+              {(
+                [
+                  ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA, msg.meta?.synthesisModels?.modelA],
+                  ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB, msg.meta?.synthesisModels?.modelB],
+                  ["C", webAnswerDrafts.modelC, webAnswerDrafts.noteC, msg.meta?.synthesisModels?.modelC],
+                ] as const
+              ).map(([slot, md, note, modelName]) => (
+                <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
+                  <p className="mb-1 font-semibold text-[var(--t-text)]">
+                    模型 {slot}
+                    {modelName ? ` · ${modelName}` : ""}
+                    {note ? ` · ${note}` : ""}
+                  </p>
+                  {md?.trim() ? (
+                    <ReactMarkdown components={mdLinkComponents}>
+                      {linkifySynthesisCitations(md, msg.papers)}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="text-[var(--t-text-dim)]">
+                      （未生成或调用失败{note ? `：${note}` : ""}）
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
         ) : null}
         {!msg.error ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
         {!msg.error &&

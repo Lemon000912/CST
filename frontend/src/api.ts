@@ -424,7 +424,15 @@ export async function* searchPapersV1Stream(
             } else if (eventName === "synthesis_token") {
               yield { type: "synthesis_token", token: String(obj.token ?? "") };
             } else if (eventName === "done") {
-              yield { type: "done", ...(obj as Omit<StreamSearchEvent & { type: "done" }, "type">) };
+              const doneEvent = obj as Omit<StreamSearchEvent & { type: "done" }, "type">;
+              const billingReceipt = parseBillingReceipt(obj.billingReceipt ?? obj.billing) ?? null;
+              yield {
+                type: "done",
+                ...doneEvent,
+                billingReceipt,
+                parentOperationId:
+                  String(obj.parentOperationId ?? billingReceipt?.operationId ?? "") || undefined,
+              };
             } else if (eventName === "error") {
               yield { type: "error", error: String(obj.error ?? "未知错误") };
             }

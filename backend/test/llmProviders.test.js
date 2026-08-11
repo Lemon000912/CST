@@ -7,6 +7,7 @@ import {
   geminiGenerateContentUrl,
   openAiChatCompletionsUrl,
   resolvePrimaryProvider,
+  resolveTriProviderStatus,
   resolveTriProviders,
 } from "../llmProviders.js";
 
@@ -228,6 +229,36 @@ test("legacy C does not inherit broad Google or primary OpenAI configuration", (
     },
     () => {
       assert.equal(resolveTriProviders(), null);
+    },
+  );
+});
+
+test("tri provider status reports missing slots without exposing credentials", () => {
+  withEnv(
+    {
+      LLM_PROVIDER_A_API_KEY: "secret-key-a",
+      LLM_PROVIDER_A_BASE_URL: "https://a.example/v1",
+      LLM_PROVIDER_A_MODEL: "gpt-model",
+      LLM_PROVIDER_C_API_KEY: "secret-key-c",
+      LLM_PROVIDER_C_BASE_URL: "https://c.example/v1beta",
+      LLM_PROVIDER_C_MODEL: "gemini-model",
+    },
+    () => {
+      const status = resolveTriProviderStatus();
+      assert.equal(status.complete, false);
+      assert.deepEqual(status.missingSlots, ["B"]);
+      assert.equal(status.providers.A?.model, "gpt-model");
+      assert.equal(status.providers.B, null);
+      assert.equal(status.providers.C?.model, "gemini-model");
+      assert.deepEqual(status.descriptions.A, {
+        slot: "A",
+        protocol: LLM_PROTOCOLS.OPENAI,
+        model: "gpt-model",
+        source: "provider",
+      });
+      assert.equal(JSON.stringify(status.descriptions).includes("secret-key"), false);
+      assert.equal(Object.isFrozen(status), true);
+      assert.equal(Object.isFrozen(status.missingSlots), true);
     },
   );
 });
