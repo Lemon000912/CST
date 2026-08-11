@@ -318,7 +318,7 @@ export async function searchPapersV1(
 export type StreamSearchEvent =
   | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string }
   | { type: "synthesis_token"; token: string }
-  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[] }
+  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
   | { type: "error"; error: string };
 
 /**

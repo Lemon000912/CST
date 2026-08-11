@@ -78,18 +78,24 @@ export function parseSynthesisOutput(raw) {
     }
   }
 
-  const lastBrace = text.lastIndexOf("{");
-  if (lastBrace >= 0 && lastBrace > text.length * 0.45) {
-    const tail = text.slice(lastBrace).trim();
+  const candidateStarts = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "{" && (i === 0 || /\s/.test(text[i - 1]))) candidateStarts.push(i);
+  }
+  for (const start of candidateStarts) {
+    const tail = text.slice(start).trim();
     try {
-      const plan = normalizeSynthesisPlan(JSON.parse(tail));
+      const parsed = JSON.parse(tail);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      if (!("steps" in parsed) && !("extractedData" in parsed)) continue;
+      const plan = normalizeSynthesisPlan(parsed);
       return {
-        markdown: text.slice(0, lastBrace).trim(),
+        markdown: text.slice(0, start).trim(),
         plan,
         planNote: plan?.extractedData?.length ? "synth_plan:ok_inline" : "synth_plan:ok_inline_no_data",
       };
     } catch {
-      /* fall through */
+      /* try the next outer brace */
     }
   }
 

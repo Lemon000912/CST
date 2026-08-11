@@ -35,10 +35,6 @@ import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
 import { runPaperSearch } from "./searchService.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
-import { generateTextStream } from "./llmClient.js";
-import { resolvePrimaryProvider } from "./llmProviders.js";
-import { synthesizeFromPapers } from "./synthesize.js";
-import { finalizeSynthesisMarkdown } from "./synthesisExtract.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
 import {
   shouldUseAttachmentPrimarySynthesis,
@@ -1293,18 +1289,40 @@ app.post("/api/v1/feedback", async (req, res) => {
 // 与 /api/v1/search 参数完全兼容；额外实现两阶段 SSE：
 //   1. event:papers  — runPaperSearch 完成后立即推送文献列表
 //   2. event:synthesis_token — LLM 综述 token 逐字推送
-//   3. event:done  — 含最终元数据（latencyMs、synthesisNote 等）
-// 不走 billingMiddleware（billing 逻辑与 /api/v1/search 共享，不重复收费）
+//   3. event:done  — 含最终元数据（latencyMs、billingReceipt、parentOperationId 等）
 app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimitHit(ip)) {
     return res.status(429).json({ error: "请求过于频繁，请稍后再试（S-5）" });
   }
 
-  // SSE 头
+  // ── 计费开始（在推 SSE 头之前，失败可返回标准 JSON 错误） ──
+  let activeOperation = null;
+  let begun;
+  try {
+    const idempotencyKey = requireIdempotencyKey(req);
+    const requestHash = stableRequestHash({
+      body: req.body ?? {},
+      llmHeaders: {
+        model: req.headers["x-openai-model"] ?? "",
+        chatUrl: req.headers["x-llm-chat-url"] ?? "",
+        persona: req.headers["x-persona"] ?? "",
+      },
+    });
+    begun = await beginBillableOperation({
+      userId: req.auth.userId,
+      operationType: "search",
+      idempotencyKey,
+      requestHash,
+    });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "Unable to begin search" });
+  }
+
+  // SSE 头（计费确认后再推，余额不足时已在上方返回 JSON 错误）
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("X-Accel-Buffering", "no"); // 关闭 Nginx 缓冲
+  res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
@@ -1315,6 +1333,43 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   };
 
   const t0 = Date.now();
+
+  // ── 幂等重放：从历史操作结果重建 SSE 流 ──
+  if (begun.replayed) {
+    const op = begun.operation;
+    const stored = op?.result ?? {};
+    if (Array.isArray(stored.papers)) {
+      send("papers", {
+        papers: stored.papers,
+        effectiveQuery: stored.effectiveQuery,
+        rewriteNote: stored.rewriteNote,
+        sourcesUsed: stored.sourcesUsed,
+        channel: stored.channel,
+        sort: stored.sort,
+        latencySearch: 0,
+      });
+    }
+    if (stored.synthesis) {
+      send("synthesis_token", { token: stored.synthesis });
+    }
+    send("done", {
+      synthesis: stored.synthesis ?? null,
+      synthesisNote: "synth:replayed",
+      synthesisPlan: stored.synthesisPlan ?? null,
+      deepMine: stored.deepMine ?? null,
+      deepSynthesis: stored.deepSynthesis ?? null,
+      deepSynthesisNote: stored.deepSynthesisNote ?? null,
+      synthesisModels: stored.synthesisModels,
+      webAnswerDrafts: stored.webAnswerDrafts,
+      parentOperationId: op.id,
+      billingReceipt: op.receipt,
+      replayed: true,
+      latencyMs: 0,
+    });
+    return res.end();
+  }
+
+  activeOperation = begun.operation;
 
   try {
     // ── 解析请求参数（与 /api/v1/search 完全一致） ──
@@ -1334,6 +1389,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       .filter(Boolean).join("").trim();
     if (!mergedQuery) {
       send("error", { error: "请输入检索内容或上传可解析的文件" });
+      await failOperationBestEffort(activeOperation, req.auth.userId, new ApiRouteError(400, "empty-query", "empty query"));
       return res.end();
     }
 
@@ -1401,100 +1457,53 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       personaLabel,
     });
 
-    // ── 阶段 2：流式综述 ──
-    if (!includeSynthesis || !result.papers.length) {
-      send("done", {
-        synthesis: null,
-        synthesisNote: includeSynthesis ? "synth:no-papers" : "synth:skipped",
-        synthesisPlan: null,
-        latencyMs: Date.now() - t0,
-      });
-      return res.end();
-    }
-
-    const primary = resolvePrimaryProvider({
-      apiKey: openaiApiKey || undefined,
-      model: openaiModel || undefined,
-      chatCompletionsUrl: llmChatUrl || undefined,
-    });
-
-    if (!primary) {
-      send("done", {
-        synthesis: null,
-        synthesisNote: "synth:no-llm-key",
-        synthesisPlan: null,
-        latencyMs: Date.now() - t0,
-      });
-      return res.end();
-    }
-
-    // 构造与 synthesize.js runSingleSynthesisModel 相同的 prompt，改用流式调用
-    const papers = result.papers.slice(0, 35);
-    const list = papers.map((p, i) => {
-      const doi = String(p.doi ?? "").trim();
-      const ax = String(p.id ?? p.arxiv_id ?? "").replace(/^arxiv:/i, "").trim();
-      const title = String(p.title ?? "").slice(0, 200);
-      const authors = Array.isArray(p.authors) ? p.authors.join(", ") : String(p.authors ?? "");
-      const src = String(p.source ?? "");
-      const absU = String(p.absUrl ?? "").trim();
-      const abstRaw = String(p.summary ?? p.abstract ?? "");
-      const abst = abstRaw.slice(0, ["mcp_web","ddg_web","ddg_patent","dataify_web","tavily_web","openalex_patent"].includes(src) ? 360 : 240);
-      let idLine = doi ? `DOI: ${doi}` : ax ? `arXiv: ${ax}` : absU ? `URL: ${absU.slice(0, 240)}` : "（无 ID）";
-      const typeTag = (src === "ddg_patent" || src === "openalex_patent") ? "专利" :
-        (src === "mcp_web" || src === "ddg_web" || src === "dataify_web" || src === "tavily_web") ? "网页" : "文献";
-      return `[${i+1}] 类型:${typeTag} | ${idLine}\n标题: ${title}\n作者: ${authors.slice(0, 220)}\n摘要摘录: ${abst}`;
-    }).join("\n\n---\n\n");
-
-    const skillRaw = String(personaSkill ?? "").trim().slice(0, 2800);
-    const skillPrefix = skillRaw ? `【用户身份/用途】\n${skillRaw}\n\n---\n\n` : "";
-    const avoidSuffix = outputAvoidance ? `\n\n【输出偏好（须遵守）】\n${outputAvoidance.slice(0, 2000)}` : "";
-    const nPat = papers.filter((p) => p.source === "ddg_patent" || p.source === "openalex_patent").length;
-
-    const SYNTH_SYS_STREAM =
-      "你是科研文献综述专家。请基于提供的文献摘录，生成一份结构化的文献综述。\n\n" +
-      "输出要求（使用二级标题 ##）：\n" +
-      "## 研究背景与意义\n## 主要研究进展\n## 关键技术与方法\n## 研究趋势与展望\n## 间接参考与延伸线索\n\n" +
-      "注意：事实须来自摘录，使用 (DOI:…) 或 [n] 标注，禁止编造，使用简体中文。" +
-      avoidSuffix;
-
-    const userMsg =
-      (synthConvoHint ? `【本对话上文】\n${synthConvoHint}\n\n` : "") +
-      `用户检索问题：${synthQuery.slice(0, 6000)}\n\n` +
-      `以下为检索到的摘录（共${papers.length}条）：\n\n${list}\n\n` +
-      "请基于以上摘录生成综述。";
-
+    // ── 阶段 2：综述（附件优先 → 流式默认） ──
     let fullSynthesis = "";
-    let streamHadTokens = false;
-
-    for await (const token of generateTextStream(primary, {
-      timeoutMs: 120_000,
-      temperature: 0.3,
-      maxTokens: 5000,
-      system: skillPrefix + SYNTH_SYS_STREAM,
-      messages: [{ role: "user", content: userMsg }],
-    })) {
-      if (res.writableEnded) break;
-      fullSynthesis += token;
-      streamHadTokens = true;
-      send("synthesis_token", { token });
-    }
-
-    // 流式结束；解析 plan
+    let synthesisNote = null;
     let plan = null;
     let planNote = null;
-    if (fullSynthesis) {
-      const fin = finalizeSynthesisMarkdown(fullSynthesis);
-      fullSynthesis = fin.markdown || fullSynthesis;
-      plan = fin.plan ?? null;
-      planNote = fin.planNote ?? null;
-    }
+    let synthesisModels = undefined;
+    let webAnswerDrafts = undefined;
 
-    if (!streamHadTokens) {
-      // 流式失败，回退到普通非流式综述
-      try {
-        const syn = await synthesizeFromPapers({
+    // 2a. 无综述 / 无文献：跳过综述，直接进入结算
+    const skipSynthesis = !includeSynthesis || !result.papers.length;
+
+    if (!skipSynthesis) {
+      // 2b. 附件优先综述（与非流式路由逻辑一致）
+      const useAttachmentPrimary = shouldUseAttachmentPrimarySynthesis(attachmentContext, currentQuery);
+      if (useAttachmentPrimary) {
+        try {
+          const synAtt = await synthesizeFromAttachmentContext({
+            userQuery: synthQuery,
+            attachmentContext,
+            filename: attachmentFilename || undefined,
+            conversationContext: synthConvoHint || undefined,
+            apiKey: openaiApiKey,
+            model: openaiModel,
+            modelB: modelBClient || undefined,
+            chatCompletionsUrl: llmChatUrl,
+            personaSkill,
+            outputAvoidanceHint: outputAvoidance || undefined,
+          });
+          synthesisNote = synAtt.note ?? null;
+          synthesisModels = synAtt.synthesisModels;
+          if (synAtt.markdown) {
+            fullSynthesis = synAtt.markdown;
+            plan = synAtt.plan ?? null;
+            planNote = synAtt.planNote ?? null;
+          }
+        } catch (e) {
+          console.error("[v1/search/stream] attachment synthesis failed", e?.message);
+        }
+      }
+
+      // 2c. 主综述：复用非流式路由的三模型/数据库混合编排，避免流式路由退化成单模型。
+      if (!fullSynthesis) {
+        const commonArgs = {
           userQuery: synthQuery,
           conversationContext: synthConvoHint || undefined,
+          attachmentContext: attachmentContext || undefined,
+          effectiveQuery: result.effectiveQuery,
           papers: result.papers,
           apiKey: openaiApiKey || undefined,
           model: openaiModel || undefined,
@@ -1502,17 +1511,69 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           chatCompletionsUrl: llmChatUrl || undefined,
           personaSkill,
           outputAvoidanceHint: outputAvoidance || undefined,
-        });
-        if (syn.markdown) {
-          // 回退时整体推送
-          send("synthesis_token", { token: syn.markdown });
-          fullSynthesis = syn.markdown;
-          plan = syn.plan ?? null;
-          planNote = syn.planNote ?? null;
-        }
-      } catch { /* 忽略 */ }
+        };
+        const syn = channel === "web"
+          ? await synthesizeWebTriAnswer(commonArgs)
+          : await synthesizeDatabaseCombined(commonArgs);
+        fullSynthesis = syn.markdown || "";
+        synthesisNote = syn.note ?? null;
+        plan = syn.plan ?? null;
+        planNote = syn.planNote ?? null;
+        synthesisModels = syn.synthesisModels;
+        webAnswerDrafts = syn.webAnswerDrafts ?? undefined;
+      }
+
+      // 只推送已经剥离结构化 JSON 的最终正文，防止 steps/extractedData 在正文中闪现。
+      if (fullSynthesis) send("synthesis_token", { token: fullSynthesis });
     }
 
+    // ── 阶段 3：Deep Mine（可选，与非流式路由一致） ──
+    let deepMine = null;
+    let deepSynthesis = null;
+    let deepSynthesisNote = null;
+    const dm = req.body?.deepMine;
+    const deepEnabled = dm === true || (dm && typeof dm === "object" && dm.enabled === true);
+    if (deepEnabled && !patentsOnly && result.papers.length > 0) {
+      try {
+        if (typeof req.socket?.setTimeout === "function") req.socket.setTimeout(920_000);
+        const { runDeepMinePipeline, synthesizeDeepFromMine } = await import("./deepPaperMine.js");
+        const dmOpts = typeof dm === "object" && dm ? dm : {};
+        deepMine = await runDeepMinePipeline({
+          papers: result.papers,
+          userQuery: synthQuery,
+          apiKey: openaiApiKey,
+          chatCompletionsUrl: llmChatUrl,
+          maxPapers: dmOpts.maxPapers,
+          maxPdfMb: dmOpts.maxPdfMb,
+        });
+        const runs = (deepMine?.papers ?? []).map((p) => ({
+          title: p.title,
+          doi: p.doi,
+          mdPreview: p.mdPreview,
+          keywords: (p.keywordModels ?? []).filter((k) => k.ok).map((k) => ({ model: k.model, data: k.data })),
+        }));
+        if (runs.some((r) => r.keywords.length)) {
+          const ds = await synthesizeDeepFromMine({
+            userQuery: synthQuery,
+            runs,
+            personaSkill,
+            apiKey: openaiApiKey,
+            model: openaiModel,
+            chatUrl: llmChatUrl,
+          });
+          deepSynthesis = ds.markdown;
+          deepSynthesisNote = ds.note;
+        } else {
+          deepSynthesisNote = "deep_synth:skipped_no_keywords";
+        }
+      } catch (e) {
+        console.error("[v1/search/stream] deepMine", e);
+        deepMine = { enabled: true, note: `deep_mine:error:${String(e?.message || e).slice(0, 200)}`, papers: [] };
+        deepSynthesisNote = "deep_synth:skipped_error";
+      }
+    }
+
+    // ── 阶段 4：记录查询日志 ──
     await logQuery({
       userId: req.auth.userId,
       query: rawQuery || "(仅上传文件)",
@@ -1521,18 +1582,62 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       latencyMs: result.latencyMs,
     });
 
+    // ── 阶段 5：结算 ──
+    const billingPayload = {
+      papers: result.papers,
+      synthesis: fullSynthesis || null,
+      deepMine,
+      deepSynthesis,
+    };
+    const billingDetails = searchBillingDetails(billingPayload);
+    const costUnits = calculateCostUnits({
+      characterCount: billingDetails.characterCount,
+      pdfCount: billingDetails.deepPaperCount,
+    });
+    const completed = await completeBillableOperation({
+      operationId: activeOperation.id,
+      userId: req.auth.userId,
+      leaseToken: activeOperation.leaseToken,
+      costUnits,
+      billingDetails,
+      result: {
+        ...billingPayload,
+        effectiveQuery: result.effectiveQuery,
+        rewriteNote: result.rewriteNote,
+        sourcesUsed: result.sourcesUsed,
+        channel,
+        sort,
+        synthesisPlan: plan,
+        deepSynthesisNote,
+        synthesisNote,
+        synthesisModels,
+        webAnswerDrafts,
+      },
+    });
+    const billingReceipt = completed.receipt;
+
     send("done", {
       synthesis: fullSynthesis || null,
-      synthesisNote: fullSynthesis ? "synth:stream_ok" : "synth:stream_failed",
+      synthesisNote: skipSynthesis
+        ? (includeSynthesis ? "synth:no-papers" : "synth:skipped")
+        : (synthesisNote ?? (fullSynthesis ? "synth:stream_ok" : "synth:stream_failed")),
       synthesisPlan: plan,
+      synthesisModels,
+      webAnswerDrafts,
       synthesisPlanNote: planNote,
+      deepMine,
+      deepSynthesis,
+      deepSynthesisNote,
       latencyMs: Date.now() - t0,
       rewriteNote: result.rewriteNote,
       sourcesUsed: result.sourcesUsed,
+      parentOperationId: activeOperation.id,
+      billingReceipt,
     });
     res.end();
   } catch (e) {
     console.error("[v1/search/stream]", e?.message);
+    await failOperationBestEffort(activeOperation, req.auth?.userId, e);
     if (!res.writableEnded) {
       send("error", { error: e?.message || "检索失败" });
       res.end();

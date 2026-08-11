@@ -92,25 +92,27 @@ function uid() {
 /** 将 full 逐步露出：前段大步「一下跳出」，接近末尾时逐字，整体比固定单字更快 */
 function useTypewriterSlice(full: string, runKey: string, enabled: boolean) {
   const [len, setLen] = useState(0);
+  const fullRef = useRef(full);
+  fullRef.current = full;
+
   useEffect(() => {
     setLen(0);
-    if (!enabled || !full) return;
-    const tickMs = 10;
+    if (!enabled) return;
     let n = 0;
     const id = window.setInterval(() => {
-      const remaining = full.length - n;
+      const target = fullRef.current.length;
+      const remaining = target - n;
+      if (remaining <= 0) return;
       let step = 1;
       if (remaining > 200) step = 24;
       else if (remaining > 120) step = 14;
       else if (remaining > 60) step = 8;
       else if (remaining > 24) step = 3;
-      else step = 1;
-      n = Math.min(full.length, n + step);
+      n = Math.min(target, n + step);
       setLen(n);
-      if (n >= full.length) window.clearInterval(id);
-    }, tickMs);
+    }, 10);
     return () => window.clearInterval(id);
-  }, [full, runKey, enabled]);
+  }, [runKey, enabled]);
   if (!enabled) return "";
   return full.slice(0, len);
 }
@@ -1152,9 +1154,9 @@ function AssistantBlock({
   }, [msg.meta?.synthesis, msg.papers]);
   const synthesisMd = synthesisParts.directMd + (synthesisParts.indirectMd ? `\n\n${synthesisParts.indirectMd}` : "");
   const hasSynthesisText = Boolean(synthesisMd.trim());
-  const synthStreamEnabled = !msg.error && synthesisMd.length > 0;
+  const synthStreamEnabled = !msg.error && synthesisMd.length > 0 && msg.meta?.synthesisNote === "synth:streaming";
   const synthShown = useTypewriterSlice(synthesisMd, `${msg.id}:syn`, synthStreamEnabled);
-  const synthStreamDone = !synthesisMd || synthShown.length >= synthesisMd.length;
+  const synthStreamDone = !synthStreamEnabled || !synthesisMd || synthShown.length >= synthesisMd.length;
   const synthCaret = synthStreamEnabled && synthShown.length < synthesisMd.length;
   const synthDirectShown = useMemo(() => {
     if (!synthStreamEnabled) return synthesisParts.directMd;
@@ -1226,7 +1228,7 @@ function AssistantBlock({
         : "",
     [msg.meta?.deepSynthesis, msg.papers],
   );
-  const deepStreamEnabled = !msg.error && deepSynthesisMd.length > 0 && synthStreamDone;
+  const deepStreamEnabled = !msg.error && deepSynthesisMd.length > 0 && synthStreamDone && msg.meta?.synthesisNote === "synth:streaming";
   const deepShown = useTypewriterSlice(deepSynthesisMd, `${msg.id}:deep`, deepStreamEnabled);
   const deepCaret = deepStreamEnabled && deepShown.length < deepSynthesisMd.length;
   const deepStreamDone = !deepSynthesisMd || deepShown.length >= deepSynthesisMd.length;
@@ -2974,8 +2976,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 updatedAt: Date.now(),
               };
             }
-            // 更新现有
-            const updated = { ...s.messages[idx], ...patch };
+            // 更新现有；meta 做深合并，避免逐 token 更新时丢失 papers 事件写入的字段
+            const updated = {
+              ...s.messages[idx],
+              ...patch,
+              ...(patch.meta
+                ? { meta: { ...(s.messages[idx].meta ?? {}), ...patch.meta } }
+                : {}),
+            };
             const msgs = [...s.messages];
             msgs[idx] = updated;
             return { ...s, messages: msgs, updatedAt: Date.now() };
@@ -3019,6 +3027,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             },
           });
         } else if (event.type === "done") {
+          if (event.billingReceipt) applyReceipt(event.billingReceipt);
           upsertAssistant({
             meta: {
               channel: channelAtSend,
@@ -3027,14 +3036,21 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               synthesisNote: event.synthesisNote ?? null,
               synthesisPlan: event.synthesisPlan ?? null,
               synthesisPlanNote: event.synthesisPlanNote ?? null,
+              synthesisModels: event.synthesisModels ?? null,
+              webAnswerDrafts: event.webAnswerDrafts,
               rewriteNote: event.rewriteNote,
               sourcesUsed: event.sourcesUsed,
               latencyMs: event.latencyMs,
+              parentOperationId: event.parentOperationId,
+              billing: event.billingReceipt ?? null,
+              deepMine: event.deepMine ?? null,
+              deepSynthesis: event.deepSynthesis ?? null,
+              deepSynthesisNote: event.deepSynthesisNote ?? null,
             },
           });
         } else if (event.type === "error") {
           streamErrored = true;
-          upsertAssistant({ content: event.error, error: true });
+          upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
       }
 
@@ -3047,7 +3063,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       // 自动作图（复用非流式逻辑）
       const assistantIdForChart = assistantId;
       const papersForAutoChart = papersReceived;
-      // parentOperationId 暂无（流式端点不走 billing 中间件），跳过自动作图
+      // parentOperationId 由 done 事件携带，已写入 meta；此处仅处理余额不足提示
       if (
         papersForAutoChart.length > 0 &&
         channelSupportsPaperChart(channelAtSend) &&
