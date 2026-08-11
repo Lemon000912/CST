@@ -1190,6 +1190,7 @@ function AssistantBlock({
     return `联网回答依据 ${m[1]} 条强相关摘录（检索 ${m[2]} 条，已剔除跑题 ${m[3]} 条）`;
   }, [msg.meta?.synthesisNote]);
   const webNoSynthNote = String(msg.meta?.synthesisNote ?? "").trim();
+  const webSynthesisPending = /synth:(pending|streaming)/i.test(webNoSynthNote);
   /** 确为未配 Key 时才提示配 Key；no-relevant-sources 等勿误导为断网或未配 Key */
   const webNoSynthKeyHint = /no-llm-key|stub:no-llm/i.test(webNoSynthNote);
   const webNoSynthRelevanceHint =
@@ -1343,7 +1344,12 @@ function AssistantBlock({
           <p className="text-[var(--t-error)]">{intro}</p>
         ) : showWebDualPane && !hasWebSynthesis ? (
           <p className="mb-2 text-[11px] text-[var(--t-text-dim)]">
-            共 <strong>{n}</strong> 条网页/专利来源；配置 Key 后可生成联网综合回答。
+            共 <strong>{n}</strong> 条网页/专利来源；
+            {webSynthesisPending
+              ? "正在生成联网综合回答…"
+              : webNoSynthKeyHint
+                ? "配置 Key 后可生成联网综合回答。"
+                : "本轮未生成联网综合回答。"}
           </p>
         ) : showWebDualPane ? null : (
           <ReactMarkdown>{intro}</ReactMarkdown>
@@ -1420,6 +1426,10 @@ function AssistantBlock({
                           ) : null}
                         </div>
                       </>
+                    ) : webSynthesisPending ? (
+                      <p className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200/90">
+                        正在基于检索摘录生成联网综合回答，请稍候。下方可先查看检索摘录。
+                      </p>
                     ) : (
                       <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200/90">
                         未生成联网综合回答
@@ -1428,7 +1438,7 @@ function AssistantBlock({
                           ? "请先在侧栏配置 LLM API Key 并保存后重试。"
                           : webNoSynthRelevanceHint
                             ? "检索已连网（见下方摘录）；用于三模型综合的「强相关」摘录不足，为避免跑题未生成终稿。可换更具体的产品名、型号、英文关键词，或改用「数据库优先」。"
-                            : "若已配置 Key，可稍后重试或查看后端日志中的 synthesisNote。"}
+                            : "可稍后重试或查看后端日志中的 synthesisNote。"}
                         下方仍展示检索摘录。
                       </p>
                     )}
@@ -3008,7 +3018,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               latencyMs: event.latencySearch,
               patentsOnly: event.patentsOnly ?? false,
               synthesis: null,
-              synthesisNote: null,
+              synthesisNote: "synth:pending",
               synthesisPlan: null,
               persona: event.persona,
               personaLabel: event.personaLabel,
