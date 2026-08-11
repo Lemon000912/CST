@@ -1,10 +1,10 @@
+import { sanitizeModel, defaultModel } from "./rewrite.js";
 import {
-  resolveApiKey,
-  resolveChatCompletionsUrl,
-  sanitizeModel,
-  safeHttpUrl,
-  defaultModel,
-} from "./rewrite.js";
+  resolvePrimaryProvider,
+  resolveTriProviders,
+  withProviderModel,
+} from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 import { extractPatentNumberFromPaper } from "./patentNumber.js";
 import {
   SYNTH_JSON_FOOTER,
@@ -193,17 +193,12 @@ function avoidanceSystemSuffix(hint) {
 
 /** 单模型回退：主 Key 失败后依次用三密钥各槽再试（缓解主 LLM_API_KEY 与网关不匹配时的 401） */
 async function synthesisFallbackWithTriKeys(base, primary, triCfg) {
-  let fb = await runSingleSynthesisModel({ ...base, ...primary });
+  let fb = await runSingleSynthesisModel({ ...base, provider: primary });
   if (fb.markdown) return fb;
   if (!triCfg) return fb;
-  const slots = [
-    { apiKey: triCfg.keyA, model: triCfg.modelA, chatCompletionsUrl: triCfg.urlA },
-    { apiKey: triCfg.keyB, model: triCfg.modelB, chatCompletionsUrl: triCfg.urlB },
-    { apiKey: triCfg.keyC, model: triCfg.modelC, chatCompletionsUrl: triCfg.urlC },
-  ];
-  for (const slot of slots) {
-    if (!slot.apiKey || slot.apiKey === primary.apiKey) continue;
-    const r2 = await runSingleSynthesisModel({ ...base, ...slot });
+  for (const provider of [triCfg.A, triCfg.B, triCfg.C]) {
+    if (!provider || provider.apiKey === primary?.apiKey) continue;
+    const r2 = await runSingleSynthesisModel({ ...base, provider });
     if (r2.markdown) {
       return { markdown: r2.markdown, note: `${fb.note}·synth:fallback_tri_key_ok` };
     }
@@ -226,51 +221,36 @@ async function runSingleSynthesisModel(args) {
   const avoid = avoidanceSystemSuffix(args.outputAvoidanceHint);
   const patentSys = synthPatentMandatorySuffix(nPat);
 
-  const controller = new AbortController();
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.3,
-        max_tokens: 6000,
-        messages: [
-          { role: "system", content: skillPrefix + SYNTH_SYSTEM + patentSys + avoid },
-          {
-            role: "user",
-            content:
-              (convo ? `【本对话上文】\n${convo}\n\n` : "") +
-              `用户检索问题：${userQuery}\n\n` +
-              (nPat > 0 ? `【摘录统计】含「类型:专利」${nPat} 条（须按系统「专利输出（强制）」执行）。\n\n` : "") +
-              `以下为检索到的摘录（含「文献 / 网页 / 专利」类型标签；共${papers.length}条）：\n\n${list}\n\n` +
-              "请基于以上摘录生成综述；**直接相关**内容写入背景/进展/技术/趋势四节；**仅间接相关**的条目只能写入 **## 间接参考与延伸线索** 且每条以 **【间接】** 开头。专利若与问题直接相关可写 **## 专利与公开情报**（放在间接参考节之前），否则放入间接参考节。",
-          },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: ms,
+      temperature: 0.3,
+      maxTokens: 6000,
+      system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid,
+      messages: [
+        {
+          role: "user",
+          content:
+            (convo ? `【本对话上文】\n${convo}\n\n` : "") +
+            `用户检索问题：${userQuery}\n\n` +
+            (nPat > 0 ? `【摘录统计】含「类型:专利」${nPat} 条（须按系统「专利输出（强制）」执行）。\n\n` : "") +
+            `以下为检索到的摘录（含「文献 / 网页 / 专利」类型标签；共${papers.length}条）：\n\n${list}\n\n` +
+            "请基于以上摘录生成综述；**直接相关**内容写入背景/进展/技术/趋势四节；**仅间接相关**的条目只能写入 **## 间接参考与延伸线索** 且每条以 **【间接】** 开头。专利若与问题直接相关可写 **## 专利与公开情报**（放在间接参考节之前），否则放入间接参考节。",
+        },
+      ],
     });
-    clearTimeout(timeoutId);
-
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("[synthesize] LLM HTTP", args.model, r.status, t.slice(0, 300));
-      return { markdown: null, note: `synth:http_${r.status}` };
+    if (!result.ok) {
+      console.error("[synthesize] LLM", args.provider?.slot, args.provider?.model, result.status, result.error);
+      return { markdown: null, note: `synth:${result.error}` };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) return { markdown: null, note: "synth:empty" };
     const fin = finalizeSynthesisMarkdown(text);
     return { markdown: fin.markdown, note: "synth:ok", plan: fin.plan, planNote: fin.planNote };
   } catch (e) {
-    clearTimeout(timeoutId);
-    console.error("[synthesize] error", args.model, e);
+    console.error("[synthesize] error", args.provider?.model, e);
     return { markdown: null, note: `synth_err:${e?.message || "unknown"}` };
   }
 }
@@ -320,50 +300,33 @@ async function mergeConsensusMarkdown(args) {
     patentMerge +
     avoid;
 
-  const controller = new AbortController();
   const ms = Math.min(360_000, Math.max(30_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 150_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: arbitrator ? 0.12 : 0.15,
-        max_tokens: arbitrator ? 8500 : 2200,
-        messages: [
-          {
-            role: "system",
-            content: arbitrator ? systemArb : systemMerge,
-          },
-          {
-            role: "user",
-            content:
-              `用户检索问题：${userQuery}\n\n` +
-              (excerptPatentCount > 0
-                ? `（检索摘录中含「类型:专利」${excerptPatentCount} 条，合并/仲裁终稿须保留专利公开号或 URL 等要点。）\n\n`
-                : "") +
-              `--- 模型 A 综述 ---\n${a}\n\n` +
-              `--- 模型 B 综述 ---\n${b}\n\n` +
-              (arbitrator ? "请输出经你仲裁后的**唯一终稿**综述正文。" : "请仅输出「共享部分」综述正文。"),
-          },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: ms,
+      temperature: arbitrator ? 0.12 : 0.15,
+      maxTokens: arbitrator ? 8500 : 2200,
+      system: arbitrator ? systemArb : systemMerge,
+      messages: [
+        {
+          role: "user",
+          content:
+            `用户检索问题：${userQuery}\n\n` +
+            (excerptPatentCount > 0
+              ? `（检索摘录中含「类型:专利」${excerptPatentCount} 条，合并/仲裁终稿须保留专利公开号或 URL 等要点。）\n\n`
+              : "") +
+            `--- 模型 A 综述 ---\n${a}\n\n` +
+            `--- 模型 B 综述 ---\n${b}\n\n` +
+            (arbitrator ? "请输出经你仲裁后的**唯一终稿**综述正文。" : "请仅输出「共享部分」综述正文。"),
+        },
+      ],
     });
-    clearTimeout(timeoutId);
-
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("[synthesize/consensus] HTTP", r.status, t.slice(0, 400));
-      return { markdown: null, note: `synth_consensus:http_${r.status}` };
+    if (!result.ok) {
+      console.error("[synthesize/consensus]", result.status, result.error);
+      return { markdown: null, note: `synth_consensus:${result.error}` };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) return { markdown: null, note: "synth_consensus:empty", plan: null, planNote: null };
     const fin = finalizeSynthesisMarkdown(text);
     return {
@@ -373,36 +336,18 @@ async function mergeConsensusMarkdown(args) {
       planNote: fin.planNote,
     };
   } catch (e) {
-    clearTimeout(timeoutId);
     console.error("[synthesize/consensus]", e);
     return { markdown: null, note: `synth_consensus_err:${e?.message || "unknown"}` };
   }
 }
 
-/**
- * 三密钥综述：A/B 各用独立 Key 并行写综述，C 用独立 Key 仲裁并输出唯一终稿（须同时配置 SYNTHESIS_API_KEY_A/B/C）。
- * @returns {null | { keyA: string; keyB: string; keyC: string; urlA: string; urlB: string; urlC: string; modelA: string; modelB: string; modelC: string }}
- */
+/** A/B use independent OpenAI-compatible providers; C uses native Gemini. */
 function readTriSynthConfig(clientUrl, clientModelA, modelBHint) {
-  const keyA = String(process.env.SYNTHESIS_API_KEY_A ?? "").trim();
-  const keyB = String(process.env.SYNTHESIS_API_KEY_B ?? "").trim();
-  const keyC = String(process.env.SYNTHESIS_API_KEY_C ?? "").trim();
-  if (!keyA || !keyB || !keyC) return null;
-  const urlBase = resolveChatCompletionsUrl(clientUrl);
-  const urlA = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_A ?? "").trim()) || urlBase;
-  const urlB = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_B ?? "").trim()) || urlBase;
-  const urlC = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_C ?? "").trim()) || urlBase;
-  const mA = sanitizeModel(
-    String(process.env.SYNTHESIS_MODEL_A ?? "").trim() || String(clientModelA ?? "").trim() || defaultModel(),
-  );
-  const mBRaw =
-    String(process.env.SYNTHESIS_MODEL_B ?? "").trim() ||
-    String(modelBHint ?? "").trim() ||
-    String(process.env.LLM_MODEL_B ?? "").trim() ||
-    defaultModel();
-  const mB = sanitizeModel(mBRaw);
-  const mC = sanitizeModel(String(process.env.SYNTHESIS_MODEL_C ?? "").trim() || defaultModel());
-  return { keyA, keyB, keyC, urlA, urlB, urlC, modelA: mA, modelB: mB, modelC: mC };
+  return resolveTriProviders({
+    chatCompletionsUrl: clientUrl,
+    model: clientModelA,
+    modelB: modelBHint,
+  });
 }
 
 /**
@@ -412,8 +357,8 @@ function readTriSynthConfig(clientUrl, clientModelA, modelBHint) {
  */
 export async function synthesizeFromPapers(p) {
   const triCfg = readTriSynthConfig(p.chatCompletionsUrl, p.model, p.modelB);
-  const key = resolveApiKey(String(p.apiKey ?? "").trim());
-  if (!triCfg && !key) {
+  const primary = resolvePrimaryProvider(p);
+  if (!triCfg && !primary) {
     return { markdown: null, plan: null, planNote: null, note: "synth:no-llm-key" };
   }
   const papers = Array.isArray(p.papers) ? p.papers : [];
@@ -426,9 +371,8 @@ export async function synthesizeFromPapers(p) {
     return { markdown: null, plan: null, planNote: null, note: "synth:empty-query" };
   }
 
-  const modelA = sanitizeModel(p.model);
-  const modelB = resolveSecondaryModel(p.model, p.modelB);
-  const url = resolveChatCompletionsUrl(p.chatCompletionsUrl);
+  const modelA = primary?.model || sanitizeModel(p.model);
+  const modelB = resolveSecondaryModel(modelA, p.modelB);
   const avoidHint = String(p.outputAvoidanceHint ?? "").trim().slice(0, 2000);
   const convoHint = String(p.conversationContext ?? "").trim().slice(0, 2500);
 
@@ -441,33 +385,19 @@ export async function synthesizeFromPapers(p) {
       conversationContext: convoHint || undefined,
     };
     const [ra, rb] = await Promise.all([
-      runSingleSynthesisModel({
-        ...base,
-        apiKey: triCfg.keyA,
-        model: triCfg.modelA,
-        chatCompletionsUrl: triCfg.urlA,
-      }),
-      runSingleSynthesisModel({
-        ...base,
-        apiKey: triCfg.keyB,
-        model: triCfg.modelB,
-        chatCompletionsUrl: triCfg.urlB,
-      }),
+      runSingleSynthesisModel({ ...base, provider: triCfg.A }),
+      runSingleSynthesisModel({ ...base, provider: triCfg.B }),
     ]);
     const synthesisModels = {
-      modelA: triCfg.modelA,
-      modelB: triCfg.modelB,
-      modelC: triCfg.modelC,
+      modelA: triCfg.A.model,
+      modelB: triCfg.B.model,
+      modelC: triCfg.C.model,
       mode: "tri_arbitration",
     };
 
     if (!ra.markdown && !rb.markdown) {
-      if (key) {
-        const fb = await synthesisFallbackWithTriKeys(
-          base,
-          { apiKey: key, model: modelA, chatCompletionsUrl: url },
-          triCfg,
-        );
+      if (primary) {
+        const fb = await synthesisFallbackWithTriKeys(base, primary, triCfg);
         return {
           markdown: fb.markdown,
           plan: fb.plan ?? null,
@@ -478,12 +408,7 @@ export async function synthesizeFromPapers(p) {
           synthesisModels: { ...synthesisModels, mode: "tri_fallback_single" },
         };
       }
-      const fb0 = await runSingleSynthesisModel({
-        ...base,
-        apiKey: triCfg.keyA,
-        model: triCfg.modelA,
-        chatCompletionsUrl: triCfg.urlA,
-      });
+      const fb0 = await runSingleSynthesisModel({ ...base, provider: triCfg.A });
       return {
         markdown: fb0.markdown,
         plan: fb0.plan ?? null,
@@ -517,9 +442,7 @@ export async function synthesizeFromPapers(p) {
       userQuery,
       markdownA: ra.markdown,
       markdownB: rb.markdown,
-      apiKey: triCfg.keyC,
-      model: triCfg.modelC,
-      chatCompletionsUrl: triCfg.urlC,
+      provider: triCfg.C,
       personaSkill: p.personaSkill,
       outputAvoidanceHint: avoidHint || undefined,
       arbitratorMode: true,
@@ -529,12 +452,8 @@ export async function synthesizeFromPapers(p) {
     if (!merged.markdown) {
       const pick =
         (ra.markdown?.length || 0) >= (rb.markdown?.length || 0) ? ra.markdown : rb.markdown;
-      if (pick && key) {
-        const fb = await synthesisFallbackWithTriKeys(
-          base,
-          { apiKey: key, model: modelA, chatCompletionsUrl: url },
-          triCfg,
-        );
+      if (pick && primary) {
+        const fb = await synthesisFallbackWithTriKeys(base, primary, triCfg);
         if (fb.markdown) {
           return {
             markdown: fb.markdown,
@@ -576,15 +495,13 @@ export async function synthesizeFromPapers(p) {
   const base = {
     userQuery,
     papers,
-    apiKey: key,
-    chatCompletionsUrl: url,
     personaSkill: p.personaSkill,
     outputAvoidanceHint: avoidHint || undefined,
     conversationContext: convoHint || undefined,
   };
 
   if (!modelB) {
-    const one = await runSingleSynthesisModel({ ...base, model: modelA });
+    const one = await runSingleSynthesisModel({ ...base, provider: primary });
     return {
       markdown: one.markdown,
       plan: one.plan ?? null,
@@ -594,9 +511,10 @@ export async function synthesizeFromPapers(p) {
     };
   }
 
+  const providerB = withProviderModel(primary, modelB, "B");
   const [ra, rb] = await Promise.all([
-    runSingleSynthesisModel({ ...base, model: modelA }),
-    runSingleSynthesisModel({ ...base, model: modelB }),
+    runSingleSynthesisModel({ ...base, provider: primary }),
+    runSingleSynthesisModel({ ...base, provider: providerB }),
   ]);
 
   const synthesisModels = { modelA, modelB, mode: "dual_consensus" };
@@ -633,9 +551,7 @@ export async function synthesizeFromPapers(p) {
     userQuery,
     markdownA: ra.markdown,
     markdownB: rb.markdown,
-    apiKey: key,
-    model: modelA,
-    chatCompletionsUrl: url,
+    provider: primary,
     personaSkill: p.personaSkill,
     outputAvoidanceHint: avoidHint || undefined,
     arbitratorMode: false,

@@ -1,13 +1,8 @@
 /**
  * 上传文件正文优先的综合回答（不依赖联网检索摘录）。
  */
-import {
-  resolveApiKey,
-  resolveChatCompletionsUrl,
-  sanitizeModel,
-  safeHttpUrl,
-  defaultModel,
-} from "./rewrite.js";
+import { resolvePrimaryProvider, resolveTriProviders } from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 import { resolveSecondaryModel } from "./synthesize.js";
 import {
   WEB_JSON_FOOTER,
@@ -67,29 +62,11 @@ export function shouldUseAttachmentPrimarySynthesis(attachmentContext, userQuery
 }
 
 function readTriKeys(clientUrl, clientModelA, modelBHint) {
-  const keyA = String(process.env.SYNTHESIS_API_KEY_A ?? "").trim();
-  const keyB = String(process.env.SYNTHESIS_API_KEY_B ?? "").trim();
-  const keyC = String(process.env.SYNTHESIS_API_KEY_C ?? "").trim();
-  if (!keyA || !keyB || !keyC) return null;
-  const urlBase = resolveChatCompletionsUrl(clientUrl);
-  return {
-    keyA,
-    keyB,
-    keyC,
-    urlA: safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_A ?? "").trim()) || urlBase,
-    urlB: safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_B ?? "").trim()) || urlBase,
-    urlC: safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_C ?? "").trim()) || urlBase,
-    modelA: sanitizeModel(
-      String(process.env.SYNTHESIS_MODEL_A ?? "").trim() || String(clientModelA ?? "").trim() || defaultModel(),
-    ),
-    modelB: sanitizeModel(
-      String(process.env.SYNTHESIS_MODEL_B ?? "").trim() ||
-        String(modelBHint ?? "").trim() ||
-        String(process.env.LLM_MODEL_B ?? "").trim() ||
-        defaultModel(),
-    ),
-    modelC: sanitizeModel(String(process.env.SYNTHESIS_MODEL_C ?? "").trim() || defaultModel()),
-  };
+  return resolveTriProviders({
+    chatCompletionsUrl: clientUrl,
+    model: clientModelA,
+    modelB: modelBHint,
+  });
 }
 
 function buildAttachmentUserPrompt(args) {
@@ -116,44 +93,25 @@ async function runAttachmentDraft(args) {
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
   const userPrompt = buildAttachmentUserPrompt(args);
-  const controller = new AbortController();
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.12,
-        max_tokens: Math.min(8000, Math.max(4000, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
-        messages: [
-          { role: "system", content: skillPrefix + ATTACHMENT_SYNTH_SYSTEM + avoid },
-          {
-            role: "user",
-            content: `【模型槽位】${args.slot || "?"}\n\n${userPrompt}`,
-          },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: ms,
+      temperature: 0.12,
+      maxTokens: Math.min(8000, Math.max(4000, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
+      system: skillPrefix + ATTACHMENT_SYNTH_SYSTEM + avoid,
+      messages: [{ role: "user", content: `【模型槽位】${args.slot || "?"}\n\n${userPrompt}` }],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("[attachmentSynth]", args.slot, args.model, r.status, t.slice(0, 240));
-      return { markdown: null, note: `attach:http_${r.status}` };
+    if (!result.ok) {
+      console.error("[attachmentSynth]", args.slot, args.provider?.model, result.status, result.error);
+      return { markdown: null, note: `attach:${result.error}` };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) return { markdown: null, note: "attach:empty" };
     const fin = finalizeSynthesisMarkdown(text);
     return { markdown: fin.markdown, note: "attach:ok", plan: fin.plan, planNote: fin.planNote };
   } catch (e) {
-    clearTimeout(timeoutId);
     return { markdown: null, note: `attach_err:${String(e?.message || e).slice(0, 80)}` };
   }
 }
@@ -164,44 +122,31 @@ async function mergeAttachmentDrafts(args) {
   const avoid = String(args.outputAvoidanceHint ?? "").trim()
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
-  const controller = new AbortController();
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.1,
-        max_tokens: Math.min(8000, Math.max(4500, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
-        messages: [
-          { role: "system", content: skillPrefix + ATTACHMENT_MERGE_SYSTEM + avoid },
-          {
-            role: "user",
-            content:
-              `【用户问题】\n${String(args.userQuery ?? "").slice(0, 2000)}\n\n` +
-              `--- 模型 A ---\n${String(args.markdownA ?? "").slice(0, 12_000)}\n\n` +
-              `--- 模型 B ---\n${String(args.markdownB ?? "").slice(0, 12_000)}\n\n` +
-              "请输出合并后的唯一终稿。",
-          },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: ms,
+      temperature: 0.1,
+      maxTokens: Math.min(8000, Math.max(4500, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
+      system: skillPrefix + ATTACHMENT_MERGE_SYSTEM + avoid,
+      messages: [
+        {
+          role: "user",
+          content:
+            `【用户问题】\n${String(args.userQuery ?? "").slice(0, 2000)}\n\n` +
+            `--- 模型 A ---\n${String(args.markdownA ?? "").slice(0, 12_000)}\n\n` +
+            `--- 模型 B ---\n${String(args.markdownB ?? "").slice(0, 12_000)}\n\n` +
+            "请输出合并后的唯一终稿。",
+        },
+      ],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) return { markdown: null, note: `attach_merge:http_${r.status}` };
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    if (!result.ok) return { markdown: null, note: `attach_merge:${result.error}` };
+    const text = result.text;
     if (!text) return { markdown: null, note: "attach_merge:empty" };
     const fin = finalizeSynthesisMarkdown(text);
     return { markdown: fin.markdown, note: "attach_merge:ok", plan: fin.plan, planNote: fin.planNote };
   } catch (e) {
-    clearTimeout(timeoutId);
     return { markdown: null, note: `attach_merge_err:${e?.message || "unknown"}` };
   }
 }
@@ -221,9 +166,9 @@ export async function synthesizeFromAttachmentContext(p) {
     };
   }
 
-  const key = resolveApiKey(String(p.apiKey ?? "").trim());
+  const primary = resolvePrimaryProvider(p);
   const triCfg = readTriKeys(p.chatCompletionsUrl, p.model, p.modelB);
-  if (!triCfg && !key) {
+  if (!triCfg && !primary) {
     return {
       markdown: null,
       plan: null,
@@ -245,25 +190,13 @@ export async function synthesizeFromAttachmentContext(p) {
 
   if (triCfg) {
     const [ra, rb] = await Promise.all([
-      runAttachmentDraft({
-        ...base,
-        apiKey: triCfg.keyA,
-        model: triCfg.modelA,
-        chatCompletionsUrl: triCfg.urlA,
-        slot: "A",
-      }),
-      runAttachmentDraft({
-        ...base,
-        apiKey: triCfg.keyB,
-        model: triCfg.modelB,
-        chatCompletionsUrl: triCfg.urlB,
-        slot: "B",
-      }),
+      runAttachmentDraft({ ...base, provider: triCfg.A, slot: "A" }),
+      runAttachmentDraft({ ...base, provider: triCfg.B, slot: "B" }),
     ]);
     const synthesisModels = {
-      modelA: triCfg.modelA,
-      modelB: triCfg.modelB,
-      modelC: triCfg.modelC,
+      modelA: triCfg.A.model,
+      modelB: triCfg.B.model,
+      modelC: triCfg.C.model,
       mode: "attachment_tri",
     };
 
@@ -272,9 +205,7 @@ export async function synthesizeFromAttachmentContext(p) {
         userQuery: p.userQuery,
         markdownA: ra.markdown,
         markdownB: rb.markdown,
-        apiKey: triCfg.keyC,
-        model: triCfg.modelC,
-        chatCompletionsUrl: triCfg.urlC,
+        provider: triCfg.C,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
       });
@@ -301,13 +232,10 @@ export async function synthesizeFromAttachmentContext(p) {
     }
   }
 
-  const url = resolveChatCompletionsUrl(p.chatCompletionsUrl);
-  const model = sanitizeModel(String(p.model ?? "").trim() || defaultModel());
+  const singleProvider = primary || triCfg?.A;
   const r = await runAttachmentDraft({
     ...base,
-    apiKey: key || triCfg?.keyA || "",
-    model,
-    chatCompletionsUrl: url,
+    provider: singleProvider,
     slot: "single",
   });
   if (r.markdown) {
@@ -316,7 +244,7 @@ export async function synthesizeFromAttachmentContext(p) {
       plan: r.plan ?? null,
       planNote: r.planNote ?? null,
       note: `attach_synth:single_ok|chars=${chars}`,
-      synthesisModels: { modelA: model, mode: "attachment_single" },
+      synthesisModels: { modelA: singleProvider.model, mode: "attachment_single" },
     };
   }
 

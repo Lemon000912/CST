@@ -1,14 +1,9 @@
 /**
  * 语义理解：从用户问题抽取结构化意图，并用于相关度打分 / 可选向量重排。
  */
-import {
-  resolveApiKey,
-  resolveRewriteApiKey,
-  resolveChatCompletionsUrl,
-  sanitizeModel,
-  defaultModel,
-  chineseTechnicalFallback,
-} from "./rewrite.js";
+import { chineseTechnicalFallback } from "./rewrite.js";
+import { resolvePrimaryProvider } from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 import { embedTexts, cosineSimilarity, isEmbeddingEnabled } from "./embeddingService.js";
 import { fuzzyTokenMatch } from "./queryTypoCorrect.js";
 
@@ -23,7 +18,7 @@ export function isSemanticUnderstandEnabled() {
   if (/^(1|true|on|yes)$/i.test(String(process.env.SEMANTIC_UNDERSTAND_ENABLED ?? "").trim())) {
     return true;
   }
-  return Boolean(resolveApiKey());
+  return Boolean(resolvePrimaryProvider());
 }
 
 /** @param {unknown} v @returns {string[]} */
@@ -103,11 +98,8 @@ export async function understandQuery(userQuery, opts = {}) {
   const q = String(userQuery ?? "").trim();
   if (!q || !isSemanticUnderstandEnabled()) return null;
 
-  const key = resolveRewriteApiKey(opts.apiKey) || resolveApiKey(opts.apiKey);
-  if (!key) return ruleBasedIntent(q);
-
-  const url = resolveChatCompletionsUrl(opts.chatCompletionsUrl);
-  const model = sanitizeModel(opts.model || defaultModel());
+  const provider = resolvePrimaryProvider(opts);
+  if (!provider) return ruleBasedIntent(q);
   const skillRaw = String(opts.personaSkill ?? "").trim();
   const skillBlock = skillRaw
     ? `User role context (may be Chinese):\n${skillRaw.slice(0, 1600)}\n\n`
@@ -121,35 +113,21 @@ export async function understandQuery(userQuery, opts = {}) {
     "searchTerms (English keywords for databases), synonyms (bilingual related terms), summaryZh (one Chinese sentence). " +
     "Be concise; arrays max 8 items each.";
 
-  const controller = new AbortController();
   const timeoutMs = Math.min(12000, Math.max(4000, Number(process.env.SEMANTIC_UNDERSTAND_TIMEOUT_MS) || 8000));
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 512,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: q },
-        ],
-      }),
+    const result = await generateText(provider, {
+      timeoutMs,
+      temperature: 0.1,
+      maxTokens: 512,
+      system,
+      messages: [{ role: "user", content: q }],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      console.warn("[semantic] LLM HTTP", r.status);
+    if (!result.ok) {
+      console.warn("[semantic] LLM", provider.model, result.status, result.error);
       return ruleBasedIntent(q);
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     const parsed = parseIntentJson(text);
     if (!parsed || typeof parsed !== "object") {
       return ruleBasedIntent(q);
@@ -166,10 +144,6 @@ export async function understandQuery(userQuery, opts = {}) {
       note: "semantic:llm",
     };
   } catch (e) {
-    clearTimeout(timeoutId);
-    if (e?.name === "AbortError") {
-      return { ...ruleBasedIntent(q), note: "semantic:timeout-fallback" };
-    }
     console.warn("[semantic] error", e?.message || e);
     return ruleBasedIntent(q);
   }

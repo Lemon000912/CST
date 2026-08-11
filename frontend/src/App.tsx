@@ -35,6 +35,7 @@ import {
   fetchPointBalance,
   fulfillPdf,
   searchPapersV1,
+  searchPapersV1Stream,
   submitFeedback,
   requestPaperChartFromPapers,
   requestGenerateDataTable,
@@ -42,6 +43,7 @@ import {
   downloadPptxArtifact,
   requestFlowchartArtifact,
 } from "./api";
+import type { StreamSearchEvent } from "./api";
 import { saveAs } from "file-saver";
 import { ProcessArtifactToolbar } from "./ProcessFlowchartPanel";
 import { DataTableGeneratorPanel } from "./DataTableGeneratorPanel";
@@ -2924,7 +2926,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         : "根据上传文件中的主题与关键词搜索相关资料");
     try {
       const searchIdempotencyKey = createIdempotencyKey();
-      const res = await searchPapersV1(baseQ.slice(0, 12_000), {
+
+      // ── 流式模式：papers 立即到达，synthesis token 逐字追加 ──
+      const abortController = new AbortController();
+      const streamOpts = {
         idempotencyKey: searchIdempotencyKey,
         field: fieldAtSend,
         channel: channelAtSend,
@@ -2934,130 +2939,119 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         conversationContext: conversationContext || undefined,
         ...(patentsAtSend ? { patentsOnly: true } : {}),
         ...(deepMineEnabled && !patentsAtSend ? { deepMine: { maxPdfMb: 20 } } : {}),
-      });
-      applyReceipt(res.billing);
-      const assistant: ChatMessage = {
-        id: uid(),
-        role: "assistant",
-        content: "",
-        papers: res.papers,
-        arxivField: fieldAtSend,
-        meta: {
-          effectiveQuery: res.effectiveQuery,
-          rewriteNote: res.rewriteNote,
-          queryIntent: res.queryIntent ?? null,
-          sourcesUsed: res.sourcesUsed,
-          channel: res.channel,
-          sort: res.sort,
-          latencyMs: res.latencyMs,
-          patentsOnly: res.patentsOnly ?? false,
-          synthesis: res.synthesis ?? null,
-          synthesisNote: res.synthesisNote ?? null,
-          synthesisPlan: res.synthesisPlan ?? null,
-          synthesisPlanNote: res.synthesisPlanNote ?? null,
-          synthesisModels: res.synthesisModels ?? null,
-          webAnswerDrafts: res.webAnswerDrafts ?? null,
-          persona: res.persona,
-          personaLabel: res.personaLabel,
-          deepMine: res.deepMine ?? null,
-          deepSynthesis: res.deepSynthesis ?? null,
-          deepSynthesisNote: res.deepSynthesisNote ?? null,
-          artifacts: res.artifacts ?? null,
-          parentOperationId: res.parentOperationId ?? res.billing?.operationId,
-          billing: res.billing ?? null,
-        },
+        signal: abortController.signal,
       };
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? {
+
+      // 占位助手消息（papers 到达前先显示空卡片）
+      const assistantId = uid();
+      let papersReceived: Paper[] = [];
+      let synthesisSoFar = "";
+
+      const upsertAssistant = (patch: Partial<ChatMessage>) => {
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const idx = s.messages.findIndex((m) => m.id === assistantId);
+            if (idx === -1) {
+              // 第一次：追加
+              const newMsg: ChatMessage = {
+                id: assistantId,
+                role: "assistant",
+                content: "",
+                papers: papersReceived,
+                arxivField: fieldAtSend,
+                meta: {
+                  channel: channelAtSend,
+                  sort: sortAtSend,
+                  synthesis: synthesisSoFar || null,
+                },
+                ...patch,
+              };
+              return {
                 ...s,
-                messages: [...s.messages, assistant],
-                title: sessionTitleFromMessages([...s.messages, assistant]),
+                messages: [...s.messages, newMsg],
+                title: sessionTitleFromMessages([...s.messages, newMsg]),
                 updatedAt: Date.now(),
-              }
-            : s,
-        ),
-      );
+              };
+            }
+            // 更新现有
+            const updated = { ...s.messages[idx], ...patch };
+            const msgs = [...s.messages];
+            msgs[idx] = updated;
+            return { ...s, messages: msgs, updatedAt: Date.now() };
+          }),
+        );
+      };
+
+      let streamErrored = false;
+
+      for await (const event of searchPapersV1Stream(baseQ.slice(0, 12_000), streamOpts)) {
+        if (event.type === "papers") {
+          papersReceived = event.papers ?? [];
+          upsertAssistant({
+            papers: papersReceived,
+            meta: {
+              effectiveQuery: event.effectiveQuery,
+              rewriteNote: event.rewriteNote,
+              queryIntent: event.queryIntent ?? null,
+              sourcesUsed: event.sourcesUsed,
+              channel: event.channel ?? channelAtSend,
+              sort: event.sort ?? sortAtSend,
+              latencyMs: event.latencySearch,
+              patentsOnly: event.patentsOnly ?? false,
+              synthesis: null,
+              synthesisNote: null,
+              synthesisPlan: null,
+              persona: event.persona,
+              personaLabel: event.personaLabel,
+            },
+          });
+        } else if (event.type === "synthesis_token") {
+          synthesisSoFar += event.token;
+          // 每个 token 都更新 synthesis，触发前端的 useTypewriterSlice
+          upsertAssistant({
+            meta: {
+              // 保留已有 meta，只更新 synthesis
+              channel: channelAtSend,
+              sort: sortAtSend,
+              synthesis: synthesisSoFar,
+              synthesisNote: "synth:streaming",
+            },
+          });
+        } else if (event.type === "done") {
+          upsertAssistant({
+            meta: {
+              channel: channelAtSend,
+              sort: sortAtSend,
+              synthesis: (event.synthesis ?? synthesisSoFar) || null,
+              synthesisNote: event.synthesisNote ?? null,
+              synthesisPlan: event.synthesisPlan ?? null,
+              synthesisPlanNote: event.synthesisPlanNote ?? null,
+              rewriteNote: event.rewriteNote,
+              sourcesUsed: event.sourcesUsed,
+              latencyMs: event.latencyMs,
+            },
+          });
+        } else if (event.type === "error") {
+          streamErrored = true;
+          upsertAssistant({ content: event.error, error: true });
+        }
+      }
+
+      if (streamErrored) {
+        // error 已经显示，无需额外处理
+      }
+
       setAttachments([]);
-      /** 数据库渠道：有文献时后台自动尝试 Matplotlib 作图 */
-      const assistantIdForChart = assistant.id;
-      const papersForAutoChart = res.papers;
-      const parentOperationId = res.parentOperationId ?? res.billing?.operationId;
+
+      // 自动作图（复用非流式逻辑）
+      const assistantIdForChart = assistantId;
+      const papersForAutoChart = papersReceived;
+      // parentOperationId 暂无（流式端点不走 billing 中间件），跳过自动作图
       if (
         papersForAutoChart.length > 0 &&
-        channelSupportsPaperChart(res.channel) &&
-        parentOperationId &&
-        (res.billing?.balance ?? pointBalance?.balance ?? 0) > 0
-      ) {
-        const chartIdempotencyKey = createIdempotencyKey();
-        void (async () => {
-          try {
-            const r = await requestPaperChartFromPapers(papersForAutoChart, {
-              parentOperationId,
-              synthesisMarkdown: res.synthesis ?? undefined,
-              idempotencyKey: chartIdempotencyKey,
-            });
-            applyReceipt(r.billing);
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (!s.messages.some((m) => m.id === assistantIdForChart)) return s;
-                return {
-                  ...s,
-                  messages: s.messages.map((m) =>
-                    m.id !== assistantIdForChart
-                      ? m
-                      : {
-                          ...m,
-                          meta: {
-                            ...(m.meta ?? {}),
-                            paperChartError: null,
-                            paperChart: {
-                              mime: r.mime,
-                              pngBase64: r.pngBase64,
-                              svgBase64: r.svgBase64,
-                              title: r.title,
-                              spec: r.spec,
-                              note: r.note,
-                              billing: r.billing,
-                            },
-                          },
-                        },
-                  ),
-                  updatedAt: Date.now(),
-                };
-              }),
-            );
-          } catch (e) {
-            /* 摘录无数值 / 无 Key / Matplotlib 未装等：自动作图跳过，但记录错误 */
-            const errMsg = e instanceof Error ? e.message : "自动作图失败";
-            console.log("[autoChart] 跳过:", errMsg);
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (!s.messages.some((m) => m.id === assistantIdForChart)) return s;
-                return {
-                  ...s,
-                  messages: s.messages.map((m) =>
-                    m.id !== assistantIdForChart
-                      ? m
-                      : {
-                          ...m,
-                          meta: {
-                            ...(m.meta ?? {}),
-                            paperChartError: errMsg,
-                          },
-                        },
-                  ),
-                  updatedAt: Date.now(),
-                };
-              }),
-            );
-          }
-        })();
-      } else if (
-        papersForAutoChart.length > 0 &&
-        channelSupportsPaperChart(res.channel) &&
-        (res.billing?.balance ?? pointBalance?.balance ?? 0) <= 0
+        channelSupportsPaperChart(channelAtSend) &&
+        (pointBalance?.balance ?? 0) <= 0
       ) {
         patchMessageMeta(assistantIdForChart, {
           paperChartError: "搜索结算后余额不足，未自动生成图表。",
@@ -3066,23 +3060,32 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     } catch (e) {
       if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
       const err = e instanceof Error ? e.message : "未知错误";
-      const assistant: ChatMessage = {
-        id: uid(),
-        role: "assistant",
-        content: err,
-        error: true,
-        arxivField: fieldAtSend,
-        meta: {
-          channel: channelAtSend,
-          sort: sortAtSend,
-        },
-      };
+      // 流式模式下，若之前已经推送了占位消息，直接更新为错误；否则新增错误消息
       setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? { ...s, messages: [...s.messages, assistant], updatedAt: Date.now() }
-            : s,
-        ),
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          const hasPlaceholder = s.messages.some((m) => m.role === "assistant" && !m.error && m.content === "");
+          if (hasPlaceholder) {
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.role === "assistant" && !m.error && m.content === ""
+                  ? { ...m, content: err, error: true }
+                  : m,
+              ),
+              updatedAt: Date.now(),
+            };
+          }
+          const assistant: ChatMessage = {
+            id: uid(),
+            role: "assistant",
+            content: err,
+            error: true,
+            arxivField: fieldAtSend,
+            meta: { channel: channelAtSend, sort: sortAtSend },
+          };
+          return { ...s, messages: [...s.messages, assistant], updatedAt: Date.now() };
+        }),
       );
     } finally {
       setBusy(false);

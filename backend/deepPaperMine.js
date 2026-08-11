@@ -6,7 +6,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { resolveApiKey, resolveChatCompletionsUrl, defaultModel } from "./rewrite.js";
+import { defaultModel } from "./rewrite.js";
+import {
+  resolvePrimaryProvider,
+  resolveTriProviders,
+  withProviderModel,
+} from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -126,32 +132,27 @@ export function runMineruPdf(mineruExe, pdfPath, workOutDir, timeoutMs) {
  * @param {{ userQuery: string; paperTitle: string; markdownDigest: string; apiKey?: string; model: string; chatUrl?: string }} p
  */
 export async function keywordsFromLlm(p) {
-  const key = resolveApiKey(String(p.apiKey ?? ""));
-  const m = String(p.model || "").trim() || defaultModel();
-  if (!key) return { ok: false, error: "no-llm-key", model: m };
-  const url = resolveChatCompletionsUrl(p.chatUrl);
+  const provider = p.provider || resolvePrimaryProvider({
+    apiKey: p.apiKey,
+    model: p.model,
+    chatCompletionsUrl: p.chatUrl,
+  });
+  const m = provider?.model || String(p.model || "").trim() || defaultModel();
+  if (!provider) return { ok: false, error: "no-llm-key", model: m };
   const system =
     "你是文献信息抽取助手。只输出一个合法 JSON 对象，不要用 markdown 围栏。字段：keywords_zh(string[]), keywords_en(string[]), entities(string[]), methods(string[]), metrics(string[]), constraints(string[]), extractedData(对象数组，每项含 metric,value,unit?,condition?,context?；摘录中**每一个**明确数值/百分比/范围/性能指标都须列出，宁可多不可漏), steps(涉及工艺时填 step_no,action,inputs?,outputs?，否则[])。不确定则空数组。";
   const user = `用户问题：\n${String(p.userQuery).slice(0, 2000)}\n论文标题：\n${String(p.paperTitle).slice(0, 400)}\n\nPDF→Markdown 摘录：\n${String(p.markdownDigest).slice(0, 14000)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: m,
-      temperature: 0.12,
-      max_tokens: 1400,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+  const result = await generateText(provider, {
+    timeoutMs: 120_000,
+    temperature: 0.12,
+    maxTokens: 1400,
+    system,
+    messages: [{ role: "user", content: user }],
   });
-  if (!r.ok) {
-    const t = await r.text();
-    return { ok: false, error: `http_${r.status}`, detail: t.slice(0, 200), model: m };
+  if (!result.ok) {
+    return { ok: false, error: result.error, detail: result.errorBody.slice(0, 200), model: m };
   }
-  const j = await r.json();
-  const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+  const text = result.text;
   try {
     const cleaned = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
     const data = JSON.parse(cleaned);
@@ -166,33 +167,28 @@ export async function keywordsFromLlm(p) {
  * @returns {Promise<{ markdown: string | null; note: string }>}
  */
 export async function synthesizeDeepFromMine(p) {
-  const key = resolveApiKey(String(p.apiKey ?? ""));
-  if (!key) return { markdown: null, note: "deep_synth:no-key" };
-  const url = resolveChatCompletionsUrl(p.chatUrl);
-  const m = String(p.model ?? "").trim() || defaultModel();
+  const provider = resolvePrimaryProvider({
+    apiKey: p.apiKey,
+    model: p.model,
+    chatCompletionsUrl: p.chatUrl,
+  });
+  if (!provider) return { markdown: null, note: "deep_synth:no-key" };
+  const m = provider.model;
   const skill = String(p.personaSkill ?? "").trim().slice(0, 2400);
   const payload = JSON.stringify(p.runs ?? []).slice(0, 28_000);
   const system = `你是科研助手。根据「用户问题」与下列 JSON（每篇文献经 MinerU 摘录 + 三模型关键词抽取）写中文**深度综合**，分块且勿混写：\n\n## 直接结论\n1) 先直接回答问题；\n2) 用项目符号列 3～8 条要点（须与用户问题直接相关，材料/方法/数据能在 JSON 中找到依据）；\n3) 摘录未覆盖处写「摘录未显示」。\n\n## 关键数据与指标\n若 JSON 的 metrics 或 extractedData 中有数值，用 Markdown 表格列出：指标 | 数值 | 单位 | 条件 | 文献标题简写；禁止编造。\n\n## 间接参考与延伸线索\n仅写与问题非直接对应、可作类比/背景的条目，每条以 **【间接】** 开头；若无则写「无单独间接参考条目」。\n\n勿编造 DOI。\n\n身份/用途：\n${skill || "（无）"}`;
   const user = `用户问题：\n${String(p.userQuery).slice(0, 4000)}\n\n文献结构化抽取（JSON）：\n${payload}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: m,
-      temperature: 0.28,
-      max_tokens: 2800,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+  const result = await generateText(provider, {
+    timeoutMs: 180_000,
+    temperature: 0.28,
+    maxTokens: 2800,
+    system,
+    messages: [{ role: "user", content: user }],
   });
-  if (!r.ok) {
-    const t = await r.text();
-    return { markdown: null, note: `deep_synth:http_${r.status}:${t.slice(0, 200)}` };
+  if (!result.ok) {
+    return { markdown: null, note: `deep_synth:${result.error}:${result.errorBody.slice(0, 200)}` };
   }
-  const j = await r.json();
-  const md = String(j?.choices?.[0]?.message?.content ?? "").trim();
+  const md = result.text;
   return { markdown: md || null, note: md ? "deep_synth:ok" : "deep_synth:empty" };
 }
 
@@ -224,7 +220,17 @@ export async function runDeepMinePipeline(opts) {
     900_000,
     Number(process.env.DEEP_MINE_MINERU_TIMEOUT_MS ?? 600_000) || 600_000,
   );
-  const models = deepModels();
+  const primary = resolvePrimaryProvider({
+    apiKey: opts.apiKey,
+    chatCompletionsUrl: opts.chatCompletionsUrl,
+  });
+  const triProviders = resolveTriProviders({ chatCompletionsUrl: opts.chatCompletionsUrl });
+  const models = triProviders
+    ? [triProviders.A.model, triProviders.B.model, triProviders.C.model]
+    : deepModels();
+  const keywordProviders = triProviders
+    ? [triProviders.A, triProviders.B, triProviders.C]
+    : models.map((model, index) => withProviderModel(primary, model, String(index + 1)));
 
   const tmpBase = path.join(PROJECT_ROOT, "server", "data", "deep-mine-temp");
   await fs.promises.mkdir(tmpBase, { recursive: true });
@@ -293,15 +299,15 @@ export async function runDeepMinePipeline(opts) {
       row.mdPreview = digest.slice(0, 3000);
 
       const km = await Promise.all(
-        models.map(async (model) => {
+        keywordProviders.map(async (provider, providerIndex) => {
+          const model = provider?.model || models[providerIndex] || defaultModel();
           try {
             const r = await keywordsFromLlm({
               userQuery,
               paperTitle: title,
               markdownDigest: digest,
-              apiKey: opts.apiKey,
+              provider,
               model,
-              chatUrl: opts.chatCompletionsUrl,
             });
             return sanitizeKwRow(r);
           } catch (e) {

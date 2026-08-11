@@ -311,6 +311,140 @@ export async function searchPapersV1(
   return data as SearchResponse & SearchResultMeta;
 }
 
+// ── 流式搜索 SSE 接口 ────────────────────────────────────────────
+// 对应后端 POST /api/v1/search/stream
+// 事件序列：papers → synthesis_token（多次）→ done | error
+
+export type StreamSearchEvent =
+  | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string }
+  | { type: "synthesis_token"; token: string }
+  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[] }
+  | { type: "error"; error: string };
+
+/**
+ * 流式搜索+综述：返回 AsyncGenerator，逐帧 yield 事件。
+ * 调用方应 for-await-of 消费，收到 "papers" 帧即可显示文献，
+ * 收到 "synthesis_token" 逐字追加综述，收到 "done" 完成。
+ */
+export async function* searchPapersV1Stream(
+  query: string,
+  opts: Parameters<typeof searchPapersV1>[1] & { signal?: AbortSignal } = {},
+): AsyncGenerator<StreamSearchEvent> {
+  const dm = opts.deepMine;
+  const deepBody =
+    dm === true
+      ? { enabled: true, maxPdfMb: 20 }
+      : dm && typeof dm === "object" && (dm as { enabled?: boolean }).enabled !== false
+        ? { enabled: true, maxPdfMb: 20, ...(dm as object) }
+        : undefined;
+  const outputAvoidance =
+    opts.attachOutputAvoidance === false ? "" : getOutputAvoidanceForRequest().trim();
+  let prefKw = opts.preferenceKeywords;
+  if (prefKw === undefined) {
+    prefKw = await fetchUserSkillFavoriteKeywords();
+  }
+  const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();
+
+  const controller = new AbortController();
+  const externalSignal = opts.signal;
+  const abort = () => controller.abort();
+  externalSignal?.addEventListener("abort", abort, { once: true });
+
+  // 900s 超时（与非流式一致）
+  const timeoutId = window.setTimeout(() => controller.abort(), 900_000);
+
+  try {
+    const res = await fetch("/api/v1/search/stream", {
+      method: "POST",
+      headers: headersJson({ "Idempotency-Key": idempotencyKey }),
+      signal: controller.signal,
+      body: JSON.stringify({
+        query,
+        ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
+        field: opts.field ?? "all",
+        channel: opts.channel ?? "web",
+        sort: opts.sort ?? "relevance",
+        useLlmRewrite: opts.useLlmRewrite !== false,
+        attachmentContext: opts.attachmentContext?.slice(0, 200_000),
+        attachmentFilename: opts.attachmentFilename?.slice(0, 512),
+        conversationContext: opts.conversationContext?.slice(0, 12_000),
+        includeSynthesis: opts.patentsOnly
+          ? opts.includeSynthesis === true
+          : opts.includeSynthesis !== false,
+        useMcpWeb: opts.useMcpWeb !== false,
+        ...(opts.patentsOnly ? { patentsOnly: true } : {}),
+        ...(deepBody ? { deepMine: deepBody } : {}),
+        ...(outputAvoidance ? { outputAvoidance } : {}),
+        ...(prefKw?.length ? { preferenceKeywords: prefKw } : {}),
+      }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `请求失败 (${res.status})`;
+      try {
+        const j = (await res.json()) as { error?: string };
+        if (j.error) errMsg = j.error;
+      } catch { /* ignore */ }
+      yield { type: "error", error: errMsg };
+      return;
+    }
+
+    if (!res.body) {
+      yield { type: "error", error: "浏览器不支持流式响应（response.body 为空）" };
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let eventName = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trimEnd();
+        if (!trimmed) {
+          // 空行 = 帧结束（SSE 规范），但此处 event/data 已逐行处理，跳过
+          eventName = "";
+          continue;
+        }
+        if (trimmed.startsWith("event: ")) {
+          eventName = trimmed.slice(7).trim();
+        } else if (trimmed.startsWith("data: ")) {
+          const payload = trimmed.slice(6);
+          try {
+            const obj = JSON.parse(payload) as Record<string, unknown>;
+            if (eventName === "papers") {
+              yield { type: "papers", ...(obj as Omit<StreamSearchEvent & { type: "papers" }, "type">) };
+            } else if (eventName === "synthesis_token") {
+              yield { type: "synthesis_token", token: String(obj.token ?? "") };
+            } else if (eventName === "done") {
+              yield { type: "done", ...(obj as Omit<StreamSearchEvent & { type: "done" }, "type">) };
+            } else if (eventName === "error") {
+              yield { type: "error", error: String(obj.error ?? "未知错误") };
+            }
+          } catch { /* malformed JSON line, skip */ }
+          eventName = "";
+        }
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      yield { type: "error", error: "请求已取消或超时" };
+    } else {
+      yield { type: "error", error: e instanceof Error ? e.message : "网络错误" };
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener("abort", abort);
+  }
+}
+
 export async function submitFeedback(payload: {
   messageId: string;
   value: 1 | -1;

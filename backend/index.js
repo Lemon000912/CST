@@ -12,10 +12,10 @@ const ROOT_ENV_PATH = path.resolve(__dirname, "..", ".env");
 dotenv.config({ path: ROOT_ENV_PATH });
 dotenv.config();
 
-// 调试：检查环境变量加载情况
-const llmKey = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-console.log("[env] LLM_API_KEY / OPENAI_API_KEY loaded:", llmKey ? "Yes (length: " + llmKey.length + ")" : "No");
-console.log("[env] LLM key prefix:", llmKey ? llmKey.slice(0, 7) + "..." : "N/A");
+const llmConfigured = Boolean(
+  String(process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? "").trim(),
+);
+console.log("[env] primary LLM configured:", llmConfigured ? "Yes" : "No");
 
 const dbUrl = process.env.DATABASE_URL;
 console.log("[env] DATABASE_URL loaded:", dbUrl ? "Yes" : "No");
@@ -35,6 +35,10 @@ import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
 import { runPaperSearch } from "./searchService.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
+import { generateTextStream } from "./llmClient.js";
+import { resolvePrimaryProvider } from "./llmProviders.js";
+import { synthesizeFromPapers } from "./synthesize.js";
+import { finalizeSynthesisMarkdown } from "./synthesisExtract.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
 import {
   shouldUseAttachmentPrimarySynthesis,
@@ -294,13 +298,13 @@ function pdfContentDisposition(rawTitle) {
 
 const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
 
-- **默认**：分词式关键词检索；若启用 LLM，会将任意语言（含中文整句）理解为研究意图并输出**单行英文关键词**再检索。服务端使用 **OpenAI 兼容** Chat Completions（默认 URL 可为 DeepSeek 官方或其它网关），环境变量 \`LLM_CHAT_COMPLETIONS_URL\`、\`LLM_API_KEY\`（或 \`OPENAI_API_KEY\`）与侧栏 Key 一致即可；模型名见 \`LLM_MODEL\` / \`defaultModel()\`。
+- **默认**：分词式关键词检索；若启用 LLM，会将任意语言（含中文整句）理解为研究意图并输出**单行英文关键词**再检索。查询改写、语义理解、作图、数据表、书籍回答与 Deep Mine 终稿使用主 OpenAI-compatible Provider：\`LLM_API_KEY\` + \`LLM_CHAT_COMPLETIONS_URL\` + \`LLM_MODEL\`。请求侧仅在同时提供 Key 时才会原子覆盖 URL/model，避免服务端 Key 被发送到请求指定地址。
 - **自建数据库**：在 \`.env\` 设置 \`DATABASE_URL=postgresql://用户:密码@主机:5432/数据库名\` 后重启 API，应用会使用 **PostgreSQL** 中的 \`papers\` 等表（启动时自动 \`CREATE TABLE IF NOT EXISTS\`）。\`papers\` 字段与 SQLite 一致：\`paper_id, doi, title, abstract, year, venue, oa_status, source_batch, created_at, updated_at, arxiv_id, authors_json, abs_url, pdf_url\`。**数据库优先**渠道仅检索该表。未设置 \`DATABASE_URL\` 时使用项目内 **SQLite**（\`backend/data/app.sqlite\`）。\`POST /api/v1/search\` 的 JSON \`max\` 为**上限**（数据库默认约 48、上限 80；网页默认约 28、上限 55）；实际条数由**与问题及用户喜好词的相关度**过滤决定，弱相关会被剔除，故可多可少。可选 \`preferenceKeywords\` 字符串数组（与账号侧栏「收藏关键词」同源）以收紧命中。
 - **可选演示种子**：仅当 \`SIMPLE_SEED=1\` 时，启动会从 \`backend/data/simple-papers.json\`（若存在）及 \`simple datas/*.json\` 合并导入；默认**不**导入。检索词含 DOI 时本地按 DOI 列匹配（**数据库优先**渠道）。
 - **网页全网（Dataify，可选）**：在 \`.env\` 设置 \`DATAIFY_API_KEY\` 后，「网页」渠道会**优先**调用 Dataify 搜索引擎 API 拉取链接；无结果或失败时再回退到 MCP Brave 或 DuckDuckGo。路径与鉴权可用 \`DATAIFY_API_BASE\`、\`DATAIFY_WEB_PATH\`、\`DATAIFY_AUTH_PREFIX\` 等与控制台文档对齐。
 - **MCP 网页搜索（可选）**：配置 \`MCP_WEB_COMMAND\`、\`MCP_WEB_ARGS_JSON\` 后，在无 Dataify 结果时作为网页来源之一。详见 \`GET /api/v1/mcp/status\`。请求体 \`"useMcpWeb": false\` 将**跳过**专利与全网网页（DDG/Dataify/MCP）外呼，其它检索不变。
-- **网页渠道（网页+专利）**：选择「网页」时**不检索** arXiv、Crossref、OpenAlex 论文、Semantic Scholar、Scopus、Europe PMC 等；仅 **并行** 拉取 **全网网页**（Dataify / MCP Brave / DuckDuckGo，每条须带 **http(s) 链接**）与 **专利**（OpenAlex 专利 + 专利网页检索）；并对网页条目**尽量抓取正文**（\`webFetchNote: fetched\`）写入 \`summary\`。**响应同时含**：\`synthesis\`（三模型联网综合回答）、\`papers[].summary\`（检索摘录，界面分块展示）。查论文库请用「**数据库优先**」；Scopus 仅数据库渠道（可选 \`ELSEVIER_API_KEY\`）。可配 \`SYNTHESIS_API_KEY_A/B/C\` 或单 Key + \`LLM_MODEL_B\` / \`LLM_MODEL_C\`；摘录长度见 \`WEB_FETCH_MAX_CHARS\`、\`WEB_SYNTH_EXCERPT_*\`。
-- **文献综述**：已配置 LLM Key 时，\`POST /api/v1/search\` 默认在检索完成后基于返回文献的**摘要摘录**再调用一次模型，生成中文综述；引用处须带 \`(DOI: …)\` 或 \`(arXiv: …)\`（由模型按摘录中的标识书写）。**若用户问题或摘录涉及工艺链、工序、产线/SOP 等**，综述中的「方案说明」会要求包含 **\`### 工序流程\`** 有序步骤，且与响应 JSON 字段 \`synthesisPlan.steps\` 对齐。请求体 \`"includeSynthesis": false\` 可关闭以节省 token。**双模型共识**：请求头 \`X-Model-B\` 或 JSON \`"modelB": "…"\`（或 \`LLM_MODEL_B\`）指定第二模型时，主模型与模型 B **并行**生成综述后，再调用一次主 Key 的模型仅保留两份综述的**共享部分**（见响应 \`synthesisModels\` 与 \`synthesisNote\`）。**三密钥 A/B 写、C 仲裁**：在服务端 \`.env\` 同时配置 \`SYNTHESIS_API_KEY_A\`、\`SYNTHESIS_API_KEY_B\`、\`SYNTHESIS_API_KEY_C\` 时，综述由 A、B 各用独立 Key 并行生成，再由 C 的 Key 调用模型输出**唯一终稿**（\`synthesisModels.mode\` 为 \`tri_arbitration\`）；可选 \`SYNTHESIS_MODEL_A\` / \`_B\` / \`_C\`、\`SYNTHESIS_CHAT_URL_A\` / \`_B\` / \`_C\` 指定模型名与兼容接口 URL（未设则沿用 \`LLM_CHAT_COMPLETIONS_URL\` 与默认模型名）。
+- **网页渠道（网页+专利）**：选择「网页」时**不检索** arXiv、Crossref、OpenAlex 论文、Semantic Scholar、Scopus、Europe PMC 等；仅 **并行** 拉取 **全网网页**（Dataify / MCP Brave / DuckDuckGo，每条须带 **http(s) 链接**）与 **专利**（OpenAlex 专利 + 专利网页检索）；并对网页条目**尽量抓取正文**（\`webFetchNote: fetched\`）写入 \`summary\`。**响应同时含**：\`synthesis\`（联网综合回答）、\`papers[].summary\`（检索摘录，界面分块展示）。查论文库请用「**数据库优先**」；Scopus 仅数据库渠道（可选 \`ELSEVIER_API_KEY\`）。默认单路回答使用主 Provider/A；\`WEB_TRI_MODE=tri\` 且完整配置 A/B/C 时三路作答并由 C 仲裁。摘录长度见 \`WEB_FETCH_MAX_CHARS\`、\`WEB_SYNTH_EXCERPT_*\`。
+- **文献综述**：已配置 LLM Key 时，\`POST /api/v1/search\` 默认在检索完成后基于返回文献的**摘要摘录**生成中文综述；引用处须带 \`(DOI: …)\` 或 \`(arXiv: …)\`。**若用户问题或摘录涉及工艺链、工序、产线/SOP 等**，综述中的「方案说明」会要求包含 **\`### 工序流程\`** 有序步骤，且与响应 JSON 字段 \`synthesisPlan.steps\` 对齐。请求体 \`"includeSynthesis": false\` 可关闭。**双模型共识**仍可在同一主 Provider 内用 \`X-Model-B\` / \`modelB\` 运行。**三 Provider 仲裁**使用原子配置 \`LLM_PROVIDER_A_*\`、\`LLM_PROVIDER_B_*\`、\`LLM_PROVIDER_C_*\`：A/B 为各自独立 OpenAI-compatible URL/Key/model，C 为 Gemini Developer API 原生 \`generateContent\`，并输出唯一终稿（\`synthesisModels.mode=tri_arbitration\`）；响应仅返回模型名与模式，不返回 Key/URL。
 - **身份 / 用途（Skill）**：请求头 \`X-Persona\` 或 JSON 体 \`persona\` 填内置 id（见 \`GET /api/v1/personas\`）。服务端在**检索式 LLM 改写**与**文献综述**前会先拼接对应 Skill 再调用模型；未传时默认为 \`researcher\`。
 - **上传**：支持 PDF、Markdown、TXT、Word（.docx / .doc），解析后的正文会并入检索上下文（见 \`POST /api/v1/extract\`）。
 - **无命中扩检**：\`POST /api/v1/search\` 在首次检索返回文献 **≤12 条**时，会自动再跑一轮放宽检索（arXiv 字段固定为全文综合 \`all\`、关闭检索式 LLM 改写或附带扩检提示再改写），仍无结果时会在 \`rewriteNote\` 中带 \`expand2:still_zero\`。
@@ -1281,6 +1285,258 @@ app.post("/api/v1/feedback", async (req, res) => {
   } catch (e) {
     console.error("[feedback]", e);
     res.status(500).json({ error: "反馈写入失败" });
+  }
+});
+
+// ==================== 流式搜索+综述 SSE 端点 ====================
+// POST /api/v1/search/stream
+// 与 /api/v1/search 参数完全兼容；额外实现两阶段 SSE：
+//   1. event:papers  — runPaperSearch 完成后立即推送文献列表
+//   2. event:synthesis_token — LLM 综述 token 逐字推送
+//   3. event:done  — 含最终元数据（latencyMs、synthesisNote 等）
+// 不走 billingMiddleware（billing 逻辑与 /api/v1/search 共享，不重复收费）
+app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => {
+  const ip = clientIp(req);
+  if (!rateLimitHit(ip)) {
+    return res.status(429).json({ error: "请求过于频繁，请稍后再试（S-5）" });
+  }
+
+  // SSE 头
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no"); // 关闭 Nginx 缓冲
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  /** 推送一帧 SSE */
+  const send = (event, data) => {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const t0 = Date.now();
+
+  try {
+    // ── 解析请求参数（与 /api/v1/search 完全一致） ──
+    const currentQuery = String(req.body?.query ?? "").trim();
+    const conversationContext = String(req.body?.conversationContext ?? "").trim().slice(0, 12_000);
+    const attachmentContext = String(req.body?.attachmentContext ?? "").trim().slice(0, 200_000);
+    const attachmentFilename = String(req.body?.attachmentFilename ?? "").trim().slice(0, 512);
+    const legacyEmbeddedCtx =
+      !conversationContext &&
+      (/【对话上下文|【本对话上文/.test(currentQuery) || /----\s*当前提问\s*----/i.test(currentQuery));
+    const rawQuery = legacyEmbeddedCtx
+      ? currentQuery
+      : conversationContext
+        ? `${conversationContext}\n\n---- 当前提问 ----\n${currentQuery}`
+        : currentQuery;
+    const mergedQuery = [rawQuery, attachmentContext ? `\n\n---- 上传文件摘录 ----\n${attachmentContext}` : ""]
+      .filter(Boolean).join("").trim();
+    if (!mergedQuery) {
+      send("error", { error: "请输入检索内容或上传可解析的文件" });
+      return res.end();
+    }
+
+    const channel = req.body?.channel === "web" ? "web" : "database";
+    const field = req.body?.field === "ti" || req.body?.field === "abs" ? req.body.field : "all";
+    const sortRaw = String(req.body?.sort ?? "relevance");
+    const sort =
+      sortRaw === "submittedDate" || sortRaw === "lastUpdatedDate" || sortRaw === "citations"
+        ? sortRaw : "relevance";
+    const maxCap = channel === "database" ? 200 : Math.min(360, Math.max(80, Number(process.env.WEB_SEARCH_MAX_CAP) || 320));
+    const defaultMax = channel === "database" ? 80 : Math.min(maxCap, Math.max(48, Number(process.env.WEB_SEARCH_DEFAULT_MAX) || 128));
+    const max = Math.min(maxCap, Math.max(1, Number(req.body?.max) || defaultMax));
+    const useLlmRewrite = req.body?.useLlmRewrite !== false;
+    const openaiApiKey = String(req.headers["x-openai-key"] ?? req.headers["x-dashscope-key"] ?? req.headers["x-deepseek-key"] ?? "").trim().slice(0, 512);
+    const openaiModel = String(req.headers["x-openai-model"] ?? "").trim().slice(0, 96);
+    const modelBClient = String(req.headers["x-model-b"] ?? req.body?.modelB ?? "").trim().slice(0, 96);
+    const llmChatUrl = String(req.headers["x-llm-chat-url"] ?? "").trim().slice(0, 2048);
+    const useMcpWeb = req.body?.useMcpWeb !== false;
+    const patentsOnly = req.body?.patentsOnly === true;
+    const personaId = normalizePersonaId(req.headers["x-persona"] ?? req.body?.persona);
+    const personaSkill = getPersonaSkill(personaId);
+    const personaLabel = listPersonas().find((p) => p.id === personaId)?.label ?? personaId;
+    const outputAvoidance = String(req.body?.outputAvoidance ?? "").trim().slice(0, 2000);
+    const includeSynthesis = patentsOnly ? req.body?.includeSynthesis === true : req.body?.includeSynthesis !== false;
+    let preferenceKeywords = [];
+    const rawPk = req.body?.preferenceKeywords;
+    if (Array.isArray(rawPk)) {
+      preferenceKeywords = rawPk.map((x) => String(x ?? "").trim().slice(0, 96)).filter(Boolean).slice(0, 24);
+    }
+
+    const searchCoreQuery = extractCoreSearchQuery(currentQuery) || currentQuery.slice(0, 800);
+    const synthCore = extractCoreSearchQuery(currentQuery) || currentQuery;
+    const synthQuery = synthCore.trim() ? synthCore.slice(0, 6000) : mergedQuery.slice(0, 6000);
+    const synthConvoHint = conversationContext
+      ? conversationContext.slice(0, 4500)
+      : legacyEmbeddedCtx
+        ? extractConversationContext(rawQuery).slice(0, 4500)
+        : "";
+
+    // ── 阶段 1：检索文献 ──
+    let result = await runPaperSearch({
+      rawQuery: searchCoreQuery,
+      conversationContext: conversationContext || undefined,
+      channel, field, sort, max, useLlmRewrite, useMcpWeb, patentsOnly,
+      openaiApiKey: openaiApiKey || undefined,
+      openaiModel: openaiModel || undefined,
+      llmChatCompletionsUrl: llmChatUrl || undefined,
+      personaSkill,
+      preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
+    });
+
+    // 立即推送文献结果，前端可先渲染
+    send("papers", {
+      papers: result.papers,
+      effectiveQuery: result.effectiveQuery,
+      rewriteNote: result.rewriteNote,
+      queryIntent: result.queryIntent ?? null,
+      sourcesUsed: result.sourcesUsed,
+      channel: result.channel,
+      sort: result.sort,
+      field,
+      patentsOnly,
+      latencySearch: Date.now() - t0,
+      persona: personaId,
+      personaLabel,
+    });
+
+    // ── 阶段 2：流式综述 ──
+    if (!includeSynthesis || !result.papers.length) {
+      send("done", {
+        synthesis: null,
+        synthesisNote: includeSynthesis ? "synth:no-papers" : "synth:skipped",
+        synthesisPlan: null,
+        latencyMs: Date.now() - t0,
+      });
+      return res.end();
+    }
+
+    const primary = resolvePrimaryProvider({
+      apiKey: openaiApiKey || undefined,
+      model: openaiModel || undefined,
+      chatCompletionsUrl: llmChatUrl || undefined,
+    });
+
+    if (!primary) {
+      send("done", {
+        synthesis: null,
+        synthesisNote: "synth:no-llm-key",
+        synthesisPlan: null,
+        latencyMs: Date.now() - t0,
+      });
+      return res.end();
+    }
+
+    // 构造与 synthesize.js runSingleSynthesisModel 相同的 prompt，改用流式调用
+    const papers = result.papers.slice(0, 35);
+    const list = papers.map((p, i) => {
+      const doi = String(p.doi ?? "").trim();
+      const ax = String(p.id ?? p.arxiv_id ?? "").replace(/^arxiv:/i, "").trim();
+      const title = String(p.title ?? "").slice(0, 200);
+      const authors = Array.isArray(p.authors) ? p.authors.join(", ") : String(p.authors ?? "");
+      const src = String(p.source ?? "");
+      const absU = String(p.absUrl ?? "").trim();
+      const abstRaw = String(p.summary ?? p.abstract ?? "");
+      const abst = abstRaw.slice(0, ["mcp_web","ddg_web","ddg_patent","dataify_web","tavily_web","openalex_patent"].includes(src) ? 360 : 240);
+      let idLine = doi ? `DOI: ${doi}` : ax ? `arXiv: ${ax}` : absU ? `URL: ${absU.slice(0, 240)}` : "（无 ID）";
+      const typeTag = (src === "ddg_patent" || src === "openalex_patent") ? "专利" :
+        (src === "mcp_web" || src === "ddg_web" || src === "dataify_web" || src === "tavily_web") ? "网页" : "文献";
+      return `[${i+1}] 类型:${typeTag} | ${idLine}\n标题: ${title}\n作者: ${authors.slice(0, 220)}\n摘要摘录: ${abst}`;
+    }).join("\n\n---\n\n");
+
+    const skillRaw = String(personaSkill ?? "").trim().slice(0, 2800);
+    const skillPrefix = skillRaw ? `【用户身份/用途】\n${skillRaw}\n\n---\n\n` : "";
+    const avoidSuffix = outputAvoidance ? `\n\n【输出偏好（须遵守）】\n${outputAvoidance.slice(0, 2000)}` : "";
+    const nPat = papers.filter((p) => p.source === "ddg_patent" || p.source === "openalex_patent").length;
+
+    const SYNTH_SYS_STREAM =
+      "你是科研文献综述专家。请基于提供的文献摘录，生成一份结构化的文献综述。\n\n" +
+      "输出要求（使用二级标题 ##）：\n" +
+      "## 研究背景与意义\n## 主要研究进展\n## 关键技术与方法\n## 研究趋势与展望\n## 间接参考与延伸线索\n\n" +
+      "注意：事实须来自摘录，使用 (DOI:…) 或 [n] 标注，禁止编造，使用简体中文。" +
+      avoidSuffix;
+
+    const userMsg =
+      (synthConvoHint ? `【本对话上文】\n${synthConvoHint}\n\n` : "") +
+      `用户检索问题：${synthQuery.slice(0, 6000)}\n\n` +
+      `以下为检索到的摘录（共${papers.length}条）：\n\n${list}\n\n` +
+      "请基于以上摘录生成综述。";
+
+    let fullSynthesis = "";
+    let streamHadTokens = false;
+
+    for await (const token of generateTextStream(primary, {
+      timeoutMs: 120_000,
+      temperature: 0.3,
+      maxTokens: 5000,
+      system: skillPrefix + SYNTH_SYS_STREAM,
+      messages: [{ role: "user", content: userMsg }],
+    })) {
+      if (res.writableEnded) break;
+      fullSynthesis += token;
+      streamHadTokens = true;
+      send("synthesis_token", { token });
+    }
+
+    // 流式结束；解析 plan
+    let plan = null;
+    let planNote = null;
+    if (fullSynthesis) {
+      const fin = finalizeSynthesisMarkdown(fullSynthesis);
+      fullSynthesis = fin.markdown || fullSynthesis;
+      plan = fin.plan ?? null;
+      planNote = fin.planNote ?? null;
+    }
+
+    if (!streamHadTokens) {
+      // 流式失败，回退到普通非流式综述
+      try {
+        const syn = await synthesizeFromPapers({
+          userQuery: synthQuery,
+          conversationContext: synthConvoHint || undefined,
+          papers: result.papers,
+          apiKey: openaiApiKey || undefined,
+          model: openaiModel || undefined,
+          modelB: modelBClient || undefined,
+          chatCompletionsUrl: llmChatUrl || undefined,
+          personaSkill,
+          outputAvoidanceHint: outputAvoidance || undefined,
+        });
+        if (syn.markdown) {
+          // 回退时整体推送
+          send("synthesis_token", { token: syn.markdown });
+          fullSynthesis = syn.markdown;
+          plan = syn.plan ?? null;
+          planNote = syn.planNote ?? null;
+        }
+      } catch { /* 忽略 */ }
+    }
+
+    await logQuery({
+      userId: req.auth.userId,
+      query: rawQuery || "(仅上传文件)",
+      filters: { channel, field, sort, patentsOnly, effectiveQuery: result.effectiveQuery, sources: result.sourcesUsed, attachmentChars: attachmentContext.length },
+      resultCount: result.papers.length,
+      latencyMs: result.latencyMs,
+    });
+
+    send("done", {
+      synthesis: fullSynthesis || null,
+      synthesisNote: fullSynthesis ? "synth:stream_ok" : "synth:stream_failed",
+      synthesisPlan: plan,
+      synthesisPlanNote: planNote,
+      latencyMs: Date.now() - t0,
+      rewriteNote: result.rewriteNote,
+      sourcesUsed: result.sourcesUsed,
+    });
+    res.end();
+  } catch (e) {
+    console.error("[v1/search/stream]", e?.message);
+    if (!res.writableEnded) {
+      send("error", { error: e?.message || "检索失败" });
+      res.end();
+    }
   }
 });
 

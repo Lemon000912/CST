@@ -1,12 +1,8 @@
 /**
  * 书籍类问题：用多条公开网页摘录拼「定位 + 按章/结构总结」，不臆造未出现的章节。
  */
-import {
-  resolveApiKey,
-  resolveChatCompletionsUrl,
-  sanitizeModel,
-  defaultModel,
-} from "./rewrite.js";
+import { resolvePrimaryProvider } from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 import { extractBookTitles, isBookIntentQuery } from "./bookWebClues.js";
 import {
   WEB_JSON_FOOTER,
@@ -56,8 +52,8 @@ export async function synthesizeBookFromWebClues(p) {
     return { markdown: null, plan: null, planNote: null, note: "book_clue:no-papers", synthesisModels: null };
   }
 
-  const key = resolveApiKey(String(p.apiKey ?? "").trim());
-  if (!key) {
+  const provider = resolvePrimaryProvider(p);
+  if (!provider) {
     return { markdown: null, plan: null, planNote: null, note: "book_clue:no-llm-key", synthesisModels: null };
   }
 
@@ -78,36 +74,20 @@ export async function synthesizeBookFromWebClues(p) {
     `【公开网页摘录】（共 ${papers.length} 条，作答唯一依据；编号 [n] 与下文一致）\n${excerpts}\n\n` +
     "请用简体中文作答：先书籍定位，再按用户要求组织章节/结构总结；不得编造摘录中未出现的章名。";
 
-  const url = resolveChatCompletionsUrl(p.chatCompletionsUrl);
-  const model = sanitizeModel(String(p.model ?? "").trim() || defaultModel());
-  const controller = new AbortController();
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0.15,
-        max_tokens: Math.min(8000, Math.max(4500, Number(process.env.BOOK_CLUE_SYNTH_MAX_TOKENS) || 6500)),
-        messages: [
-          { role: "system", content: skillPrefix + BOOK_CLUE_SYSTEM + avoid },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+    const result = await generateText(provider, {
+      timeoutMs: ms,
+      temperature: 0.15,
+      maxTokens: Math.min(8000, Math.max(4500, Number(process.env.BOOK_CLUE_SYNTH_MAX_TOKENS) || 6500)),
+      system: skillPrefix + BOOK_CLUE_SYSTEM + avoid,
+      messages: [{ role: "user", content: userPrompt }],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      return { markdown: null, plan: null, planNote: null, note: `book_clue:http_${r.status}`, synthesisModels: null };
+    if (!result.ok) {
+      return { markdown: null, plan: null, planNote: null, note: `book_clue:${result.error}`, synthesisModels: null };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) {
       return { markdown: null, plan: null, planNote: null, note: "book_clue:empty", synthesisModels: null };
     }
@@ -117,10 +97,9 @@ export async function synthesizeBookFromWebClues(p) {
       plan: fin.plan,
       planNote: fin.planNote,
       note: `book_clue:ok|sources=${papers.length}|titles=${titles.length}`,
-      synthesisModels: { modelA: model, mode: "book_web_clues" },
+      synthesisModels: { modelA: provider.model, mode: "book_web_clues" },
     };
   } catch (e) {
-    clearTimeout(timeoutId);
     return {
       markdown: null,
       plan: null,

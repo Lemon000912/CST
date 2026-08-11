@@ -4,7 +4,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveApiKey, resolveChatCompletionsUrl, defaultModel } from "./rewrite.js";
+import { resolvePrimaryProvider } from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PY_SCRIPT = path.join(__dirname, "scripts", "render_paper_chart.py");
@@ -61,8 +62,8 @@ function paperSnippet(p) {
  * @param {{ apiKey?: string; model?: string; chatCompletionsUrl?: string; userHint?: string; synthesisMarkdown?: string }} opts
  */
 export async function extractChartSpecWithLlm(papers, opts) {
-  const key = resolveApiKey(String(opts.apiKey ?? "").trim());
-  if (!key) {
+  const provider = resolvePrimaryProvider(opts);
+  if (!provider) {
     return { ok: false, error: "未配置 LLM API Key（侧栏或环境变量 LLM_API_KEY / OPENAI_API_KEY 等）", spec: null };
   }
   const list = (Array.isArray(papers) ? papers : [])
@@ -80,8 +81,6 @@ export async function extractChartSpecWithLlm(papers, opts) {
   }
 
   const hint = String(opts.userHint ?? "").trim().slice(0, 500);
-  const model = String(opts.model ?? "").trim() || defaultModel();
-  const url = resolveChatCompletionsUrl(opts.chatCompletionsUrl);
 
   const system =
     "你是「从文献摘录抽取数值并溯源」的助手。用户会给出若干条带标识符（DOI/arXiv/专利号/URL等）的摘要摘录（可能较长）。\n" +
@@ -120,32 +119,17 @@ export async function extractChartSpecWithLlm(papers, opts) {
     synBlock;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000);
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0.22,
-        max_tokens: 6000,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+    const result = await generateText(provider, {
+      timeoutMs: 25_000,
+      temperature: 0.22,
+      maxTokens: 6000,
+      system,
+      messages: [{ role: "user", content: user }],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      const t = await r.text();
-      return { ok: false, error: `LLM HTTP ${r.status}: ${t.slice(0, 200)}`, spec: null };
+    if (!result.ok) {
+      return { ok: false, error: `LLM ${result.error}: ${result.errorBody.slice(0, 200)}`, spec: null };
     }
-    const j = await r.json();
-    let text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    let text = result.text;
     text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     const spec = tryParseJsonLoose(text);
     if (!spec) return { ok: false, error: "模型输出不是合法 JSON", spec: null };

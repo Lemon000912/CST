@@ -1,15 +1,14 @@
 /**
  * 网页渠道：三模型并行「联网问答式」作答 + 仲裁合并终稿（类似大模型全网搜索后综合回答）。
  */
+import { sanitizeModel, defaultModel } from "./rewrite.js";
 import {
-  resolveApiKey,
-  resolveChatCompletionsUrl,
-  sanitizeModel,
-  safeHttpUrl,
-  defaultModel,
-} from "./rewrite.js";
+  resolvePrimaryProvider,
+  resolveTriProviders,
+  withProviderModel,
+} from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 import { extractPatentNumberFromPaper } from "./patentNumber.js";
-import { resolveSecondaryModel } from "./synthesize.js";
 import {
   pickWebPatentPapersForSynthesis,
   buildWebAnswerUserPrompt,
@@ -108,27 +107,11 @@ const WEB_MERGE_3_SYSTEM =
   WEB_JSON_FOOTER;
 
 function readTriKeys(clientUrl, clientModelA, modelBHint) {
-  const keyA = String(process.env.SYNTHESIS_API_KEY_A ?? "").trim();
-  const keyB = String(process.env.SYNTHESIS_API_KEY_B ?? "").trim();
-  const keyC = String(process.env.SYNTHESIS_API_KEY_C ?? "").trim();
-  if (!keyA || !keyB || !keyC) return null;
-  const urlBase = resolveChatCompletionsUrl(clientUrl);
-  const urlA = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_A ?? "").trim()) || urlBase;
-  const urlB = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_B ?? "").trim()) || urlBase;
-  const urlC = safeHttpUrl(String(process.env.SYNTHESIS_CHAT_URL_C ?? "").trim()) || urlBase;
-  const modelA = sanitizeModel(
-    String(process.env.SYNTHESIS_MODEL_A ?? "").trim() || String(clientModelA ?? "").trim() || defaultModel(),
-  );
-  const modelB = sanitizeModel(
-    String(process.env.SYNTHESIS_MODEL_B ?? "").trim() ||
-      String(modelBHint ?? "").trim() ||
-      String(process.env.LLM_MODEL_B ?? "").trim() ||
-      defaultModel(),
-  );
-  const modelC = sanitizeModel(
-    String(process.env.SYNTHESIS_MODEL_C ?? "").trim() || defaultModel(),
-  );
-  return { keyA, keyB, keyC, urlA, urlB, urlC, modelA, modelB, modelC };
+  return resolveTriProviders({
+    chatCompletionsUrl: clientUrl,
+    model: clientModelA,
+    modelB: modelBHint,
+  });
 }
 
 function pickWebPlan(...branches) {
@@ -148,19 +131,6 @@ function pickWebPlan(...branches) {
   return null;
 }
 
-function resolveTripleModels(clientModel, modelBHint) {
-  const modelA = sanitizeModel(String(clientModel ?? "").trim() || defaultModel());
-  const modelB = sanitizeModel(
-    resolveSecondaryModel(modelA, modelBHint) ||
-      String(process.env.LLM_MODEL_B ?? "").trim() ||
-      defaultModel(),
-  );
-  const modelC = sanitizeModel(
-    String(process.env.LLM_MODEL_C ?? process.env.SYNTHESIS_MODEL_C ?? "").trim() || defaultModel(),
-  );
-  return { modelA, modelB, modelC };
-}
-
 function webTriConcurrency() {
   const n = Number(process.env.WEB_TRI_CONCURRENCY);
   if (Number.isFinite(n) && n >= 1) return Math.min(3, Math.floor(n));
@@ -172,33 +142,8 @@ function webTriMode() {
   return m === "tri" || m === "3" || m === "triple" ? "tri" : "single";
 }
 
-function webModelCandidates(primary) {
-  const fromEnv = String(process.env.WEB_ANSWER_MODEL_FALLBACK ?? "").trim();
-  const list = fromEnv
-    ? fromEnv.split(/[,;|]/).map((x) => sanitizeModel(x.trim())).filter(Boolean)
-    : [
-        "gpt-5.4",
-        "gpt-5.5",
-        sanitizeModel(String(process.env.SYNTHESIS_MODEL_B ?? "").trim()),
-        sanitizeModel(String(process.env.SYNTHESIS_MODEL_A ?? "").trim()),
-        sanitizeModel(String(process.env.SYNTHESIS_MODEL_C ?? "").trim()),
-      ];
-  const pri = sanitizeModel(primary || defaultModel());
-  const out = [];
-  const seen = new Set();
-  const fastFirst = !/^(0|false|off|no)$/i.test(String(process.env.WEB_ANSWER_FAST_MODEL ?? "1").trim());
-  const ordered = fastFirst && pri === "gpt-5.5" ? ["gpt-5.4", pri, ...list] : [pri, ...list];
-  for (const m of ordered) {
-    if (!m || seen.has(m)) continue;
-    seen.add(m);
-    out.push(m);
-  }
-  return out.length ? out : ["gpt-5.4"];
-}
-
 function resolveWebFallbackModel(primary) {
-  const cands = webModelCandidates(primary);
-  return cands[0] || "gpt-5.4";
+  return sanitizeModel(primary || defaultModel());
 }
 
 function isRetriableHttpStatus(status) {
@@ -277,33 +222,18 @@ async function runWebDirectKnowledgeAnswer(args) {
   const avoid = String(args.outputAvoidanceHint ?? "").trim()
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
-  const controller = new AbortController();
-  const ms = synthesisTimeoutMs();
-  const timeoutId = setTimeout(() => controller.abort(), ms);
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.18,
-        max_tokens: webAnswerMaxTokens(true),
-        messages: [
-          { role: "system", content: skillPrefix + WEB_DIRECT_SYSTEM + avoid },
-          { role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: synthesisTimeoutMs(),
+      temperature: 0.18,
+      maxTokens: webAnswerMaxTokens(true),
+      system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
+      messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      return { markdown: null, note: `web_direct:http_${r.status}`, plan: null, planNote: null };
+    if (!result.ok) {
+      return { markdown: null, note: `web_direct:${result.error}`, plan: null, planNote: null };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) return { markdown: null, note: "web_direct:empty", plan: null, planNote: null };
     const fin = finalizeSynthesisMarkdown(text);
     return {
@@ -313,7 +243,6 @@ async function runWebDirectKnowledgeAnswer(args) {
       planNote: fin.planNote,
     };
   } catch (e) {
-    clearTimeout(timeoutId);
     return { markdown: null, note: `web_direct_err:${e?.message || "unknown"}`, plan: null, planNote: null };
   }
 }
@@ -353,49 +282,35 @@ async function runSingleWebAnswer(args) {
     : "";
 
   const maxAttempts = Math.min(3, Math.max(1, Number(process.env.WEB_ANSWER_RETRIES) || 2));
-  const modelCandidates = webModelCandidates(args.model);
+  const provider = args.provider;
+  const model = provider?.model;
   let lastNote = "web_answer:empty";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const model = modelCandidates[Math.min(modelCandidates.length - 1, attempt - 1)] || args.model;
-    const controller = new AbortController();
-    const ms = synthesisTimeoutMs();
-    const timeoutId = setTimeout(() => controller.abort(), ms);
     try {
-      const r = await fetch(args.chatCompletionsUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${args.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          temperature: 0.12,
-          max_tokens: webAnswerMaxTokens(Boolean(args.lite)),
-          messages: [
-            { role: "system", content: skillPrefix + WEB_ANSWER_SYSTEM + avoid },
-            {
-              role: "user",
-              content: `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
-            },
-          ],
-        }),
+      const result = await generateText(provider, {
+        timeoutMs: synthesisTimeoutMs(),
+        temperature: 0.12,
+        maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
+        system: skillPrefix + WEB_ANSWER_SYSTEM + avoid,
+        messages: [
+          {
+            role: "user",
+            content: `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
+          },
+        ],
       });
-      clearTimeout(timeoutId);
-      if (!r.ok) {
-        const t = await r.text();
-        lastNote = `web_answer:http_${r.status}`;
-        const modelMissing = r.status === 503 && /model_not_found|no available channel/i.test(t);
-        console.error("[webTriAnswer]", args.slot, model, r.status, t.slice(0, 300));
-        if ((isRetriableHttpStatus(r.status) || modelMissing) && attempt < maxAttempts) {
-          await sleepMs(r.status === 504 ? 400 * attempt : 800 * attempt);
+      if (!result.ok) {
+        lastNote = `web_answer:${result.error}`;
+        const modelMissing = result.status === 503 && /model_not_found|no available channel/i.test(result.errorBody);
+        console.error("[webTriAnswer]", args.slot, model, result.status, result.error);
+        if ((isRetriableHttpStatus(result.status) || modelMissing) && attempt < maxAttempts) {
+          await sleepMs(result.status === 504 ? 400 * attempt : 800 * attempt);
           continue;
         }
         return { markdown: null, note: lastNote, plan: null, planNote: null };
       }
-      const j = await r.json();
-      const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+      const text = result.text;
       if (!text) {
         lastNote = "web_answer:empty";
         continue;
@@ -408,7 +323,6 @@ async function runSingleWebAnswer(args) {
         planNote: fin.planNote,
       };
     } catch (e) {
-      clearTimeout(timeoutId);
       lastNote = `web_answer_err:${String(e?.message || e).slice(0, 80)}`;
       if (attempt < maxAttempts) {
         await sleepMs(800 * attempt);
@@ -427,16 +341,13 @@ async function runWebAnswerLiteFallback(args) {
     args.coreQuery,
     args.conversationContext,
   );
-  const model = resolveWebFallbackModel(args.primaryModel);
-  const key = args.apiKey;
-  const url = args.chatCompletionsUrl;
-  if (!key) return { markdown: null, note: "web_lite:no-key", plan: null, planNote: null };
+  const model = resolveWebFallbackModel(args.provider?.model);
+  const provider = withProviderModel(args.provider, model);
+  if (!provider) return { markdown: null, note: "web_lite:no-key", plan: null, planNote: null };
   console.warn("[webTriAnswer] lite fallback with model", model, "papers", liteBase.usedCount);
   return runSingleWebAnswer({
     ...liteBase,
-    apiKey: key,
-    model,
-    chatCompletionsUrl: url,
+    provider,
     slot: "lite",
     lite: true,
     personaSkill: args.personaSkill,
@@ -456,42 +367,28 @@ async function mergeThreeWebAnswers(args) {
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
 
-  const controller = new AbortController();
-  const ms = synthesisTimeoutMs();
-  const timeoutId = setTimeout(() => controller.abort(), ms);
-
   try {
-    const r = await fetch(args.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.1,
-        max_tokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
-        messages: [
-          { role: "system", content: skillPrefix + WEB_MERGE_3_SYSTEM + avoid },
-          {
-            role: "user",
-            content:
-              `【核心问题】\n${coreQuery}\n\n` +
-              `--- 模型 A 回答 ---\n${a}\n\n` +
-              `--- 模型 B 回答 ---\n${b}\n\n` +
-              `--- 模型 C 回答 ---\n${c}\n\n` +
-              "请输出经比较、去重、**剔除跑题**后的唯一终稿。",
-          },
-        ],
-      }),
+    const result = await generateText(args.provider, {
+      timeoutMs: synthesisTimeoutMs(),
+      temperature: 0.1,
+      maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
+      system: skillPrefix + WEB_MERGE_3_SYSTEM + avoid,
+      messages: [
+        {
+          role: "user",
+          content:
+            `【核心问题】\n${coreQuery}\n\n` +
+            `--- 模型 A 回答 ---\n${a}\n\n` +
+            `--- 模型 B 回答 ---\n${b}\n\n` +
+            `--- 模型 C 回答 ---\n${c}\n\n` +
+            "请输出经比较、去重、**剔除跑题**后的唯一终稿。",
+        },
+      ],
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      return { markdown: null, note: `web_merge:http_${r.status}` };
+    if (!result.ok) {
+      return { markdown: null, note: `web_merge:${result.error}` };
     }
-    const j = await r.json();
-    const text = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const text = result.text;
     if (!text) return { markdown: null, note: "web_merge:empty", plan: null, planNote: null };
     const fin = finalizeSynthesisMarkdown(text);
     return {
@@ -501,7 +398,6 @@ async function mergeThreeWebAnswers(args) {
       planNote: fin.planNote,
     };
   } catch (e) {
-    clearTimeout(timeoutId);
     return { markdown: null, note: `web_merge_err:${e?.message || "unknown"}` };
   }
 }
@@ -510,9 +406,9 @@ async function mergeThreeWebAnswers(args) {
  * @param {{ userQuery: string; effectiveQuery?: string; papers: object[]; apiKey?: string; model?: string; modelB?: string; chatCompletionsUrl?: string; personaSkill?: string; outputAvoidanceHint?: string }} p
  */
 export async function synthesizeWebTriAnswer(p) {
-  const key = resolveApiKey(String(p.apiKey ?? "").trim());
+  const primary = resolvePrimaryProvider(p);
   const triCfg = readTriKeys(p.chatCompletionsUrl, p.model, p.modelB);
-  if (!triCfg && !key) {
+  if (!triCfg && !primary) {
     return {
       markdown: null,
       note: "web_tri:no-llm-key",
@@ -549,12 +445,12 @@ export async function synthesizeWebTriAnswer(p) {
     ? `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`
     : `sources=0/${picked.totalIn}|filtered=${picked.filteredOut}`;
 
-  const directCfg = triCfg || (key ? { keyB: key, urlB: resolveChatCompletionsUrl(p.chatCompletionsUrl), modelB: sanitizeModel(p.model) } : null);
+  const directProvider = primary || triCfg?.A || null;
   const lowQualityPick = isLowQualityWebPick(papers, userQuery, picked.coreQuery);
   const hasRichAttachment =
     String(p.attachmentContext ?? "").trim().length >= attachmentSynthMinChars();
   if (
-    directCfg &&
+    directProvider &&
     webDirectFallbackEnabled() &&
     lowQualityPick &&
     !hasRichAttachment &&
@@ -562,9 +458,7 @@ export async function synthesizeWebTriAnswer(p) {
   ) {
     const dr = await runWebDirectKnowledgeAnswer({
       userQuery,
-      apiKey: triCfg ? triCfg.keyB : directCfg.keyB,
-      model: resolveWebFallbackModel(triCfg ? triCfg.modelB : directCfg.modelB),
-      chatCompletionsUrl: triCfg ? triCfg.urlB : directCfg.urlB,
+      provider: withProviderModel(directProvider, resolveWebFallbackModel(directProvider.model)),
       personaSkill: p.personaSkill,
       outputAvoidanceHint: p.outputAvoidanceHint,
       slot: "direct",
@@ -575,19 +469,17 @@ export async function synthesizeWebTriAnswer(p) {
         plan: dr.plan ?? null,
         planNote: dr.planNote ?? null,
         note: `web_tri:direct_knowledge:${dr.note}|${sourceNoteEarly}|pick_low_quality`,
-        synthesisModels: { mode: "web_tri_direct_knowledge", modelB: triCfg?.modelB },
+        synthesisModels: { mode: "web_tri_direct_knowledge", modelB: directProvider?.model },
         webAnswerDrafts: { modelB: dr.markdown, noteB: dr.note },
       };
     }
   }
 
   if (!papers.length) {
-    if (directCfg && webDirectFallbackEnabled()) {
+    if (directProvider && webDirectFallbackEnabled()) {
       const dr = await runWebDirectKnowledgeAnswer({
         userQuery,
-        apiKey: triCfg ? triCfg.keyB : directCfg.keyB,
-        model: resolveWebFallbackModel(triCfg ? triCfg.modelB : directCfg.modelB),
-        chatCompletionsUrl: triCfg ? triCfg.urlB : directCfg.urlB,
+        provider: withProviderModel(directProvider, resolveWebFallbackModel(directProvider.model)),
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
         slot: "direct",
@@ -598,7 +490,7 @@ export async function synthesizeWebTriAnswer(p) {
           plan: dr.plan ?? null,
           planNote: dr.planNote ?? null,
           note: `web_tri:direct_knowledge:${dr.note}|${sourceNoteEarly}`,
-          synthesisModels: { mode: "web_tri_direct_knowledge", modelB: triCfg?.modelB },
+          synthesisModels: { mode: "web_tri_direct_knowledge", modelB: directProvider?.model },
           webAnswerDrafts: { modelB: dr.markdown, noteB: dr.note },
         };
       }
@@ -654,9 +546,10 @@ export async function synthesizeWebTriAnswer(p) {
   const sourceNote = `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`;
 
   const triMode = webTriMode();
-  const singleModel = resolveWebFallbackModel(triCfg?.modelB || p.model);
+  const singleProvider = primary || triCfg?.A;
+  const singleModel = resolveWebFallbackModel(singleProvider?.model);
 
-  if (triMode === "single") {
+  if (triMode === "single" || !triCfg) {
     const ultraBase = buildLiteWebAnswerBase(
       {
         userQuery,
@@ -675,22 +568,17 @@ export async function synthesizeWebTriAnswer(p) {
       p.conversationContext,
       true,
     );
-    const singleKey = triCfg?.keyB || key;
-    const singleUrl = triCfg?.urlB || resolveChatCompletionsUrl(p.chatCompletionsUrl);
+    const selectedProvider = withProviderModel(singleProvider, singleModel);
     let one = await runSingleWebAnswer({
       ...ultraBase,
-      apiKey: singleKey,
-      model: singleModel,
-      chatCompletionsUrl: singleUrl,
+      provider: selectedProvider,
       slot: "single",
       lite: true,
     });
     if (!one.markdown) {
       one = await runSingleWebAnswer({
         ...liteBase,
-        apiKey: singleKey,
-        model: singleModel,
-        chatCompletionsUrl: singleUrl,
+        provider: selectedProvider,
         slot: "single-lite",
         lite: true,
       });
@@ -702,9 +590,7 @@ export async function synthesizeWebTriAnswer(p) {
         userQuery,
         coreQuery: picked.coreQuery,
         conversationContext: p.conversationContext,
-        apiKey: singleKey,
-        chatCompletionsUrl: singleUrl,
-        primaryModel: singleModel,
+        provider: selectedProvider,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
       });
@@ -736,63 +622,22 @@ export async function synthesizeWebTriAnswer(p) {
   let modelA;
   let modelB;
   let modelC;
-  let arbKey;
-  let arbUrl;
-  let arbModel;
+  let arbProvider;
 
   const concurrency = webTriConcurrency();
 
-  if (triCfg) {
-    modelA = triCfg.modelA;
-    modelB = triCfg.modelB;
-    modelC = triCfg.modelC;
-    arbKey = triCfg.keyC;
-    arbUrl = triCfg.urlC;
-    arbModel = triCfg.modelC;
-    [ra, rb, rc] = await runWebAnswerSlots(
-      [
-        {
-          ...base,
-          apiKey: triCfg.keyA,
-          model: triCfg.modelA,
-          chatCompletionsUrl: triCfg.urlA,
-          slot: "A",
-        },
-        {
-          ...base,
-          apiKey: triCfg.keyB,
-          model: triCfg.modelB,
-          chatCompletionsUrl: triCfg.urlB,
-          slot: "B",
-        },
-        {
-          ...base,
-          apiKey: triCfg.keyC,
-          model: triCfg.modelC,
-          chatCompletionsUrl: triCfg.urlC,
-          slot: "C",
-        },
-      ],
-      concurrency,
-    );
-  } else {
-    const triple = resolveTripleModels(p.model, p.modelB);
-    modelA = triple.modelA;
-    modelB = triple.modelB;
-    modelC = triple.modelC;
-    const url = resolveChatCompletionsUrl(p.chatCompletionsUrl);
-    arbKey = key;
-    arbUrl = url;
-    arbModel = modelA;
-    [ra, rb, rc] = await runWebAnswerSlots(
-      [
-        { ...base, apiKey: key, model: modelA, chatCompletionsUrl: url, slot: "A" },
-        { ...base, apiKey: key, model: modelB, chatCompletionsUrl: url, slot: "B" },
-        { ...base, apiKey: key, model: modelC, chatCompletionsUrl: url, slot: "C" },
-      ],
-      concurrency,
-    );
-  }
+  modelA = triCfg.A.model;
+  modelB = triCfg.B.model;
+  modelC = triCfg.C.model;
+  arbProvider = triCfg.C;
+  [ra, rb, rc] = await runWebAnswerSlots(
+    [
+      { ...base, provider: triCfg.A, slot: "A" },
+      { ...base, provider: triCfg.B, slot: "B" },
+      { ...base, provider: triCfg.C, slot: "C" },
+    ],
+    concurrency,
+  );
 
   const drafts = {
     modelA: ra.markdown,
@@ -807,22 +652,19 @@ export async function synthesizeWebTriAnswer(p) {
     modelA,
     modelB,
     modelC,
-    mode: triCfg ? "web_tri_3keys" : "web_tri_single_key",
+    mode: "web_tri_3keys",
   };
 
   const okAnswers = [ra, rb, rc].filter((x) => x.markdown);
   if (!okAnswers.length) {
-    const liteKey = triCfg?.keyB || key;
-    const liteUrl = triCfg?.urlB || resolveChatCompletionsUrl(p.chatCompletionsUrl);
+    const liteProvider = primary || triCfg?.A;
     const lite = await runWebAnswerLiteFallback({
       base,
       papers,
       userQuery,
       coreQuery: picked.coreQuery,
       conversationContext: p.conversationContext,
-      apiKey: liteKey,
-      chatCompletionsUrl: liteUrl,
-      primaryModel: triCfg?.modelB || modelB || p.model,
+      provider: withProviderModel(liteProvider, resolveWebFallbackModel(liteProvider?.model)),
       personaSkill: p.personaSkill,
       outputAvoidanceHint: p.outputAvoidanceHint,
     });
@@ -835,7 +677,7 @@ export async function synthesizeWebTriAnswer(p) {
         synthesisModels: {
           ...synthesisModels,
           mode: "web_tri_lite_fallback",
-          modelB: resolveWebFallbackModel(triCfg?.modelB || modelB),
+          modelB: resolveWebFallbackModel(triCfg.B.model),
         },
         webAnswerDrafts: { ...drafts, modelB: lite.markdown, noteB: lite.note },
       };
@@ -868,9 +710,7 @@ export async function synthesizeWebTriAnswer(p) {
       markdownA: ra.markdown || rb.markdown || "",
       markdownB: rb.markdown || ra.markdown || "",
       markdownC: rc.markdown || ra.markdown || rb.markdown || "",
-      apiKey: arbKey,
-      model: arbModel,
-      chatCompletionsUrl: arbUrl,
+      provider: arbProvider,
       personaSkill: p.personaSkill,
       outputAvoidanceHint: p.outputAvoidanceHint,
     });
@@ -901,9 +741,7 @@ export async function synthesizeWebTriAnswer(p) {
     markdownA: ra.markdown || "",
     markdownB: rb.markdown || "",
     markdownC: rc.markdown || "",
-    apiKey: arbKey,
-    model: arbModel,
-    chatCompletionsUrl: arbUrl,
+    provider: arbProvider,
     personaSkill: p.personaSkill,
     outputAvoidanceHint: p.outputAvoidanceHint,
   });

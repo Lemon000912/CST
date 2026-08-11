@@ -2,7 +2,8 @@
  * 按预设类型从文献摘录 + 综述抽取结构化数据表。
  */
 import { normalizeExtractedData } from "./synthesisExtract.js";
-import { resolveApiKey, resolveChatCompletionsUrl, defaultModel } from "./rewrite.js";
+import { resolvePrimaryProvider } from "./llmProviders.js";
+import { generateText } from "./llmClient.js";
 
 /** @type {Record<string, { label: string; title: string; focus: string }>} */
 export const DATA_TABLE_TYPES = {
@@ -64,8 +65,8 @@ export async function extractDataTableByType(opts) {
     return { ok: false, error: `未知表类型: ${tableType}`, rows: [], title: "" };
   }
 
-  const key = resolveApiKey(String(opts.apiKey ?? "").trim());
-  if (!key) {
+  const provider = resolvePrimaryProvider(opts);
+  if (!provider) {
     return { ok: false, error: "未配置 LLM API Key", rows: [], title: preset.title };
   }
 
@@ -76,8 +77,6 @@ export async function extractDataTableByType(opts) {
   }
 
   const syn = String(opts.synthesisMarkdown ?? "").trim().slice(0, 8000);
-  const model = String(opts.model ?? "").trim() || defaultModel();
-  const url = resolveChatCompletionsUrl(opts.chatCompletionsUrl);
 
   const system =
     "你是材料/化学领域的数据整理助手。根据用户指定的「表类型」，从文献摘录与综述中抽取**仅摘录中明确出现**的数值与事实，输出结构化表格行。\n" +
@@ -93,36 +92,20 @@ export async function extractDataTableByType(opts) {
     (syn ? `---- 综述（可参考其中表格与引用编号）----\n${syn}\n\n` : "") +
     `---- 文献摘录（[1] 为第一条）----\n${excerpts}`;
 
-  const controller = new AbortController();
   const ms = Math.min(120_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 90_000));
-  const timeoutId = setTimeout(() => controller.abort(), ms);
 
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0.08,
-        max_tokens: 4000,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+    const result = await generateText(provider, {
+      timeoutMs: ms,
+      temperature: 0.08,
+      maxTokens: 4000,
+      system,
+      messages: [{ role: "user", content: user }],
     });
-    clearTimeout(timeoutId);
-    const text = await r.text();
-    if (!r.ok) {
-      let err = text.slice(0, 200);
-      try {
-        err = JSON.parse(text)?.error?.message || err;
-      } catch {}
-      return { ok: false, error: err, rows: [], title: preset.title };
+    if (!result.ok) {
+      return { ok: false, error: result.errorBody || result.error, rows: [], title: preset.title };
     }
-    const j = JSON.parse(text);
-    const content = String(j?.choices?.[0]?.message?.content ?? "").trim();
+    const content = result.text;
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return { ok: false, error: "模型未返回有效 JSON", rows: [], title: preset.title };
@@ -138,7 +121,6 @@ export async function extractDataTableByType(opts) {
       note: rows.length ? `data_table:ok|type=${tableType}|n=${rows.length}` : `data_table:empty|type=${tableType}`,
     };
   } catch (e) {
-    clearTimeout(timeoutId);
     return {
       ok: false,
       error: String(e?.message || e).slice(0, 200),

@@ -1,90 +1,33 @@
 /**
  * 规格 2.1：意图解析与重写。
- * 调用任意 OpenAI 兼容的 Chat Completions（POST …/chat/completions）。
- * 接口地址优先级：调用方 opts.chatCompletionsUrl → LLM_CHAT_COMPLETIONS_URL → 默认 DeepSeek 官方兼容端点。
- * 密钥优先级：调用方 apiKey → LLM_API_KEY → OPENAI_API_KEY → DASHSCOPE_API_KEY。
- * （不再读取 DEEPSEEK_API_KEY；旧部署请改名为 LLM_API_KEY。）
+ * 主任务使用原子 OpenAI-compatible provider：调用方只有同时提供 Key 时 URL/model 覆盖才生效，
+ * 否则完整使用服务端 LLM_API_KEY + LLM_CHAT_COMPLETIONS_URL + LLM_MODEL 配置。
  * @param {string} userQuery
  * @param {{ apiKey?: string; model?: string; chatCompletionsUrl?: string }} [opts]
  */
 
 import { extractCoreSearchQuery } from "./searchQueryNormalize.js";
+import { generateText } from "./llmClient.js";
+import {
+  defaultModel,
+  openAiChatCompletionsUrl,
+  resolvePrimaryProvider,
+  safeHttpUrl,
+  sanitizeModel,
+} from "./llmProviders.js";
 
-const DEFAULT_DEEPSEEK_CHAT = "https://api.deepseek.com/v1/chat/completions";
-
-/** @param {string} s */
-export function safeHttpUrl(s) {
-  const u = String(s ?? "").trim();
-  if (!u || u.length > 2048) return "";
-  try {
-    const parsed = new URL(u);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
-    return parsed.toString();
-  } catch {
-    return "";
-  }
-}
+export { defaultModel, safeHttpUrl, sanitizeModel } from "./llmProviders.js";
 
 export function resolveChatCompletionsUrl(fromClient) {
-  const client = safeHttpUrl(fromClient);
-  if (client) return client;
-  const env = safeHttpUrl(process.env.LLM_CHAT_COMPLETIONS_URL);
-  if (env) return env;
-  return DEFAULT_DEEPSEEK_CHAT;
-}
-
-export function defaultModel() {
-  const m = String(
-    process.env.LLM_MODEL ??
-      process.env.DEEPSEEK_MODEL ??
-      process.env.DASHSCOPE_MODEL ??
-      process.env.OPENAI_MODEL ??
-      "",
-  ).trim();
-  return m || "deepseek-v4-flash";
-}
-
-/**
- * 验证并清理 model 名称
- * 防止 API Key 被错误地传入 model 字段
- */
-export function sanitizeModel(model) {
-  const m = String(model ?? "").trim();
-  if (!m) return defaultModel();
-  // 如果 model 以 sk- 开头（API Key 格式），使用默认模型
-  if (m.startsWith("sk-")) return defaultModel();
-  // 如果 model 过长（超过 64 字符），使用默认模型
-  if (m.length > 64) return defaultModel();
-  // 只允许合法的模型名称字符
-  // OpenAI-compatible gateways such as SiliconFlow use provider/model IDs.
-  if (!/^[a-zA-Z0-9._/-]+$/.test(m)) return defaultModel();
-  return m;
+  const provider = resolvePrimaryProvider({ chatCompletionsUrl: fromClient });
+  return provider ? openAiChatCompletionsUrl(provider) : "";
 }
 
 export function resolveApiKey(fromClient) {
-  const c = String(fromClient ?? "").trim();
-  if (c) return c;
-  const envKey =
-    String(process.env.LLM_API_KEY ?? "").trim() ||
-    String(process.env.OPENAI_API_KEY ?? "").trim() ||
-    String(process.env.DEEPSEEK_API_KEY ?? "").trim() ||
-    String(process.env.DASHSCOPE_API_KEY ?? "").trim();
-  if (envKey) return envKey;
-  return (
-    String(process.env.SYNTHESIS_API_KEY_A ?? "").trim() ||
-    String(process.env.SYNTHESIS_API_KEY_B ?? "").trim() ||
-    ""
-  );
+  return resolvePrimaryProvider({ apiKey: fromClient })?.apiKey || "";
 }
 
-/** 查询改写优先用可用的 SYNTHESIS Key（避免 LLM_API_KEY 401 时整句无法扩检） */
 export function resolveRewriteApiKey(fromClient) {
-  const synth =
-    String(process.env.SYNTHESIS_API_KEY_B ?? "").trim() ||
-    String(process.env.SYNTHESIS_API_KEY_A ?? "").trim();
-  if (synth && !/^(0|false|off|no)$/i.test(String(process.env.WEB_REWRITE_USE_SYNTH_KEY ?? "1").trim())) {
-    return synth;
-  }
   return resolveApiKey(fromClient);
 }
 
@@ -216,8 +159,12 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
   const q = qCore.length >= 4 && qCore.length <= qRaw.length ? qCore : qRaw;
   const convo = String(opts.conversationContext ?? "").trim().slice(0, 3500);
   const fromClient = String(opts.apiKey ?? "").trim();
-  const key = resolveRewriteApiKey(fromClient);
-  if (!key) {
+  const provider = resolvePrimaryProvider({
+    apiKey: fromClient,
+    model: opts.model,
+    chatCompletionsUrl: opts.chatCompletionsUrl,
+  });
+  if (!provider) {
     return { effectiveQuery: q, note: "stub:no-llm-key" };
   }
 
@@ -235,10 +182,6 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
     return { effectiveQuery: fb, note: "rewrite:conversational-core-skip-llm" };
   }
 
-  const synthKeyB = String(process.env.SYNTHESIS_API_KEY_B ?? "").trim();
-  const synthKeyA = String(process.env.SYNTHESIS_API_KEY_A ?? "").trim();
-  const usingSynthRewrite = key === synthKeyB || key === synthKeyA;
-
   // 快速模式：如果查询已经是英文关键词形式，跳过LLM改写
   const isEnglishKeywords = /^[a-zA-Z0-9\s\-_+,.:;()]{10,200}$/.test(q) && 
                             !/[\u4e00-\u9fa5]/.test(q);
@@ -247,14 +190,7 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
     return { effectiveQuery: q, note: "fast:english-keywords" };
   }
   
-  const model = usingSynthRewrite
-    ? sanitizeModel(
-        String(process.env.SYNTHESIS_MODEL_B ?? "").trim() ||
-          String(process.env.SYNTHESIS_MODEL_A ?? "").trim() ||
-          opts.model,
-      )
-    : sanitizeModel(opts.model);
-  const url = resolveChatCompletionsUrl(opts.chatCompletionsUrl);
+  const model = provider.model;
   const skillRaw = String(opts.personaSkill ?? "").trim();
   const skillBlock = skillRaw
     ? `The user has selected a **role / purpose skill** (may be in Chinese). Read it first; it guides domain focus and disambiguation when you output English search keywords.\n\n---\n\n${skillRaw.slice(0, 2800)}\n\n---\n\n`
@@ -267,71 +203,40 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
       : "") +
     "Output ONLY one line of keywords, no explanation, no preamble.";
   
-  const controller = new AbortController();
   const rewriteTimeoutMs = Math.min(
     30_000,
     Math.max(4000, Number(process.env.REWRITE_TIMEOUT_MS) || 12_000),
   );
-  const timeoutId = setTimeout(() => controller.abort(), rewriteTimeoutMs);
 
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 128,
-        messages: [
-          {
-            role: "system",
-            content: skillBlock + systemTail,
-          },
-          { role: "user", content: convo ? `【对话上文】\n${convo}\n\n【本轮提问】\n${q}` : q },
-        ],
-      }),
+    const result = await generateText(provider, {
+      timeoutMs: rewriteTimeoutMs,
+      temperature: 0.2,
+      maxTokens: 128,
+      system: skillBlock + systemTail,
+      messages: [
+        { role: "user", content: convo ? `【对话上文】\n${convo}\n\n【本轮提问】\n${q}` : q },
+      ],
     });
-    clearTimeout(timeoutId);
-    
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("[rewrite] LLM HTTP", r.status, t.slice(0, 500));
+
+    if (!result.ok) {
+      console.error("[rewrite] LLM", provider.slot, model, result.status, result.error, result.errorBody);
       const zhFb = chineseTechnicalFallback(q);
       const ascFb = asciiKeywordFallback(q);
       const fb = zhFb || ascFb;
       if (fb) {
         return {
           effectiveQuery: fb,
-          note: `rewrite:http_${r.status}:keyword-fallback`,
+          note: `rewrite:${result.error}:keyword-fallback`,
         };
       }
-      return { effectiveQuery: q, note: `rewrite:http_${r.status}` };
+      return { effectiveQuery: q, note: `rewrite:${result.error}` };
     }
-    const j = await r.json();
-    const choice = j?.choices?.[0];
-    const msg = choice?.message ?? {};
-    
-    // DeepSeek可能将思考过程放在reasoning_content，实际输出在content
-    // 但有些情况下content会包含思考过程+输出
-    let text = "";
-    
-    // 优先尝试content
-    if (msg.content) {
-      text = normalizeKeywordLine(msg.content);
-    }
-    
-    // 如果content没有有效结果，尝试reasoning_content
-    if (!text && msg.reasoning_content) {
-      text = normalizeKeywordLine(msg.reasoning_content);
-    }
-    
-    // 如果还是没有，尝试合并两者
-    if (!text && msg.content && msg.reasoning_content) {
-      text = normalizeKeywordLine(msg.content + "\n" + msg.reasoning_content);
+
+    let text = normalizeKeywordLine(result.text);
+    if (!text && result.reasoningText) text = normalizeKeywordLine(result.reasoningText);
+    if (!text && result.text && result.reasoningText) {
+      text = normalizeKeywordLine(result.text + "\n" + result.reasoningText);
     }
     
     if (text && isVerboseExplanationChunk(text)) text = "";
@@ -344,8 +249,8 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
         };
       }
       console.warn("[rewrite] empty content", {
-        finish: j?.choices?.[0]?.finish_reason,
-        model: j?.model,
+        finish: result.finishReason,
+        model: result.responseModel,
       });
       // 中文查询没有英文关键词时，使用原始查询（让API自行处理）
       return { effectiveQuery: q, note: "rewrite:empty:original" };
@@ -355,16 +260,6 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
       note: fromClient ? "llm:user-key" : "llm:ok",
     };
   } catch (e) {
-    clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
-      console.warn('[rewrite] timeout, using fallback');
-      const zhFb = chineseTechnicalFallback(q);
-      const fb = zhFb || asciiKeywordFallback(q);
-      return { 
-        effectiveQuery: fb || q, 
-        note: fb ? "rewrite:fallback-zh:timeout" : "rewrite:timeout:original" 
-      };
-    }
     console.error("[rewrite] error", e);
     return { effectiveQuery: q, note: `rewrite_error:${e?.message || "unknown"}` };
   }
