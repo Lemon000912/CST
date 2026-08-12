@@ -115,6 +115,19 @@ export type QueryIntent = {
   note?: string;
 };
 
+export type LlmTokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+  totalTokens?: number;
+};
+
+export type SearchLlmUsage = {
+  slots: Record<string, LlmTokenUsage>;
+  total: LlmTokenUsage;
+};
+
 export type SearchResultMeta = {
   effectiveQuery?: string;
   rewriteNote?: string;
@@ -134,14 +147,14 @@ export type SearchResultMeta = {
   synthesisPlan?: Record<string, unknown> | null;
   /** 未解析出 plan 时的原因，如 synth_plan:no_json_block、synth_plan:parse_error */
   synthesisPlanNote?: string | null;
-  /** 双模型 / 三密钥综述元数据（与后端 synthesisModels 一致；mode 含 tri_arbitration、tri_partial 等） */
+  /** 多模型综述元数据；联网流程中 A/B 为作答模型，C 为仲裁模型 */
   synthesisModels?: {
     modelA?: string;
     modelB?: string | null;
     modelC?: string | null;
     mode?: string;
   } | null;
-  /** 网页渠道：三模型各自作答草稿（仲裁前），与 synthesis 终稿对照 */
+  /** 网页渠道：A/B 仲裁前草稿；modelC 仅为历史三草稿记录兼容字段 */
   webAnswerDrafts?: {
     modelA?: string | null;
     modelB?: string | null;
@@ -150,6 +163,8 @@ export type SearchResultMeta = {
     noteB?: string;
     noteC?: string;
   } | null;
+  /** 上游模型实际返回的 token 用量；与按字符计算的站内计费相互独立 */
+  llmUsage?: SearchLlmUsage | null;
   /** 本次检索使用的身份 id（与侧栏「身份/用途」一致） */
   persona?: string;
   personaLabel?: string;

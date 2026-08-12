@@ -299,7 +299,7 @@ const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
 - **可选演示种子**：仅当 \`SIMPLE_SEED=1\` 时，启动会从 \`backend/data/simple-papers.json\`（若存在）及 \`simple datas/*.json\` 合并导入；默认**不**导入。检索词含 DOI 时本地按 DOI 列匹配（**数据库优先**渠道）。
 - **网页全网（Dataify，可选）**：在 \`.env\` 设置 \`DATAIFY_API_KEY\` 后，「网页」渠道会**优先**调用 Dataify 搜索引擎 API 拉取链接；无结果或失败时再回退到 MCP Brave 或 DuckDuckGo。路径与鉴权可用 \`DATAIFY_API_BASE\`、\`DATAIFY_WEB_PATH\`、\`DATAIFY_AUTH_PREFIX\` 等与控制台文档对齐。
 - **MCP 网页搜索（可选）**：配置 \`MCP_WEB_COMMAND\`、\`MCP_WEB_ARGS_JSON\` 后，在无 Dataify 结果时作为网页来源之一。详见 \`GET /api/v1/mcp/status\`。请求体 \`"useMcpWeb": false\` 将**跳过**专利与全网网页（DDG/Dataify/MCP）外呼，其它检索不变。
-- **网页渠道（网页+专利）**：选择「网页」时**不检索** arXiv、Crossref、OpenAlex 论文、Semantic Scholar、Scopus、Europe PMC 等；仅 **并行** 拉取 **全网网页**（Dataify / MCP Brave / DuckDuckGo，每条须带 **http(s) 链接**）与 **专利**（OpenAlex 专利 + 专利网页检索）；并对网页条目**尽量抓取正文**（\`webFetchNote: fetched\`）写入 \`summary\`。**响应同时含**：\`synthesis\`（联网综合回答）、\`papers[].summary\`（检索摘录，界面分块展示）。查论文库请用「**数据库优先**」；Scopus 仅数据库渠道（可选 \`ELSEVIER_API_KEY\`）。默认单路回答使用主 Provider/A；\`WEB_TRI_MODE=tri\` 且完整配置 A/B/C 时三路作答并由 C 仲裁。摘录长度见 \`WEB_FETCH_MAX_CHARS\`、\`WEB_SYNTH_EXCERPT_*\`。
+- **网页渠道（网页+专利）**：选择「网页」时**不检索** arXiv、Crossref、OpenAlex 论文、Semantic Scholar、Scopus、Europe PMC 等；仅 **并行** 拉取 **全网网页**（Dataify / MCP Brave / DuckDuckGo，每条须带 **http(s) 链接**）与 **专利**（OpenAlex 专利 + 专利网页检索）；并对网页条目**尽量抓取正文**（\`webFetchNote: fetched\`）写入 \`summary\`。**响应同时含**：\`synthesis\`（联网综合回答）、\`papers[].summary\`（检索摘录，界面分块展示）。查论文库请用「**数据库优先**」；Scopus 仅数据库渠道（可选 \`ELSEVIER_API_KEY\`）。默认单路回答使用主 Provider/A；\`WEB_TRI_MODE=tri\` 时由 A/B 独立作答，再由 C 读取两份草稿并输出仲裁终稿。摘录长度见 \`WEB_FETCH_MAX_CHARS\`、\`WEB_SYNTH_EXCERPT_*\`。
 - **文献综述**：已配置 LLM Key 时，\`POST /api/v1/search\` 默认在检索完成后基于返回文献的**摘要摘录**生成中文综述；引用处须带 \`(DOI: …)\` 或 \`(arXiv: …)\`。**若用户问题或摘录涉及工艺链、工序、产线/SOP 等**，综述中的「方案说明」会要求包含 **\`### 工序流程\`** 有序步骤，且与响应 JSON 字段 \`synthesisPlan.steps\` 对齐。请求体 \`"includeSynthesis": false\` 可关闭。**双模型共识**仍可在同一主 Provider 内用 \`X-Model-B\` / \`modelB\` 运行。**三 Provider 仲裁**使用原子配置 \`LLM_PROVIDER_A_*\`、\`LLM_PROVIDER_B_*\`、\`LLM_PROVIDER_C_*\`：A/B 为各自独立 OpenAI-compatible URL/Key/model，C 为 Gemini Developer API 原生 \`generateContent\`，并输出唯一终稿（\`synthesisModels.mode=tri_arbitration\`）；响应仅返回模型名与模式，不返回 Key/URL。
 - **身份 / 用途（Skill）**：请求头 \`X-Persona\` 或 JSON 体 \`persona\` 填内置 id（见 \`GET /api/v1/personas\`）。服务端在**检索式 LLM 改写**与**文献综述**前会先拼接对应 Skill 再调用模型；未传时默认为 \`researcher\`。
 - **上传**：支持 PDF、Markdown、TXT、Word（.docx / .doc），解析后的正文会并入检索上下文（见 \`POST /api/v1/extract\`）。
@@ -1361,6 +1361,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       deepSynthesisNote: stored.deepSynthesisNote ?? null,
       synthesisModels: stored.synthesisModels,
       webAnswerDrafts: stored.webAnswerDrafts,
+      llmUsage: stored.llmUsage,
       parentOperationId: op.id,
       billingReceipt: op.receipt,
       replayed: true,
@@ -1464,6 +1465,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     let planNote = null;
     let synthesisModels = undefined;
     let webAnswerDrafts = undefined;
+    let llmUsage = undefined;
 
     // 2a. 无综述 / 无文献：跳过综述，直接进入结算
     const skipSynthesis = !includeSynthesis || !result.papers.length;
@@ -1497,7 +1499,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         }
       }
 
-      // 2c. 主综述：复用非流式路由的三模型/数据库混合编排，避免流式路由退化成单模型。
+      // 2c. 主综述：复用非流式路由的多模型/数据库混合编排，避免流式路由退化成单模型。
       if (!fullSynthesis) {
         const commonArgs = {
           userQuery: synthQuery,
@@ -1521,6 +1523,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         planNote = syn.planNote ?? null;
         synthesisModels = syn.synthesisModels;
         webAnswerDrafts = syn.webAnswerDrafts ?? undefined;
+        llmUsage = syn.llmUsage ?? undefined;
       }
 
       // 只推送已经剥离结构化 JSON 的最终正文，防止 steps/extractedData 在正文中闪现。
@@ -1612,6 +1615,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         synthesisNote,
         synthesisModels,
         webAnswerDrafts,
+        llmUsage,
       },
     });
     const billingReceipt = completed.receipt;
@@ -1624,6 +1628,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       synthesisPlan: plan,
       synthesisModels,
       webAnswerDrafts,
+      llmUsage,
       synthesisPlanNote: planNote,
       deepMine,
       deepSynthesis,
@@ -1935,6 +1940,7 @@ app.post("/api/v1/search", async (req, res) => {
     let synthesisPlanNote = null;
     let synthesisModelsOut = undefined;
     let webAnswerDraftsOut = undefined;
+    let llmUsageOut = undefined;
     const useAttachmentPrimary = shouldUseAttachmentPrimarySynthesis(attachmentContext, currentQuery);
 
     const bookIntent =
@@ -2018,6 +2024,7 @@ app.post("/api/v1/search", async (req, res) => {
         synthesisPlanNote = syn.planNote ?? null;
         synthesisModelsOut = syn.synthesisModels;
         webAnswerDraftsOut = syn.webAnswerDrafts ?? undefined;
+        llmUsageOut = syn.llmUsage ?? undefined;
       } else {
         const syn = await synthesizeDatabaseCombined({
           userQuery: synthQuery,
@@ -2038,6 +2045,7 @@ app.post("/api/v1/search", async (req, res) => {
         synthesisPlanNote = syn.planNote ?? null;
         synthesisModelsOut = syn.synthesisModels;
         webAnswerDraftsOut = syn.webAnswerDrafts ?? undefined;
+        llmUsageOut = syn.llmUsage ?? undefined;
       }
     }
 
@@ -2149,6 +2157,7 @@ app.post("/api/v1/search", async (req, res) => {
       synthesisPlanNote,
       synthesisModels: synthesisModelsOut,
       webAnswerDrafts: webAnswerDraftsOut,
+      llmUsage: llmUsageOut,
       persona: personaId,
       personaLabel,
       deepMine,
@@ -2982,13 +2991,50 @@ const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`[GStack] 图融合API: POST /api/v1/gstack/fuse`);
 });
 server.setTimeout(920_000);
-server.on("error", (err) => {
+server.on("error", async (err) => {
   if (err && err.code === "EADDRINUSE") {
-    console.error(
-      `[api] 端口 ${PORT} 已被占用。若此处启动失败而另一旧进程仍在监听，浏览器会连到旧版 API，登录/注册会 404。请先结束占用该端口的进程后再启动（任务管理器结束 node，或换终端执行 netstat -ano | findstr :8787 查 PID）。`,
-    );
+    console.error(`[api] 端口 ${PORT} 已被占用，正在尝试自动终止占用进程并重启监听…`);
+    try {
+      await killPortAndRetry(PORT);
+    } catch (killErr) {
+      console.error(`[api] 自动终止失败：${killErr?.message ?? killErr}。请手动执行：netstat -ano | findstr :${PORT} 查 PID，再用任务管理器或 taskkill /PID <pid> /F 结束进程。`);
+      process.exit(1);
+    }
   } else {
     console.error("[api] listen error", err);
+    process.exit(1);
   }
-  process.exit(1);
 });
+
+async function killPortAndRetry(port) {
+  const { execSync } = await import("node:child_process");
+  // Find PIDs listening on the port (Windows netstat output)
+  let raw;
+  try {
+    raw = execSync(`netstat -ano | findstr /R ":${port}[^0-9]"`, { encoding: "utf8", timeout: 8000 });
+  } catch {
+    throw new Error(`netstat 查询无结果，端口 ${port} 可能已释放或命令不可用`);
+  }
+  const pids = new Set(
+    raw.split(/\r?\n/)
+      .map((line) => { const m = line.trim().match(/\s+(\d+)$/); return m ? m[1] : null; })
+      .filter((pid) => pid && pid !== "0"),
+  );
+  if (!pids.size) throw new Error(`未找到占用端口 ${port} 的 PID`);
+  const selfPid = String(process.pid);
+  for (const pid of pids) {
+    if (pid === selfPid) continue;
+    try {
+      execSync(`taskkill /PID ${pid} /F`, { timeout: 5000 });
+      console.log(`[api] 已终止 PID ${pid}`);
+    } catch (e) {
+      console.warn(`[api] 终止 PID ${pid} 失败：${e?.message}`);
+    }
+  }
+  // Brief pause for the OS to release the port, then re-attempt listen
+  await new Promise((r) => setTimeout(r, 800));
+  await new Promise((resolve, reject) => {
+    server.listen(PORT, "127.0.0.1", resolve).once("error", reject);
+  });
+  console.log(`[api] 重新监听端口 ${PORT} 成功`);
+}

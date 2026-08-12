@@ -143,10 +143,54 @@ function geminiText(json) {
   const parts = json?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
   return parts
+    .filter((part) => part?.thought !== true)
     .map((part) => String(part?.text ?? ""))
     .filter(Boolean)
     .join("")
     .trim();
+}
+
+function tokenCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.floor(count) : undefined;
+}
+
+export function normalizeLlmUsage(json, protocol) {
+  const isGemini = protocol === LLM_PROTOCOLS.GEMINI;
+  const raw = isGemini ? json?.usageMetadata : json?.usage;
+  if (!raw || typeof raw !== "object") return null;
+
+  const inputTokens = tokenCount(isGemini ? raw.promptTokenCount : raw.prompt_tokens);
+  const outputTokens = tokenCount(isGemini ? raw.candidatesTokenCount : raw.completion_tokens);
+  const reasoningTokens = tokenCount(
+    isGemini ? raw.thoughtsTokenCount : raw.completion_tokens_details?.reasoning_tokens,
+  );
+  const cachedInputTokens = tokenCount(
+    isGemini ? raw.cachedContentTokenCount : raw.prompt_tokens_details?.cached_tokens,
+  );
+  const reportedTotal = tokenCount(isGemini ? raw.totalTokenCount : raw.total_tokens);
+  const totalTokens = reportedTotal ??
+    (inputTokens !== undefined || outputTokens !== undefined
+      ? (inputTokens ?? 0) + (outputTokens ?? 0)
+      : undefined);
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    reasoningTokens === undefined &&
+    cachedInputTokens === undefined &&
+    totalTokens === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+  };
 }
 
 export async function generateText(provider, request = {}) {
@@ -208,6 +252,7 @@ export async function generateText(provider, request = {}) {
         text: "",
         error: `http_${response.status}`,
         errorBody: raw.slice(0, 500),
+        usage: normalizeLlmUsage(json, provider.protocol),
         json,
       };
     }
@@ -229,6 +274,7 @@ export async function generateText(provider, request = {}) {
         reasoningText: "",
         error: blockReason ? `empty_${blockReason}` : "empty",
         errorBody: raw.slice(0, 500),
+        usage: normalizeLlmUsage(json, provider.protocol),
         json,
       };
     }
@@ -242,6 +288,7 @@ export async function generateText(provider, request = {}) {
         ? json?.candidates?.[0]?.finishReason
         : json?.choices?.[0]?.finish_reason,
       responseModel: json?.modelVersion || json?.model || provider.model,
+      usage: normalizeLlmUsage(json, provider.protocol),
       json,
     };
   } catch (error) {

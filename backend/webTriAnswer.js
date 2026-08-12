@@ -1,5 +1,5 @@
 /**
- * 网页渠道：三模型并行「联网问答式」作答 + 仲裁合并终稿（类似大模型全网搜索后综合回答）。
+ * 网页渠道：模型 A/B 独立生成联网回答，模型 C 仲裁并输出唯一终稿。
  */
 import { sanitizeModel, defaultModel } from "./rewrite.js";
 import {
@@ -96,8 +96,8 @@ const WEB_DIRECT_SYSTEM =
   "- 不要输出与问题无关的语言学、游戏、地图类内容。" +
   WEB_JSON_FOOTER;
 
-const WEB_MERGE_3_SYSTEM =
-  "你是仲裁编辑。合并模型 A/B/C 三份联网回答为**唯一终稿**，版式对齐 DeepSeek 智能搜索风格。\n\n" +
+const WEB_ARBITRATE_2_SYSTEM =
+  "你是模型 C 仲裁编辑。比较模型 A/B 两份独立联网回答并输出**唯一终稿**，版式对齐 DeepSeek 智能搜索风格。\n\n" +
   "规则：\n" +
   "- **删除**旅游、城市百科、政府门户等跑题段；企业/产品问法下不得保留纯旅游内容。\n" +
   "- 保留有 **[n]** 支撑且一致的论述；合并去重；保留全部引用编号。\n" +
@@ -115,7 +115,34 @@ function readTriProviderStatus(clientUrl, clientModelA, modelBHint) {
 }
 
 function unavailableWebAnswer(note) {
-  return { markdown: null, note, plan: null, planNote: null };
+  return { markdown: null, note, plan: null, planNote: null, usage: null };
+}
+
+const TOKEN_USAGE_FIELDS = [
+  "inputTokens",
+  "outputTokens",
+  "reasoningTokens",
+  "cachedInputTokens",
+  "totalTokens",
+];
+
+function addTokenUsage(...items) {
+  const usages = items.filter((item) => item && typeof item === "object");
+  if (!usages.length) return null;
+  const total = {};
+  for (const field of TOKEN_USAGE_FIELDS) {
+    const values = usages.map((usage) => Number(usage[field])).filter(Number.isFinite);
+    if (values.length) total[field] = values.reduce((sum, value) => sum + value, 0);
+  }
+  return Object.keys(total).length ? total : null;
+}
+
+function buildLlmUsage(slots) {
+  const populated = Object.fromEntries(
+    Object.entries(slots || {}).filter(([, usage]) => usage && typeof usage === "object"),
+  );
+  const total = addTokenUsage(...Object.values(populated));
+  return total ? { slots: populated, total } : null;
 }
 
 function emptyWebAnswerDrafts(notes = {}) {
@@ -148,8 +175,8 @@ function pickWebPlan(...branches) {
 
 function webTriConcurrency() {
   const n = Number(process.env.WEB_TRI_CONCURRENCY);
-  if (Number.isFinite(n) && n >= 1) return Math.min(3, Math.floor(n));
-  return 1;
+  if (Number.isFinite(n) && n >= 1) return Math.min(2, Math.floor(n));
+  return 2;
 }
 
 function webTriMode() {
@@ -163,6 +190,23 @@ function resolveWebFallbackModel(primary) {
 
 function isRetriableHttpStatus(status) {
   return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function safeUpstreamErrorStatus(result) {
+  const status = String(result?.json?.error?.status ?? "").trim();
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(status) ? status : "";
+}
+
+function webAnswerQualityIssue(markdown) {
+  const text = String(markdown ?? "").trim();
+  if (!text) return "empty";
+  const compact = text.replace(/\s+/g, "");
+  const chineseChars = compact.match(/[㐀-鿿]/g)?.length || 0;
+  const hasStructure = /(^|\n)#{1,3}\s+\S/m.test(text) || /(^|\n)\s*[-*]\s+\S/m.test(text);
+  if (compact.length < 120) return "too_short";
+  if (chineseChars < 20 || chineseChars / Math.max(1, compact.length) < 0.08) return "non_chinese";
+  if (!hasStructure) return "unstructured";
+  return "";
 }
 
 function sleepMs(ms) {
@@ -220,7 +264,7 @@ async function runWebAnswerSlots(slots, concurrency) {
     slot.provider
       ? runSingleWebAnswer(slot)
       : Promise.resolve(unavailableWebAnswer("web_answer:provider_not_configured"));
-  if (concurrency >= 3) {
+  if (concurrency >= 2) {
     return Promise.all(slots.map(runSlot));
   }
   const out = [];
@@ -250,19 +294,20 @@ async function runWebDirectKnowledgeAnswer(args) {
       messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
     });
     if (!result.ok) {
-      return { markdown: null, note: `web_direct:${result.error}`, plan: null, planNote: null };
+      return { markdown: null, note: `web_direct:${result.error}`, plan: null, planNote: null, usage: result.usage };
     }
     const text = result.text;
-    if (!text) return { markdown: null, note: "web_direct:empty", plan: null, planNote: null };
+    if (!text) return { markdown: null, note: "web_direct:empty", plan: null, planNote: null, usage: result.usage };
     const fin = finalizeSynthesisMarkdown(text);
     return {
       markdown: fin.markdown,
       note: `web_direct:ok:${args.slot || "B"}`,
       plan: fin.plan,
       planNote: fin.planNote,
+      usage: result.usage,
     };
   } catch (e) {
-    return { markdown: null, note: `web_direct_err:${e?.message || "unknown"}`, plan: null, planNote: null };
+    return { markdown: null, note: `web_direct_err:${e?.message || "unknown"}`, plan: null, planNote: null, usage: null };
   }
 }
 
@@ -304,6 +349,7 @@ async function runSingleWebAnswer(args) {
   const provider = args.provider;
   const model = provider?.model;
   let lastNote = "web_answer:empty";
+  let usage = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -315,19 +361,23 @@ async function runSingleWebAnswer(args) {
         messages: [
           {
             role: "user",
-            content: `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
+            content:
+              "【语言与完整性要求】必须使用简体中文输出完整正文；不得仅返回英文检索片段、引用列表、数据残句或思考过程。请先直接回答，再按二级标题和列表展开。\n\n" +
+              `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
           },
         ],
       });
+      usage = addTokenUsage(usage, result.usage);
       if (!result.ok) {
-        lastNote = `web_answer:${result.error}`;
+        const upstreamStatus = safeUpstreamErrorStatus(result);
+        lastNote = `web_answer:${result.error}${upstreamStatus ? `:${upstreamStatus}` : ""}`;
         const modelMissing = result.status === 503 && /model_not_found|no available channel/i.test(result.errorBody);
-        console.error("[webTriAnswer]", args.slot, model, result.status, result.error);
+        console.error("[webTriAnswer]", args.slot, model, result.status, result.error, upstreamStatus || undefined);
         if ((isRetriableHttpStatus(result.status) || modelMissing) && attempt < maxAttempts) {
           await sleepMs(result.status === 504 ? 400 * attempt : 800 * attempt);
           continue;
         }
-        return { markdown: null, note: lastNote, plan: null, planNote: null };
+        return { markdown: null, note: lastNote, plan: null, planNote: null, usage };
       }
       const text = result.text;
       if (!text) {
@@ -335,11 +385,22 @@ async function runSingleWebAnswer(args) {
         continue;
       }
       const fin = finalizeSynthesisMarkdown(text);
+      const qualityIssue = webAnswerQualityIssue(fin.markdown);
+      if (qualityIssue) {
+        lastNote = `web_answer:${qualityIssue}`;
+        console.warn("[webTriAnswer] low quality", args.slot, model, qualityIssue);
+        if (attempt < maxAttempts) {
+          await sleepMs(400 * attempt);
+          continue;
+        }
+        return { markdown: null, note: lastNote, plan: null, planNote: null, usage };
+      }
       return {
         markdown: fin.markdown,
         note: attempt > 1 ? `web_answer:ok_retry_${attempt}` : "web_answer:ok",
         plan: fin.plan,
         planNote: fin.planNote,
+        usage,
       };
     } catch (e) {
       lastNote = `web_answer_err:${String(e?.message || e).slice(0, 80)}`;
@@ -349,7 +410,7 @@ async function runSingleWebAnswer(args) {
       }
     }
   }
-  return { markdown: null, note: lastNote, plan: null, planNote: null };
+  return { markdown: null, note: lastNote, plan: null, planNote: null, usage };
 }
 
 async function runWebAnswerLiteFallback(args) {
@@ -374,12 +435,11 @@ async function runWebAnswerLiteFallback(args) {
   });
 }
 
-async function mergeThreeWebAnswers(args) {
+async function arbitrateTwoWebAnswers(args) {
   const userQuery = String(args.userQuery ?? "").trim().slice(0, 6000);
   const coreQuery = String(args.coreQuery ?? userQuery).trim().slice(0, 800);
   const a = String(args.markdownA ?? "").trim().slice(0, 10_000);
   const b = String(args.markdownB ?? "").trim().slice(0, 10_000);
-  const c = String(args.markdownC ?? "").trim().slice(0, 10_000);
   const skillRaw = String(args.personaSkill ?? "").trim().slice(0, 2000);
   const skillPrefix = skillRaw ? `【用户身份/用途】\n${skillRaw}\n\n---\n\n` : "";
   const avoid = String(args.outputAvoidanceHint ?? "").trim()
@@ -391,7 +451,7 @@ async function mergeThreeWebAnswers(args) {
       timeoutMs: synthesisTimeoutMs(),
       temperature: 0.1,
       maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
-      system: skillPrefix + WEB_MERGE_3_SYSTEM + avoid,
+      system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid,
       messages: [
         {
           role: "user",
@@ -399,25 +459,40 @@ async function mergeThreeWebAnswers(args) {
             `【核心问题】\n${coreQuery}\n\n` +
             `--- 模型 A 回答 ---\n${a}\n\n` +
             `--- 模型 B 回答 ---\n${b}\n\n` +
-            `--- 模型 C 回答 ---\n${c}\n\n` +
-            "请输出经比较、去重、**剔除跑题**后的唯一终稿。",
+            "请以模型 C 仲裁者身份，使用简体中文输出经比较、去重、**剔除跑题**后的完整唯一终稿；不得只返回英文资料片段、引用列表或数据残句。",
         },
       ],
     });
     if (!result.ok) {
-      return { markdown: null, note: `web_merge:${result.error}` };
+      const upstreamStatus = safeUpstreamErrorStatus(result);
+      return {
+        markdown: null,
+        note: `web_arbitration:${result.error}${upstreamStatus ? `:${upstreamStatus}` : ""}`,
+        usage: result.usage,
+      };
     }
     const text = result.text;
-    if (!text) return { markdown: null, note: "web_merge:empty", plan: null, planNote: null };
+    if (!text) return { markdown: null, note: "web_arbitration:empty", plan: null, planNote: null, usage: result.usage };
     const fin = finalizeSynthesisMarkdown(text);
+    const qualityIssue = webAnswerQualityIssue(fin.markdown);
+    if (qualityIssue) {
+      return {
+        markdown: null,
+        note: `web_arbitration:${qualityIssue}`,
+        plan: null,
+        planNote: null,
+        usage: result.usage,
+      };
+    }
     return {
       markdown: fin.markdown,
-      note: "web_merge:ok",
+      note: "web_arbitration:ok",
       plan: fin.plan,
       planNote: fin.planNote,
+      usage: result.usage,
     };
   } catch (e) {
-    return { markdown: null, note: `web_merge_err:${e?.message || "unknown"}` };
+    return { markdown: null, note: `web_arbitration_err:${e?.message || "unknown"}`, usage: null };
   }
 }
 
@@ -474,7 +549,7 @@ export async function synthesizeWebTriAnswer(p) {
     ? `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`
     : `sources=0/${picked.totalIn}|filtered=${picked.filteredOut}`;
 
-  const directProvider = triProviders.A || triProviders.B || triProviders.C || primary || null;
+  const directProvider = triProviders.A || triProviders.B || primary || null;
   const lowQualityPick = isLowQualityWebPick(papers, userQuery, picked.coreQuery);
   const hasRichAttachment =
     String(p.attachmentContext ?? "").trim().length >= attachmentSynthMinChars();
@@ -499,6 +574,7 @@ export async function synthesizeWebTriAnswer(p) {
         planNote: dr.planNote ?? null,
         note: `web_tri:direct_knowledge:${dr.note}|${sourceNoteEarly}|pick_low_quality`,
         synthesisModels: { mode: "web_tri_direct_knowledge", modelA: directProvider?.model },
+        llmUsage: buildLlmUsage({ direct: dr.usage }),
         webAnswerDrafts: {
           ...emptyWebAnswerDrafts({
             B: "web_answer:not_run_direct_fallback",
@@ -527,6 +603,7 @@ export async function synthesizeWebTriAnswer(p) {
           planNote: dr.planNote ?? null,
           note: `web_tri:direct_knowledge:${dr.note}|${sourceNoteEarly}`,
           synthesisModels: { mode: "web_tri_direct_knowledge", modelA: directProvider?.model },
+          llmUsage: buildLlmUsage({ direct: dr.usage }),
           webAnswerDrafts: {
             ...emptyWebAnswerDrafts({
               B: "web_answer:not_run_direct_fallback",
@@ -634,6 +711,7 @@ export async function synthesizeWebTriAnswer(p) {
         mode: one.markdown ? "web_tri_single" : "web_tri_single_failed",
         modelA: singleModel,
       },
+      llmUsage: buildLlmUsage({ A: one.usage }),
       webAnswerDrafts: singleDrafts,
     };
   }
@@ -642,7 +720,6 @@ export async function synthesizeWebTriAnswer(p) {
   const modelA = triProviders.A?.model ?? null;
   const modelB = triProviders.B?.model ?? null;
   const modelC = triProviders.C?.model ?? null;
-  const arbProvider = triProviders.C || triProviders.A || triProviders.B || primary;
   const concurrency = webTriConcurrency();
 
   if (!triStatus.complete) {
@@ -652,11 +729,10 @@ export async function synthesizeWebTriAnswer(p) {
     });
   }
 
-  const [ra, rb, rc] = await runWebAnswerSlots(
+  const [ra, rb] = await runWebAnswerSlots(
     [
       { ...base, provider: triProviders.A, slot: "A" },
       { ...base, provider: triProviders.B, slot: "B" },
-      { ...base, provider: triProviders.C, slot: "C" },
     ],
     concurrency,
   );
@@ -664,11 +740,12 @@ export async function synthesizeWebTriAnswer(p) {
   const drafts = {
     modelA: ra.markdown,
     modelB: rb.markdown,
-    modelC: rc.markdown,
+    modelC: null,
     noteA: ra.note,
     noteB: rb.note,
-    noteC: rc.note,
+    noteC: "web_answer:not_run_arbiter_only",
   };
+  const draftUsage = { A: ra.usage, B: rb.usage };
 
   const executionMode = (mode) =>
     triStatus.complete ? mode : `${mode}_config_incomplete`;
@@ -679,9 +756,9 @@ export async function synthesizeWebTriAnswer(p) {
     mode: executionMode("web_tri_3keys"),
   };
 
-  const okAnswers = [ra, rb, rc].filter((x) => x.markdown);
+  const okAnswers = [ra, rb].filter((x) => x.markdown);
   if (!okAnswers.length) {
-    const liteProvider = primary || triProviders.A || triProviders.B || triProviders.C;
+    const liteProvider = primary || triProviders.A || triProviders.B;
     const selectedLiteProvider = withProviderModel(
       liteProvider,
       resolveWebFallbackModel(liteProvider?.model),
@@ -703,11 +780,12 @@ export async function synthesizeWebTriAnswer(p) {
         markdown: lite.markdown,
         plan: lite.plan ?? null,
         planNote: lite.planNote ?? null,
-        note: `web_tri:lite_fallback_ok:${lite.note}|${ra.note}|${rb.note}|${rc.note}|${sourceNote}`,
+        note: `web_tri:lite_fallback_ok:${lite.note}|${ra.note}|${rb.note}|${sourceNote}`,
         synthesisModels: {
           ...synthesisModels,
           mode: executionMode("web_tri_lite_fallback"),
         },
+        llmUsage: buildLlmUsage({ ...draftUsage, lite: lite.usage }),
         webAnswerDrafts: drafts,
       };
     }
@@ -715,8 +793,9 @@ export async function synthesizeWebTriAnswer(p) {
       markdown: null,
       plan: null,
       planNote: null,
-      note: `web_tri:all_failed:${ra.note}|${rb.note}|${rc.note}|${lite.note}|${sourceNote}`,
+      note: `web_tri:all_failed:${ra.note}|${rb.note}|${lite.note}|${sourceNote}`,
       synthesisModels,
+      llmUsage: buildLlmUsage({ ...draftUsage, lite: lite.usage }),
       webAnswerDrafts: drafts,
     };
   }
@@ -727,72 +806,45 @@ export async function synthesizeWebTriAnswer(p) {
       markdown: one.markdown,
       plan: one.plan ?? null,
       planNote: one.planNote ?? null,
-      note: `web_tri:single_ok:${ra.note}|${rb.note}|${rc.note}`,
+      note: `web_tri:single_ok:${ra.note}|${rb.note}|web_arbitration:not_run_single_draft`,
       synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_partial_1") },
+      llmUsage: buildLlmUsage(draftUsage),
       webAnswerDrafts: drafts,
     };
   }
 
-  if (okAnswers.length === 2) {
-    const merged = await mergeThreeWebAnswers({
-      userQuery,
-      markdownA: ra.markdown || rb.markdown || "",
-      markdownB: rb.markdown || ra.markdown || "",
-      markdownC: rc.markdown || ra.markdown || rb.markdown || "",
-      provider: arbProvider,
-      personaSkill: p.personaSkill,
-      outputAvoidanceHint: p.outputAvoidanceHint,
-    });
-    if (merged.markdown) {
-      return {
-        markdown: merged.markdown,
-        plan: merged.plan ?? pickWebPlan(ra, rb, rc),
-        planNote: merged.planNote ?? null,
-        note: `web_tri:merge_2of3:${merged.note}`,
-        synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_merge_2of3") },
-        webAnswerDrafts: drafts,
-      };
-    }
-    const longest = [ra, rb, rc].sort((x, y) => (y.markdown?.length || 0) - (x.markdown?.length || 0))[0];
-    return {
-      markdown: longest.markdown,
-      plan: longest.plan ?? pickWebPlan(ra, rb, rc),
-      planNote: longest.planNote ?? null,
-      note: `web_tri:fallback_longest:${merged.note}`,
-      synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_fallback") },
-      webAnswerDrafts: drafts,
-    };
-  }
+  const arbitration = triProviders.C
+    ? await arbitrateTwoWebAnswers({
+        userQuery,
+        coreQuery: picked.coreQuery,
+        markdownA: ra.markdown,
+        markdownB: rb.markdown,
+        provider: triProviders.C,
+        personaSkill: p.personaSkill,
+        outputAvoidanceHint: p.outputAvoidanceHint,
+      })
+    : unavailableWebAnswer("web_arbitration:provider_not_configured");
 
-  const merged = await mergeThreeWebAnswers({
-    userQuery,
-    coreQuery: picked.coreQuery,
-    markdownA: ra.markdown || "",
-    markdownB: rb.markdown || "",
-    markdownC: rc.markdown || "",
-    provider: arbProvider,
-    personaSkill: p.personaSkill,
-    outputAvoidanceHint: p.outputAvoidanceHint,
-  });
-
-  if (merged.markdown) {
+  if (arbitration.markdown) {
     return {
-      markdown: merged.markdown,
-      plan: merged.plan ?? pickWebPlan(ra, rb, rc),
-      planNote: merged.planNote ?? null,
-      note: `web_tri:merge_ok:${merged.note}|${sourceNote}`,
+      markdown: arbitration.markdown,
+      plan: arbitration.plan ?? pickWebPlan(ra, rb),
+      planNote: arbitration.planNote ?? null,
+      note: `web_tri:arbitration_ok:${arbitration.note}|${sourceNote}`,
       synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_arbitration") },
+      llmUsage: buildLlmUsage({ ...draftUsage, C: arbitration.usage }),
       webAnswerDrafts: drafts,
     };
   }
 
-  const longest = [ra, rb, rc].sort((x, y) => (y.markdown?.length || 0) - (x.markdown?.length || 0))[0];
+  const longest = (rb.markdown?.length || 0) > (ra.markdown?.length || 0) ? rb : ra;
   return {
     markdown: longest.markdown,
-    plan: longest.plan ?? pickWebPlan(ra, rb, rc),
+    plan: longest.plan ?? pickWebPlan(ra, rb),
     planNote: longest.planNote ?? null,
-    note: `web_tri:merge_failed_use_longest:${merged.note}`,
+    note: `web_tri:arbitration_failed_use_longest:${arbitration.note}|${sourceNote}`,
     synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_fallback_longest") },
+    llmUsage: buildLlmUsage({ ...draftUsage, C: arbitration.usage }),
     webAnswerDrafts: drafts,
   };
 }

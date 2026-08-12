@@ -376,7 +376,7 @@ export function filterWebChannelInclusion(papers, rawQuery, effectiveQuery = "",
 }
 
 /**
- * 仅将强相关网页/专利送入三模型作答；强相关不足时补「弱锚点」摘录（仍排除跑题页），供受控联想。
+ * 仅将强相关网页/专利送入 A/B 作答与 C 仲裁；强相关不足时补「弱锚点」摘录（仍排除跑题页），供受控联想。
  * @param {object[]} papers
  * @param {string} userQuery
  * @param {number} [max]
@@ -408,7 +408,7 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
 
   const rawList = Array.isArray(papers) ? papers : [];
   let arr = rawList.filter((p) => shouldIncludeWebChannelPaper(p, tokens, core, full));
-  /** 与 filterWebChannelInclusion 一致：非严格模式下按分数取前列，避免「有摘录但三模型无入参」 */
+  /** 与 filterWebChannelInclusion 一致：非严格模式下按分数取前列，避免「有摘录但联网综合无入参」 */
   if (!strict && !arr.length && rawList.length > 0) {
     arr = rawList
       .map((p) => ({ p, score: scoreWebPaperForAnswer(p, tokens, core, full) }))

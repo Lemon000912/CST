@@ -8,7 +8,7 @@ export function getMainSearchLoadingText(opts: {
 }): string {
   if (opts.patentsOnly) return "正在搜索专利公开信息…";
   if (opts.deepMine) return "正在深度分析（下载并解析全文），可能需要几分钟…";
-  if (opts.channel === "web") return "正在全网搜索，三模型综合回答中…";
+  if (opts.channel === "web") return "正在全网搜索，双模型作答与第三模型仲裁中…";
   return "正在检索数据库与全网资料，并汇总综述…";
 }
 

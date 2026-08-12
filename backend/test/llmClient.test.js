@@ -18,6 +18,13 @@ test("OpenAI-compatible requests use bearer auth and normalized output", async (
     return response({
       model: "served-model",
       choices: [{ message: { content: "answer", reasoning_content: "reason" }, finish_reason: "stop" }],
+      usage: {
+        prompt_tokens: 30,
+        completion_tokens: 12,
+        total_tokens: 42,
+        prompt_tokens_details: { cached_tokens: 5 },
+        completion_tokens_details: { reasoning_tokens: 4 },
+      },
     });
   });
   const provider = Object.freeze({
@@ -39,6 +46,13 @@ test("OpenAI-compatible requests use bearer auth and normalized output", async (
   assert.equal(result.text, "answer");
   assert.equal(result.reasoningText, "reason");
   assert.equal(result.responseModel, "served-model");
+  assert.deepEqual(result.usage, {
+    inputTokens: 30,
+    outputTokens: 12,
+    reasoningTokens: 4,
+    cachedInputTokens: 5,
+    totalTokens: 42,
+  });
   assert.equal(calls[0].url, "https://a.example/v1/chat/completions");
   assert.equal(calls[0].options.headers.Authorization, "Bearer secret-a");
   const body = JSON.parse(calls[0].options.body);
@@ -57,7 +71,22 @@ test("Gemini requests use native generateContent shape and API key header", asyn
     call = { url, options };
     return response({
       modelVersion: "gemini-2.5-flash-001",
-      candidates: [{ content: { parts: [{ text: "native answer" }] }, finishReason: "STOP" }],
+      candidates: [{
+        content: {
+          parts: [
+            { text: "internal search fragments", thought: true },
+            { text: "native answer" },
+          ],
+        },
+        finishReason: "STOP",
+      }],
+      usageMetadata: {
+        promptTokenCount: 20,
+        candidatesTokenCount: 8,
+        thoughtsTokenCount: 3,
+        cachedContentTokenCount: 2,
+        totalTokenCount: 31,
+      },
     });
   });
   const provider = Object.freeze({
@@ -81,6 +110,13 @@ test("Gemini requests use native generateContent shape and API key header", asyn
   assert.equal(result.ok, true);
   assert.equal(result.text, "native answer");
   assert.equal(result.responseModel, "gemini-2.5-flash-001");
+  assert.deepEqual(result.usage, {
+    inputTokens: 20,
+    outputTokens: 8,
+    reasoningTokens: 3,
+    cachedInputTokens: 2,
+    totalTokens: 31,
+  });
   assert.equal(
     call.url,
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",

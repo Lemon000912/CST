@@ -173,18 +173,29 @@ test("legacy C accepts Gemini CLI aliases and defaults to Google v1beta", () => 
       SYNTHESIS_MODEL_A: "model-a",
       SYNTHESIS_MODEL_B: "model-b",
       GEMINI_API_KEY: "gemini-key",
-      GOOGLE_GEMINI_BASE_URL: "https://code.newcli.com/gemini",
+      GOOGLE_GEMINI_BASE_URL: "https://code.newcli.com/gemini/v1beta",
       LLM_MODEL_C: "gemini-3-pro-preview",
     },
     () => {
       const providers = resolveTriProviders();
       assert.ok(providers);
-      assert.equal(providers.C.baseUrl, "https://code.newcli.com/gemini");
+      assert.equal(providers.C.baseUrl, "https://code.newcli.com/gemini/v1beta");
       assert.equal(
         geminiGenerateContentUrl(providers.C),
-        "https://code.newcli.com/gemini/models/gemini-3-pro-preview:generateContent",
+        "https://code.newcli.com/gemini/v1beta/models/gemini-3-pro-preview:generateContent",
       );
     },
+  );
+});
+
+test("Gemini proxy base paths remain explicit", () => {
+  const provider = {
+    baseUrl: "https://proxy.example/gemini",
+    model: "gemini-test",
+  };
+  assert.equal(
+    geminiGenerateContentUrl(provider),
+    "https://proxy.example/gemini/models/gemini-test:generateContent",
   );
 });
 

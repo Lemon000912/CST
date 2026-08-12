@@ -1054,6 +1054,8 @@ function formatPoints(value: number | undefined): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : "—";
 }
 
+
+
 function BillingReceiptBadge({ receipt, kind }: { receipt?: BillingReceipt | null; kind: "回答" | "图表" | "PDF" }) {
   if (!receipt) return null;
   const details = receipt.billingDetails ?? {};
@@ -1187,6 +1189,7 @@ function AssistantBlock({
   );
   const webAnswerDrafts = msg.meta?.webAnswerDrafts ?? {};
   const webTriConfigIncomplete = synthesisMode.includes("config_incomplete");
+  const webArbitrationSucceeded = synthesisMode === "web_tri_arbitration";
   const hasWebSynthesis = !!(synthesisMd && synthesisMd.trim());
   const showWebDualPane = (isWebChannel || isDbHybridAnswer) && n > 0;
   const showWebUnified = showWebDualPane && hasWebSynthesis;
@@ -1383,6 +1386,11 @@ function AssistantBlock({
                               本轮网页摘录匹配度不足，回答可能含<strong>未附摘录的常识推断</strong>。关键事实请点开下方来源核对，或换更具体关键词重试。
                             </p>
                           ) : null}
+                          <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
+                            {webArbitrationSucceeded
+                              ? `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
+                              : "联网综合回答（部分模型失败时可能为降级结果）"}
+                          </p>
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
                             <ReactMarkdown components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthShown : synthesisMd}
@@ -1442,7 +1450,7 @@ function AssistantBlock({
                         {webNoSynthKeyHint
                           ? "请先在侧栏配置 LLM API Key 并保存后重试。"
                           : webNoSynthRelevanceHint
-                            ? "检索已连网（见下方摘录）；用于三模型综合的「强相关」摘录不足，为避免跑题未生成终稿。可换更具体的产品名、型号、英文关键词，或改用「数据库优先」。"
+                            ? "检索已连网（见下方摘录）；用于双模型作答与第三模型仲裁的「强相关」摘录不足，为避免跑题未生成终稿。可换更具体的产品名、型号、英文关键词，或改用「数据库优先」。"
                             : "可稍后重试或查看后端日志中的 synthesisNote。"}
                         下方仍展示检索摘录。
                       </p>
@@ -1665,11 +1673,11 @@ function AssistantBlock({
         {isWebTriAnswer ? (
           <details className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2">
             <summary className="cursor-pointer list-none text-[11px] font-semibold text-[var(--t-text)] [&::-webkit-details-marker]:hidden">
-              三模型各自作答（对照，点击展开）
+              两模型独立作答（仲裁前对照，点击展开）
             </summary>
             {webTriConfigIncomplete ? (
               <p className="mt-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-800 dark:text-amber-200">
-                三模型 Provider 配置不完整；已展示实际执行结果，未配置或失败的模型会标记为“未生成或调用失败”。
+                A/B 作答 Provider 或 C 仲裁 Provider 配置不完整；已展示实际执行结果，缺失或失败的作答模型会标记原因。
               </p>
             ) : null}
             <div className="mt-2 space-y-3 text-[11px] leading-relaxed text-[var(--t-text-muted)]">
@@ -1677,7 +1685,6 @@ function AssistantBlock({
                 [
                   ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA, msg.meta?.synthesisModels?.modelA],
                   ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB, msg.meta?.synthesisModels?.modelB],
-                  ["C", webAnswerDrafts.modelC, webAnswerDrafts.noteC, msg.meta?.synthesisModels?.modelC],
                 ] as const
               ).map(([slot, md, note, modelName]) => (
                 <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
