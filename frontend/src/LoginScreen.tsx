@@ -16,6 +16,10 @@ export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) 
 
   const submit = async () => {
     setErr(null);
+    if (mode === "register" && !phone.trim()) {
+      setErr("请输入手机号");
+      return;
+    }
     setBusy(true);
     try {
       if (mode === "login") await apiLogin(username, password);
@@ -89,13 +93,18 @@ export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) 
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">手机号（可选）</label>
+                <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">手机号（必填）</label>
                 <input
                   type="tel"
                   autoComplete="tel"
+                  inputMode="numeric"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="11位手机号"
+                  required
+                  aria-required="true"
+                  pattern="1[3-9][0-9]{9}"
+                  maxLength={11}
                   className="qp-field"
                 />
               </div>

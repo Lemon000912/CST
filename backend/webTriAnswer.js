@@ -197,6 +197,18 @@ function isRetriableHttpStatus(status) {
   return status === 429 || status === 502 || status === 503 || status === 504;
 }
 
+function safeNetworkErrorCode(result) {
+  const code = String(result?.exception?.cause?.code ?? result?.exception?.code ?? "").trim();
+  return /^[A-Z][A-Z0-9_]{1,63}$/.test(code) ? code : "";
+}
+
+function isRetriableLlmFailure(result) {
+  if (isRetriableHttpStatus(result?.status)) return true;
+  if (result?.status !== 0 || result?.streamed) return false;
+  const detail = `${result?.error ?? ""} ${safeNetworkErrorCode(result)}`;
+  return /fetch failed|timeout|ECONN|EAI_AGAIN|ETIMEDOUT|UND_ERR|ENETUNREACH|EHOSTUNREACH/i.test(detail);
+}
+
 function safeUpstreamErrorStatus(result) {
   const status = String(result?.json?.error?.status ?? "").trim();
   return /^[A-Z][A-Z0-9_]{0,63}$/.test(status) ? status : "";
@@ -391,10 +403,11 @@ async function runSingleWebAnswer(args) {
       usage = addTokenUsage(usage, result.usage);
       if (!result.ok) {
         const upstreamStatus = safeUpstreamErrorStatus(result);
-        lastNote = `web_answer:${result.error}${upstreamStatus ? `:${upstreamStatus}` : ""}`;
+        const networkCode = safeNetworkErrorCode(result);
+        lastNote = `web_answer:${result.error}${upstreamStatus ? `:${upstreamStatus}` : networkCode ? `:${networkCode}` : ""}`;
         const modelMissing = result.status === 503 && /model_not_found|no available channel/i.test(result.errorBody);
-        console.error("[webTriAnswer]", args.slot, model, result.status, result.error, upstreamStatus || undefined);
-        if ((isRetriableHttpStatus(result.status) || modelMissing) && attempt < maxAttempts) {
+        console.error("[webTriAnswer]", args.slot, model, result.status, result.error, upstreamStatus || networkCode || undefined);
+        if ((isRetriableLlmFailure(result) || modelMissing) && attempt < maxAttempts) {
           await sleepMs(result.status === 504 ? 400 * attempt : 800 * attempt);
           continue;
         }

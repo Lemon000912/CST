@@ -80,11 +80,11 @@ export async function apiLogin(username: string, password: string): Promise<{ to
 export async function apiRegister(
   username: string,
   password: string,
-  email?: string,
-  phone?: string,
+  email: string | undefined,
+  phone: string,
 ): Promise<{ token: string; user: AuthProfile }> {
   const body: Record<string, string> = { username, password };
   if (email) body.email = email;
-  if (phone) body.phone = phone;
+  body.phone = phone.trim();
   return postAuth("/api/v1/auth/register", body, "注册");
 }

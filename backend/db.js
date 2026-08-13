@@ -354,6 +354,40 @@ export async function initDatabase() {
           created_at BIGINT NOT NULL
         )
       `);
+      // Older Material KB deployments used a timestamp-based users table and
+      // did not have a phone column. CREATE TABLE IF NOT EXISTS does not
+      // migrate an existing table, so normalize that legacy schema before any
+      // authentication queries or registrations run.
+      await pgPool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT`);
+      await pgPool.query(`
+        DO $$
+        DECLARE created_at_type TEXT;
+        BEGIN
+          SELECT data_type INTO created_at_type
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'users'
+            AND column_name = 'created_at';
+
+          IF created_at_type LIKE 'timestamp%' THEN
+            ALTER TABLE users
+              ALTER COLUMN created_at TYPE BIGINT
+              USING CASE
+                WHEN created_at IS NULL THEN (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+                ELSE (EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT
+              END;
+          ELSIF created_at_type IN ('integer', 'smallint') THEN
+            ALTER TABLE users
+              ALTER COLUMN created_at TYPE BIGINT
+              USING created_at::BIGINT;
+          END IF;
+        END $$
+      `);
+      await pgPool.query(`UPDATE users SET created_at = $1 WHERE created_at IS NULL`, [Date.now()]);
+      await pgPool.query(`ALTER TABLE users ALTER COLUMN created_at SET NOT NULL`);
+      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users (username)`);
+      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email)`);
+      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique ON users (phone)`);
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_skill (
           user_id TEXT PRIMARY KEY,
