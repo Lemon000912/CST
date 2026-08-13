@@ -1,8 +1,6 @@
 node_modules
 .run/
-.env
 dist
-frontend/dist
 *.db
 *.db-wal
 *.db-shm
