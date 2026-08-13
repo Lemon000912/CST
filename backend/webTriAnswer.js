@@ -22,6 +22,7 @@ import {
 } from "./synthesisExtract.js";
 import { attachmentSynthMinChars } from "./synthesizeAttachment.js";
 import { extractCoreSearchQuery } from "./searchQueryNormalize.js";
+import { traceAsync } from "./performanceTrace.js";
 
 function webDirectFallbackEnabled() {
   const v = String(process.env.WEB_DIRECT_FALLBACK ?? "0").trim();
@@ -290,14 +291,20 @@ async function runWebDirectKnowledgeAnswer(args) {
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
   try {
-    const result = await generateText(args.provider, {
-      timeoutMs: synthesisTimeoutMs(),
-      temperature: 0.18,
-      maxTokens: webAnswerMaxTokens(true),
-      system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
-      messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
-      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+    const result = await traceAsync(
+      args.performanceTrace,
+      "synthesis.web.direct",
+      { slot: args.slot || "direct", model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
+      () => generateText(args.provider, {
+        timeoutMs: synthesisTimeoutMs(),
+        temperature: 0.18,
+        maxTokens: webAnswerMaxTokens(true),
+        system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
+        messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
+        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+      }),
+      (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
+    );
     if (!result.ok) {
       return { markdown: null, note: `web_direct:${result.error}`, plan: null, planNote: null, usage: result.usage };
     }
@@ -360,21 +367,27 @@ async function runSingleWebAnswer(args) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const result = await generateText(provider, {
-        timeoutMs: synthesisTimeoutMs(),
-        temperature: 0.12,
-        maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
-        system: skillPrefix + WEB_ANSWER_SYSTEM + avoid,
-        messages: [
-          {
-            role: "user",
-            content:
-              "【语言与完整性要求】必须使用简体中文输出完整正文；不得仅返回英文检索片段、引用列表、数据残句或思考过程。请先直接回答，再按二级标题和列表展开。\n\n" +
-              `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
-          },
-        ],
-        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-      });
+      const result = await traceAsync(
+        args.performanceTrace,
+        `synthesis.web.${String(args.slot || "unknown").replace(/[^a-z0-9_-]/gi, "_")}.attempt_${attempt}`,
+        { model, lite: Boolean(args.lite), streaming: typeof args.onTextDelta === "function" },
+        () => generateText(provider, {
+          timeoutMs: synthesisTimeoutMs(),
+          temperature: 0.12,
+          maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
+          system: skillPrefix + WEB_ANSWER_SYSTEM + avoid,
+          messages: [
+            {
+              role: "user",
+              content:
+                "【语言与完整性要求】必须使用简体中文输出完整正文；不得仅返回英文检索片段、引用列表、数据残句或思考过程。请先直接回答，再按二级标题和列表展开。\n\n" +
+                `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
+            },
+          ],
+          ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+        }),
+        (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
+      );
       usage = addTokenUsage(usage, result.usage);
       if (!result.ok) {
         const upstreamStatus = safeUpstreamErrorStatus(result);
@@ -456,23 +469,29 @@ async function arbitrateTwoWebAnswers(args) {
     : "";
 
   try {
-    const result = await generateText(args.provider, {
-      timeoutMs: synthesisTimeoutMs(),
-      temperature: 0.1,
-      maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
-      system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid,
-      messages: [
-        {
-          role: "user",
-          content:
-            `【核心问题】\n${coreQuery}\n\n` +
-            `--- 模型 A 回答 ---\n${a}\n\n` +
-            `--- 模型 B 回答 ---\n${b}\n\n` +
-            "请以模型 C 仲裁者身份，使用简体中文输出经比较、去重、**剔除跑题**后的完整唯一终稿；不得只返回英文资料片段、引用列表或数据残句。",
-        },
-      ],
-      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+    const result = await traceAsync(
+      args.performanceTrace,
+      "synthesis.web.C_arbitration",
+      { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
+      () => generateText(args.provider, {
+        timeoutMs: synthesisTimeoutMs(),
+        temperature: 0.1,
+        maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
+        system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid,
+        messages: [
+          {
+            role: "user",
+            content:
+              `【核心问题】\n${coreQuery}\n\n` +
+              `--- 模型 A 回答 ---\n${a}\n\n` +
+              `--- 模型 B 回答 ---\n${b}\n\n` +
+              "请以模型 C 仲裁者身份，使用简体中文输出经比较、去重、**剔除跑题**后的完整唯一终稿；不得只返回英文资料片段、引用列表或数据残句。",
+          },
+        ],
+        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+      }),
+      (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
+    );
     if (!result.ok) {
       const upstreamStatus = safeUpstreamErrorStatus(result);
       return {
@@ -577,6 +596,7 @@ export async function synthesizeWebTriAnswer(p) {
       outputAvoidanceHint: p.outputAvoidanceHint,
       slot: "direct",
       onTextDelta: p.onTextDelta,
+      performanceTrace: p.performanceTrace,
     });
     if (dr.markdown) {
       return {
@@ -607,6 +627,7 @@ export async function synthesizeWebTriAnswer(p) {
         outputAvoidanceHint: p.outputAvoidanceHint,
         slot: "direct",
         onTextDelta: p.onTextDelta,
+        performanceTrace: p.performanceTrace,
       });
       if (dr.markdown) {
         return {
@@ -678,6 +699,7 @@ export async function synthesizeWebTriAnswer(p) {
     filteredOut: picked.filteredOut,
     personaSkill: p.personaSkill,
     outputAvoidanceHint: p.outputAvoidanceHint,
+    performanceTrace: p.performanceTrace,
   };
   const sourceNote = `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`;
 
@@ -862,6 +884,7 @@ export async function synthesizeWebTriAnswer(p) {
         provider: triProviders.C,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
+        performanceTrace: p.performanceTrace,
         // If preview yielded nothing, preserve the regular final-C streaming path.
         onTextDelta: previewEmitted ? undefined : p.onTextDelta,
       })

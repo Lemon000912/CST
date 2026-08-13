@@ -59,6 +59,7 @@ export async function synthesizeDatabaseCombined(p) {
         chatCompletionsUrl: p.chatCompletionsUrl,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
+        performanceTrace: p.performanceTrace,
       })
     : Promise.resolve({
         markdown: null,

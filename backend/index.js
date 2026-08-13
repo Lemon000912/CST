@@ -42,6 +42,7 @@ import {
 } from "./synthesizeAttachment.js";
 import { synthesizeWebTriAnswer } from "./webTriAnswer.js";
 import { createSynthesisStreamEmitter } from "./synthesisStream.js";
+import { createPerformanceTrace, traceAsync } from "./performanceTrace.js";
 import { getPersonaSkill, listPersonas, normalizePersonaId } from "./personaSkills.js";
 import { getMcpWebSearchConfig } from "./mcpWebSearch.js";
 import { getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
@@ -1300,6 +1301,18 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   // ── 计费开始（在推 SSE 头之前，失败可返回标准 JSON 错误） ──
   let activeOperation = null;
   let begun;
+  const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
+  const endPapersReady = requestTrace.start("milestone.papers_ready");
+  const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
+  let firstSynthesisTokenRecorded = false;
+  const pushSynthesisDelta = (stream, delta) => {
+    if (!firstSynthesisTokenRecorded && String(delta ?? "")) {
+      firstSynthesisTokenRecorded = true;
+      endFirstSynthesisToken({ ok: true });
+    }
+    stream.push(delta);
+  };
+  const endBillingBegin = requestTrace.start("request.billing_begin");
   try {
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
@@ -1316,7 +1329,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       idempotencyKey,
       requestHash,
     });
+    endBillingBegin({ ok: true, replayed: Boolean(begun.replayed) });
   } catch (error) {
+    endBillingBegin({ ok: false, error: String(error?.message || error).slice(0, 160) });
     return sendStructuredError(res, error, { message: "Unable to begin search" });
   }
 
@@ -1367,6 +1382,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       billingReceipt: op.receipt,
       replayed: true,
       latencyMs: 0,
+      performanceTrace: stored.performanceTrace ?? requestTrace.snapshot(),
     });
     return res.end();
   }
@@ -1432,16 +1448,23 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         : "";
 
     // ── 阶段 1：检索文献 ──
-    let result = await runPaperSearch({
-      rawQuery: searchCoreQuery,
-      conversationContext: conversationContext || undefined,
-      channel, field, sort, max, useLlmRewrite, useMcpWeb, patentsOnly,
-      openaiApiKey: openaiApiKey || undefined,
-      openaiModel: openaiModel || undefined,
-      llmChatCompletionsUrl: llmChatUrl || undefined,
-      personaSkill,
-      preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
-    });
+    let result = await traceAsync(
+      requestTrace,
+      "request.search_total",
+      { channel, max },
+      () => runPaperSearch({
+        rawQuery: searchCoreQuery,
+        conversationContext: conversationContext || undefined,
+        channel, field, sort, max, useLlmRewrite, useMcpWeb, patentsOnly,
+        openaiApiKey: openaiApiKey || undefined,
+        openaiModel: openaiModel || undefined,
+        llmChatCompletionsUrl: llmChatUrl || undefined,
+        personaSkill,
+        preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
+        performanceTrace: requestTrace,
+      }),
+      (value) => ({ results: value?.papers?.length ?? 0, fromCache: Boolean(value?.fromCache) }),
+    );
 
     // 立即推送文献结果，前端可先渲染
     send("papers", {
@@ -1458,6 +1481,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       persona: personaId,
       personaLabel,
     });
+    endPapersReady({ results: result.papers.length });
 
     // ── 阶段 2：综述（附件优先 → 流式默认） ──
     let fullSynthesis = "";
@@ -1477,19 +1501,26 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       const useAttachmentPrimary = shouldUseAttachmentPrimarySynthesis(attachmentContext, currentQuery);
       if (useAttachmentPrimary) {
         try {
-          const synAtt = await synthesizeFromAttachmentContext({
-            userQuery: synthQuery,
-            attachmentContext,
-            filename: attachmentFilename || undefined,
-            conversationContext: synthConvoHint || undefined,
-            apiKey: openaiApiKey,
-            model: openaiModel,
-            modelB: modelBClient || undefined,
-            chatCompletionsUrl: llmChatUrl,
-            personaSkill,
-            outputAvoidanceHint: outputAvoidance || undefined,
-            onTextDelta: (delta) => synthesisStream.push(delta),
-          });
+          const synAtt = await traceAsync(
+            requestTrace,
+            "request.attachment_synthesis_total",
+            { attachmentChars: attachmentContext.length },
+            () => synthesizeFromAttachmentContext({
+              userQuery: synthQuery,
+              attachmentContext,
+              filename: attachmentFilename || undefined,
+              conversationContext: synthConvoHint || undefined,
+              apiKey: openaiApiKey,
+              model: openaiModel,
+              modelB: modelBClient || undefined,
+              chatCompletionsUrl: llmChatUrl,
+              personaSkill,
+              outputAvoidanceHint: outputAvoidance || undefined,
+              onTextDelta: (delta) => pushSynthesisDelta(synthesisStream, delta),
+              performanceTrace: requestTrace,
+            }),
+            (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }),
+          );
           synthesisNote = synAtt.note ?? null;
           synthesisModels = synAtt.synthesisModels;
           if (synAtt.markdown) {
@@ -1516,11 +1547,18 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           chatCompletionsUrl: llmChatUrl || undefined,
           personaSkill,
           outputAvoidanceHint: outputAvoidance || undefined,
-          onTextDelta: (delta) => synthesisStream.push(delta),
+          onTextDelta: (delta) => pushSynthesisDelta(synthesisStream, delta),
+          performanceTrace: requestTrace,
         };
-        const syn = channel === "web"
-          ? await synthesizeWebTriAnswer(commonArgs)
-          : await synthesizeDatabaseCombined(commonArgs);
+        const syn = await traceAsync(
+          requestTrace,
+          "request.synthesis_total",
+          { channel },
+          () => channel === "web"
+            ? synthesizeWebTriAnswer(commonArgs)
+            : synthesizeDatabaseCombined(commonArgs),
+          (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }),
+        );
         fullSynthesis = syn.markdown || "";
         synthesisNote = syn.note ?? null;
         plan = syn.plan ?? null;
@@ -1532,6 +1570,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 
       // 流中隐藏结构化 JSON；最终仍以原有解析、校验后的正文为准。
       synthesisStream.finish(fullSynthesis);
+      if (!firstSynthesisTokenRecorded && fullSynthesis) {
+        firstSynthesisTokenRecorded = true;
+        endFirstSynthesisToken({ ok: true, streamed: false });
+      }
     }
 
     // ── 阶段 3：Deep Mine（可选，与非流式路由一致） ──
@@ -1545,14 +1587,14 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         if (typeof req.socket?.setTimeout === "function") req.socket.setTimeout(920_000);
         const { runDeepMinePipeline, synthesizeDeepFromMine } = await import("./deepPaperMine.js");
         const dmOpts = typeof dm === "object" && dm ? dm : {};
-        deepMine = await runDeepMinePipeline({
+        deepMine = await traceAsync(requestTrace, "request.deep_mine", {}, () => runDeepMinePipeline({
           papers: result.papers,
           userQuery: synthQuery,
           apiKey: openaiApiKey,
           chatCompletionsUrl: llmChatUrl,
           maxPapers: dmOpts.maxPapers,
           maxPdfMb: dmOpts.maxPdfMb,
-        });
+        }), (value) => ({ papers: value?.papers?.length ?? 0 }));
         const runs = (deepMine?.papers ?? []).map((p) => ({
           title: p.title,
           doi: p.doi,
@@ -1560,14 +1602,14 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           keywords: (p.keywordModels ?? []).filter((k) => k.ok).map((k) => ({ model: k.model, data: k.data })),
         }));
         if (runs.some((r) => r.keywords.length)) {
-          const ds = await synthesizeDeepFromMine({
+          const ds = await traceAsync(requestTrace, "request.deep_synthesis", {}, () => synthesizeDeepFromMine({
             userQuery: synthQuery,
             runs,
             personaSkill,
             apiKey: openaiApiKey,
             model: openaiModel,
             chatUrl: llmChatUrl,
-          });
+          }), (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }));
           deepSynthesis = ds.markdown;
           deepSynthesisNote = ds.note;
         } else {
@@ -1581,13 +1623,13 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }
 
     // ── 阶段 4：记录查询日志 ──
-    await logQuery({
+    await traceAsync(requestTrace, "request.query_log_write", {}, () => logQuery({
       userId: req.auth.userId,
       query: rawQuery || "(仅上传文件)",
       filters: { channel, field, sort, patentsOnly, effectiveQuery: result.effectiveQuery, sources: result.sourcesUsed, attachmentChars: attachmentContext.length },
       resultCount: result.papers.length,
       latencyMs: result.latencyMs,
-    });
+    }));
 
     // ── 阶段 5：结算 ──
     const billingPayload = {
@@ -1601,7 +1643,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });
-    const completed = await completeBillableOperation({
+    const completed = await traceAsync(requestTrace, "request.billing_complete", {}, () => completeBillableOperation({
       operationId: activeOperation.id,
       userId: req.auth.userId,
       leaseToken: activeOperation.leaseToken,
@@ -1620,9 +1662,12 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         synthesisModels,
         webAnswerDrafts,
         llmUsage,
+        performanceTrace: requestTrace.snapshot(),
       },
-    });
+    }), (value) => ({ charged: Boolean(value?.receipt) }));
     const billingReceipt = completed.receipt;
+    const performanceTrace = requestTrace.snapshot();
+    console.log("[perf-summary]", JSON.stringify(performanceTrace));
 
     send("done", {
       synthesis: fullSynthesis || null,
@@ -1642,6 +1687,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       sourcesUsed: result.sourcesUsed,
       parentOperationId: activeOperation.id,
       billingReceipt,
+      performanceTrace,
     });
     res.end();
   } catch (e) {

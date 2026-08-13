@@ -172,6 +172,7 @@ type SearchResponse = {
   channel?: SearchChannel;
   sort?: PaperSortKey;
   latencyMs?: number;
+  performanceTrace?: SearchResultMeta["performanceTrace"];
   field?: ArxivSearchField;
   error?: string;
   synthesis?: string | null;
@@ -320,7 +321,7 @@ export type StreamSearchEvent =
   | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string }
   | { type: "synthesis_token"; token: string }
   | { type: "synthesis_replace"; synthesis: string }
-  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
+  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
   | { type: "error"; error: string };
 
 /**

@@ -32,6 +32,7 @@ import {
   resolveWebSourceCap,
   getFreeWebSourceIds,
 } from "./freeWebSearch.js";
+import { traceAsync } from "./performanceTrace.js";
 
 export { FREE_WEB_SEARCH_CATALOG, getFreeWebSourceIds };
 
@@ -681,6 +682,15 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   const cnQ = String(opts.chineseQuery ?? "").trim();
   const bingQ = /[\u4e00-\u9fff]/.test(cnQ) ? cnQ : q;
+  const performanceTrace = opts.performanceTrace;
+  const tracePrefix = String(opts.tracePrefix || "search.web.source").replace(/[^a-z0-9_.-]/gi, "_");
+  const tracedSource = (source, task) => traceAsync(
+    performanceTrace,
+    `${tracePrefix}.${source}`,
+    {},
+    task,
+    (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
+  );
   if (!q) return { papers: [], note: "empty-query", toolName: null };
 
   const { totalCap, perSource, dataifyCap: dataifyCapBase } = resolveWebMergeCaps(max);
@@ -693,7 +703,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const fastBing = !/^(0|false|off|no)$/i.test(String(process.env.WEB_BING_FAST_PATH ?? "1").trim());
   if (fastBing && isCnBingFallbackEnabled() && !wantPaidWeb) {
     try {
-      const bingR = await fetchBingWebSearch(bingQ, perSource, { cnOnly: true });
+      const bingR = await tracedSource("bing_fast", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true }));
       if (bingR.papers?.length >= 4) {
         return {
           papers: bingR.papers.slice(0, totalCap),
@@ -713,56 +723,56 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const tavilyCap = Math.min(20, Math.ceil(perSource * 1.2));
   if (allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
-      fetchTavilyWebPapers(q, tavilyCap)
+      tracedSource("tavily", () => fetchTavilyWebPapers(q, tavilyCap))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
-      fetchDataifyWebPapers(q, dataifyCap)
+      tracedSource("dataify", () => fetchDataifyWebPapers(q, dataifyCap))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mcp") && isMcpUsable()) {
     tasks.push(
-      fetchMcpWebPapers(q, perSource)
+      tracedSource("mcp", () => fetchMcpWebPapers(q, perSource))
         .then((r) => ({ src: "mcp", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mcp", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("bing") && isBingWebEnabled()) {
     tasks.push(
-      fetchBingWebSearch(q, perSource)
+      tracedSource("bing", () => fetchBingWebSearch(q, perSource))
         .then((r) => ({ src: "bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "bing", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("ddg")) {
     tasks.push(
-      fetchDuckDuckGoSearch(q, perSource, { skipBing: true })
+      tracedSource("ddg", () => fetchDuckDuckGoSearch(q, perSource, { skipBing: true }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("searx")) {
     tasks.push(
-      fetchSearxWebSearch(q, perSource)
+      tracedSource("searx", () => fetchSearxWebSearch(q, perSource))
         .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("qwant")) {
     tasks.push(
-      fetchQwantWebSearch(q, perSource)
+      tracedSource("qwant", () => fetchQwantWebSearch(q, perSource))
         .then((r) => ({ src: "qwant", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "qwant", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mojeek")) {
     tasks.push(
-      fetchMojeekWebSearch(q, perSource)
+      tracedSource("mojeek", () => fetchMojeekWebSearch(q, perSource))
         .then((r) => ({ src: "mojeek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mojeek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
@@ -770,7 +780,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   /** 与免费源并行：国内网络 DDG/SearX 常超时，cn.bing 通常可用 */
   if (isCnBingFallbackEnabled() && !allow.has("bing")) {
     tasks.push(
-      fetchBingWebSearch(bingQ, perSource, { cnOnly: true })
+      tracedSource("cn_bing", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true }))
         .then((r) => ({ src: "cn_bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({
           src: "cn_bing",

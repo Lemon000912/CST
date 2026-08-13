@@ -128,6 +128,19 @@ export type SearchLlmUsage = {
   total: LlmTokenUsage;
 };
 
+export type PerformanceTrace = {
+  version: number;
+  requestId?: string;
+  startedAt: number;
+  totalMs: number;
+  stages: Array<{
+    name: string;
+    startMs: number;
+    durationMs: number;
+    details?: Record<string, string | number | boolean>;
+  }>;
+};
+
 export type SearchResultMeta = {
   effectiveQuery?: string;
   rewriteNote?: string;
@@ -139,6 +152,8 @@ export type SearchResultMeta = {
   /** 仅专利检索模式（与请求 patentsOnly 一致） */
   patentsOnly?: boolean;
   latencyMs?: number;
+  /** 服务端请求级分阶段耗时，便于定位检索、网页抓取和模型调用瓶颈。 */
+  performanceTrace?: PerformanceTrace | null;
   /** 基于检索文献摘要的 LLM 综述（Markdown），引用处应含 DOI / arXiv；末尾 JSON 已由服务端剥离 */
   synthesis?: string | null;
   /** 如 synth:no-llm-key、synth:ok，便于排查未生成原因 */

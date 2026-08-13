@@ -31,6 +31,7 @@ import { buildWebMultiSearchQueries, inferFollowUpWebQueries } from "./webEntity
 import { buildBookWebSearchPlan, extractBookTitles, isBookIntentQuery } from "./bookWebClues.js";
 import { buildEntityDirectWebSeeds } from "./webEntityDirectSeeds.js";
 import { filterWebChannelInclusion, buildWebAnswerTokens, scoreWebPaperForAnswer } from "./webRelevance.js";
+import { traceAsync } from "./performanceTrace.js";
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
@@ -511,6 +512,7 @@ async function runWebIntelSearch(opts) {
   const useMcpWeb = opts.useMcpWeb !== false;
   const includePatents = opts.includePatents !== false && isWebChannelPatentsEnabled();
   const sourcesUsed = [];
+  const performanceTrace = opts.performanceTrace;
 
   if (!useMcpWeb) {
     sourcesUsed.push("web_intel_skipped_mcp");
@@ -536,24 +538,52 @@ async function runWebIntelSearch(opts) {
   if (includePatents) {
     webTasks.push({
       name: "openalex_patents",
-      promise: fetchOpenAlexPatents(webSearchQ, 45),
+      promise: traceAsync(
+        performanceTrace,
+        "search.web.round1.openalex_patents",
+        {},
+        () => fetchOpenAlexPatents(webSearchQ, 45),
+        (rows) => ({ results: Array.isArray(rows) ? rows.length : 0 }),
+      ),
     });
     webTasks.push({
       name: "patents",
-      promise: fetchPatentPapers(webPrimary, 45),
+      promise: traceAsync(
+        performanceTrace,
+        "search.web.round1.patents",
+        {},
+        () => fetchPatentPapers(webPrimary, 45),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0 }),
+      ),
     });
   }
 
   webPlan.queries.slice(0, webQueryCap).forEach((q, i) => {
     webTasks.push({
       name: `web_merge_q${i}`,
-      promise: fetchMergedWebPapers(q, perWebQ, { chineseQuery: webSearchQ }),
+      promise: traceAsync(
+        performanceTrace,
+        `search.web.round1.query_${i + 1}`,
+        { queryChars: q.length },
+        () => fetchMergedWebPapers(q, perWebQ, {
+          chineseQuery: webSearchQ,
+          performanceTrace,
+          tracePrefix: `search.web.round1.query_${i + 1}.source`,
+        }),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+      ),
     });
   });
 
-  const webLayer = await raceWithTimeout(
-    webTasks,
-    Math.min(90_000, Math.max(45_000, Number(process.env.WEB_SEARCH_LAYER_TIMEOUT_MS) || 70_000)),
+  const webLayer = await traceAsync(
+    performanceTrace,
+    "search.web.round1.wait",
+    { tasks: webTasks.length },
+    () => raceWithTimeout(
+      webTasks,
+      Math.min(90_000, Math.max(45_000, Number(process.env.WEB_SEARCH_LAYER_TIMEOUT_MS) || 70_000)),
+    ),
+    (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
   for (const r of webLayer) {
     if (r.status !== "fulfilled") {
@@ -594,12 +624,29 @@ async function runWebIntelSearch(opts) {
   const followUp = inferFollowUpWebQueries(webMerged, rawQuery);
   if (followUp.length) {
     sourcesUsed.push(`web_round2:${followUp.length}`);
-    const r2 = await raceWithTimeout(
-      followUp.map((q, i) => ({
-        name: `web_r2_q${i}`,
-        promise: fetchMergedWebPapers(q, perWebQ, { chineseQuery: webSearchQ }),
-      })),
-      Math.min(42_000, Math.max(22_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 32_000)),
+    const round2Tasks = followUp.map((q, i) => ({
+      name: `web_r2_q${i}`,
+      promise: traceAsync(
+        performanceTrace,
+        `search.web.round2.query_${i + 1}`,
+        { queryChars: q.length },
+        () => fetchMergedWebPapers(q, perWebQ, {
+          chineseQuery: webSearchQ,
+          performanceTrace,
+          tracePrefix: `search.web.round2.query_${i + 1}.source`,
+        }),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+      ),
+    }));
+    const r2 = await traceAsync(
+      performanceTrace,
+      "search.web.round2.wait",
+      { tasks: round2Tasks.length },
+      () => raceWithTimeout(
+        round2Tasks,
+        Math.min(42_000, Math.max(22_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 32_000)),
+      ),
+      (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
     );
     for (const fr of r2) {
       if (fr.status === "fulfilled" && fr.value?.papers?.length) {
@@ -671,6 +718,7 @@ export async function runPaperSearch(opts) {
   const sort = opts.sort || "relevance";
   const useLlm = opts.useLlmRewrite !== false;
   const patentsOnly = opts.patentsOnly === true;
+  const performanceTrace = opts.performanceTrace;
 
   const fullRawQuery = String(opts.rawQuery ?? "").trim();
   const conversationContext = String(opts.conversationContext ?? "").trim().slice(0, 8000);
@@ -713,7 +761,13 @@ export async function runPaperSearch(opts) {
     pending.push(
       (async () => {
         rw = useLlm
-          ? await rewriteQueryForSearch(queryForSearch, { ...llmOpts, conversationContext })
+          ? await traceAsync(
+              performanceTrace,
+              "search.query_rewrite",
+              { queryChars: queryForSearch.length },
+              () => rewriteQueryForSearch(queryForSearch, { ...llmOpts, conversationContext }),
+              (value) => ({ note: value?.note }),
+            )
           : { effectiveQuery: queryForSearch, note: "rewrite:skipped" };
         rewriteCache.set(rewriteCacheKey, rw);
       })(),
@@ -724,7 +778,13 @@ export async function runPaperSearch(opts) {
   if (!queryIntent && isSemanticUnderstandEnabled()) {
     pending.push(
       (async () => {
-        queryIntent = await understandQuery(queryForSearch, llmOpts);
+        queryIntent = await traceAsync(
+          performanceTrace,
+          "search.semantic_understand",
+          { queryChars: queryForSearch.length },
+          () => understandQuery(queryForSearch, llmOpts),
+          (value) => ({ produced: Boolean(value) }),
+        );
         if (queryIntent) {
           if (typoFix.hadTypo) {
             queryIntent.typoFixes = [...(queryIntent.typoFixes || []), ...typoFix.fixes];
@@ -826,6 +886,7 @@ export async function runPaperSearch(opts) {
       max,
       useMcpWeb,
       includePatents: isWebChannelPatentsEnabled(),
+      performanceTrace,
     });
     sourcesUsed.push(...webIntel.sourcesUsed);
     if (webIntel.patents.length) buckets.push(webIntel.patents);
@@ -896,10 +957,10 @@ export async function runPaperSearch(opts) {
     
     // 第1层：快速核心源（通常响应快）
     const layer1Results = await raceWithTimeout([
-      { name: 'arxiv', promise: fetchArxiv({ searchQuery: aq, max: Math.min(70, max + 25), sort: arxivSort }) },
-      { name: 'crossref', promise: fetchCrossrefWorks(effectiveQuery, Math.min(50, max + 20)) },
-      { name: 'openalex', promise: fetchOpenAlexWorks(effectiveQuery, Math.min(50, max + 20)) },
-      { name: 'semantic_scholar', promise: fetchSemanticScholarWorks(effectiveQuery, Math.min(50, max + 20)) },
+      { name: 'arxiv', promise: traceAsync(performanceTrace, "search.database.arxiv", {}, () => fetchArxiv({ searchQuery: aq, max: Math.min(70, max + 25), sort: arxivSort }), (rows) => ({ results: rows?.length ?? 0 })) },
+      { name: 'crossref', promise: traceAsync(performanceTrace, "search.database.crossref", {}, () => fetchCrossrefWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
+      { name: 'openalex', promise: traceAsync(performanceTrace, "search.database.openalex", {}, () => fetchOpenAlexWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
+      { name: 'semantic_scholar', promise: traceAsync(performanceTrace, "search.database.semantic_scholar", {}, () => fetchSemanticScholarWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
     ], 18000); // 18秒超时
     
     let arxiv = [], crossSearch = [], oaSearch = [], semanticSearch = [];
@@ -920,7 +981,7 @@ export async function runPaperSearch(opts) {
     
     // 第2层：高质量源 Scopus（通常较慢但质量高）
     const scopusResult = await raceWithTimeout([
-      { name: 'scopus', promise: fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)) }
+      { name: 'scopus', promise: traceAsync(performanceTrace, "search.database.scopus", {}, () => fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)), (rows) => ({ results: rows?.length ?? 0 })) }
     ], 18000); // 18秒超时
     
     let scopusSearch = [];
@@ -956,7 +1017,7 @@ export async function runPaperSearch(opts) {
 
     supplementalTasks.push({
       name: "europepmc",
-      promise: fetchEuropePmcWorks(effectiveQuery, 35),
+      promise: traceAsync(performanceTrace, "search.database.europepmc", {}, () => fetchEuropePmcWorks(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
     });
 
     // 专利 + 全网网页：默认合并（useMcpWeb 为 false 时跳过外呼，便于离线/合规场景）
@@ -964,11 +1025,11 @@ export async function runPaperSearch(opts) {
       // OpenAlex 专利 API（独立调用，结果标记为 openalex_patent）
       supplementalTasks.push({
         name: "openalex_patents",
-        promise: fetchOpenAlexPatents(effectiveQuery, 35),
+        promise: traceAsync(performanceTrace, "search.database.openalex_patents", {}, () => fetchOpenAlexPatents(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
       });
       supplementalTasks.push({
         name: "patents",
-        promise: fetchPatentPapers(effectiveQuery, 35),
+        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35), (value) => ({ results: value?.papers?.length ?? 0 })),
       });
     }
     
@@ -1014,6 +1075,7 @@ export async function runPaperSearch(opts) {
         max,
         useMcpWeb: true,
         includePatents: false,
+        performanceTrace,
       });
       if (webIntel.sourcesUsed.length) sourcesUsed.push(...webIntel.sourcesUsed);
       if (webIntel.papers.length) {
@@ -1174,6 +1236,7 @@ export async function runPaperSearch(opts) {
               ? Math.min(28, Math.max(10, Number(process.env.DB_WEB_FETCH_MAX_PAGES) || 18))
               : Number(process.env.WEB_FETCH_MAX_PAGES) || 10,
         forceFetchAll: channel === "web",
+        performanceTrace,
       });
       if (webEnrich.fetched > 0) {
         sourcesUsed.push(`web_page_fetch:${webEnrich.fetched}`);

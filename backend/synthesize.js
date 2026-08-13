@@ -11,6 +11,7 @@ import {
   SYNTH_MARKDOWN_DATA_SECTION,
   finalizeSynthesisMarkdown,
 } from "./synthesisExtract.js";
+import { traceAsync } from "./performanceTrace.js";
 
 function isPatentPaper(p) {
   const s = String(p?.source ?? "");
@@ -224,12 +225,16 @@ async function runSingleSynthesisModel(args) {
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
 
   try {
-    const result = await generateText(args.provider, {
-      timeoutMs: ms,
-      temperature: 0.3,
-      maxTokens: 6000,
-      system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid,
-      messages: [
+    const result = await traceAsync(
+      args.performanceTrace,
+      `synthesis.literature.${String(args.provider?.slot || "single").replace(/[^a-z0-9_-]/gi, "_")}`,
+      { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
+      () => generateText(args.provider, {
+        timeoutMs: ms,
+        temperature: 0.3,
+        maxTokens: 6000,
+        system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid,
+        messages: [
         {
           role: "user",
           content:
@@ -239,9 +244,11 @@ async function runSingleSynthesisModel(args) {
             `以下为检索到的摘录（含「文献 / 网页 / 专利」类型标签；共${papers.length}条）：\n\n${list}\n\n` +
             "请基于以上摘录生成综述；**直接相关**内容写入背景/进展/技术/趋势四节；**仅间接相关**的条目只能写入 **## 间接参考与延伸线索** 且每条以 **【间接】** 开头。专利若与问题直接相关可写 **## 专利与公开情报**（放在间接参考节之前），否则放入间接参考节。",
         },
-      ],
-      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+        ],
+        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+      }),
+      (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
+    );
     if (!result.ok) {
       console.error("[synthesize] LLM", args.provider?.slot, args.provider?.model, result.status, result.error);
       return { markdown: null, note: `synth:${result.error}` };
@@ -304,12 +311,16 @@ async function mergeConsensusMarkdown(args) {
   const ms = Math.min(360_000, Math.max(30_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 150_000));
 
   try {
-    const result = await generateText(args.provider, {
-      timeoutMs: ms,
-      temperature: arbitrator ? 0.12 : 0.15,
-      maxTokens: arbitrator ? 8500 : 2200,
-      system: arbitrator ? systemArb : systemMerge,
-      messages: [
+    const result = await traceAsync(
+      args.performanceTrace,
+      arbitrator ? "synthesis.literature.C_arbitration" : "synthesis.literature.consensus",
+      { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
+      () => generateText(args.provider, {
+        timeoutMs: ms,
+        temperature: arbitrator ? 0.12 : 0.15,
+        maxTokens: arbitrator ? 8500 : 2200,
+        system: arbitrator ? systemArb : systemMerge,
+        messages: [
         {
           role: "user",
           content:
@@ -321,9 +332,11 @@ async function mergeConsensusMarkdown(args) {
             `--- 模型 B 综述 ---\n${b}\n\n` +
             (arbitrator ? "请输出经你仲裁后的**唯一终稿**综述正文。" : "请仅输出「共享部分」综述正文。"),
         },
-      ],
-      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+        ],
+        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+      }),
+      (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
+    );
     if (!result.ok) {
       console.error("[synthesize/consensus]", result.status, result.error);
       return { markdown: null, note: `synth_consensus:${result.error}` };
@@ -385,6 +398,7 @@ export async function synthesizeFromPapers(p) {
       personaSkill: p.personaSkill,
       outputAvoidanceHint: avoidHint || undefined,
       conversationContext: convoHint || undefined,
+      performanceTrace: p.performanceTrace,
     };
     const [ra, rb] = await Promise.all([
       runSingleSynthesisModel({ ...base, provider: triCfg.A }),
@@ -450,6 +464,7 @@ export async function synthesizeFromPapers(p) {
       arbitratorMode: true,
       excerptPatentCount,
       onTextDelta: p.onTextDelta,
+      performanceTrace: p.performanceTrace,
     });
 
     if (!merged.markdown) {
@@ -501,6 +516,7 @@ export async function synthesizeFromPapers(p) {
     personaSkill: p.personaSkill,
     outputAvoidanceHint: avoidHint || undefined,
     conversationContext: convoHint || undefined,
+    performanceTrace: p.performanceTrace,
   };
 
   if (!modelB) {
@@ -564,6 +580,7 @@ export async function synthesizeFromPapers(p) {
     arbitratorMode: false,
     excerptPatentCount,
     onTextDelta: p.onTextDelta,
+    performanceTrace: p.performanceTrace,
   });
 
   if (!merged.markdown) {

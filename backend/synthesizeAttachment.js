@@ -3,6 +3,7 @@
  */
 import { resolvePrimaryProvider, resolveTriProviders } from "./llmProviders.js";
 import { generateText } from "./llmClient.js";
+import { traceAsync } from "./performanceTrace.js";
 import { resolveSecondaryModel } from "./synthesize.js";
 import {
   WEB_JSON_FOOTER,
@@ -96,14 +97,17 @@ async function runAttachmentDraft(args) {
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
 
   try {
-    const result = await generateText(args.provider, {
+    const result = await traceAsync(args.performanceTrace, `synthesis.attachment.${args.slot || "unknown"}`, {
+      model: args.provider?.model,
+      streaming: typeof args.onTextDelta === "function",
+    }, () => generateText(args.provider, {
       timeoutMs: ms,
       temperature: 0.12,
       maxTokens: Math.min(8000, Math.max(4000, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
       system: skillPrefix + ATTACHMENT_SYNTH_SYSTEM + avoid,
       messages: [{ role: "user", content: `【模型槽位】${args.slot || "?"}\n\n${userPrompt}` }],
       ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+    }), (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }));
     if (!result.ok) {
       console.error("[attachmentSynth]", args.slot, args.provider?.model, result.status, result.error);
       return { markdown: null, note: `attach:${result.error}` };
@@ -126,7 +130,10 @@ async function mergeAttachmentDrafts(args) {
   const ms = Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 120_000));
 
   try {
-    const result = await generateText(args.provider, {
+    const result = await traceAsync(args.performanceTrace, "synthesis.attachment.C_merge", {
+      model: args.provider?.model,
+      streaming: typeof args.onTextDelta === "function",
+    }, () => generateText(args.provider, {
       timeoutMs: ms,
       temperature: 0.1,
       maxTokens: Math.min(8000, Math.max(4500, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
@@ -142,7 +149,7 @@ async function mergeAttachmentDrafts(args) {
         },
       ],
       ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
-    });
+    }), (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }));
     if (!result.ok) return { markdown: null, note: `attach_merge:${result.error}` };
     const text = result.text;
     if (!text) return { markdown: null, note: "attach_merge:empty" };
@@ -187,6 +194,7 @@ export async function synthesizeFromAttachmentContext(p) {
     conversationContext: p.conversationContext,
     personaSkill: p.personaSkill,
     outputAvoidanceHint: p.outputAvoidanceHint,
+    performanceTrace: p.performanceTrace,
   };
   const chars = attachmentContext.length;
 
@@ -211,6 +219,7 @@ export async function synthesizeFromAttachmentContext(p) {
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
         onTextDelta: p.onTextDelta,
+        performanceTrace: p.performanceTrace,
       });
       if (merged.markdown) {
         return {

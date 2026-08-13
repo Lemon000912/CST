@@ -3,6 +3,7 @@
  * 可选 Dataify 通用采集（webunlocker）：直连失败或反爬时回退，见 DATAIFY_WEBUNLOCKER_*。
  */
 import { fetchWithTimeout } from "./fetchWithTimeout.js";
+import { traceAsync } from "./performanceTrace.js";
 import { fetchDataifyWebUnlockerHtml, getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
 
 const WEB_SOURCES = new Set([
@@ -205,7 +206,7 @@ export async function fetchWebPageText(url, timeoutMs = 14_000) {
 /**
  * 对检索结果中的网页条目抓取正文并合并进 abstract/summary。
  * @param {object[]} papers
- * @param {{ maxPages?: number; timeoutMs?: number; minExistingAbstractLen?: number; forceFetchAll?: boolean }} [opts]
+ * @param {{ maxPages?: number; timeoutMs?: number; minExistingAbstractLen?: number; forceFetchAll?: boolean; performanceTrace?: object }} [opts]
  */
 export async function enrichPapersWithWebPageContent(papers, opts = {}) {
   const enabled = String(process.env.WEB_FETCH_ENABLED ?? "1").trim() !== "0";
@@ -236,7 +237,13 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
     const key = String(t.paper_id ?? t.id ?? "");
     const url = String(t.absUrl ?? "").trim();
     const row = byId.get(key) || { ...t };
-    const got = await fetchWebPageText(url, timeoutMs);
+    const got = await traceAsync(
+      opts.performanceTrace,
+      "search.web_page_fetch.item",
+      { source: String(t.source ?? ""), urlHost: (() => { try { return new URL(url).hostname; } catch { return ""; } })() },
+      () => fetchWebPageText(url, timeoutMs),
+      (value) => ({ ok: Boolean(value?.ok), via: value?.via, error: value?.error }),
+    );
     if (!got.ok) {
       errors++;
       row.webFetchNote = got.error;

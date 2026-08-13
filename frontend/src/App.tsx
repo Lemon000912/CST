@@ -1158,8 +1158,10 @@ function AssistantBlock({
   const hasSynthesisText = Boolean(synthesisMd.trim());
   const synthStreamEnabled = !msg.error && synthesisMd.length > 0 && msg.meta?.synthesisNote === "synth:streaming";
   const synthShown = useTypewriterSlice(synthesisMd, `${msg.id}:syn`, synthStreamEnabled);
-  const synthStreamDone = !synthStreamEnabled || !synthesisMd || synthShown.length >= synthesisMd.length;
-  const synthCaret = synthStreamEnabled && synthShown.length < synthesisMd.length;
+  const webSseStreaming = msg.meta?.channel === "web" && synthStreamEnabled;
+  const synthesisShown = webSseStreaming ? synthesisMd : synthShown;
+  const synthStreamDone = !synthStreamEnabled || (!webSseStreaming && synthShown.length >= synthesisMd.length);
+  const synthCaret = synthStreamEnabled && (webSseStreaming || synthShown.length < synthesisMd.length);
   const synthDirectShown = useMemo(() => {
     if (!synthStreamEnabled) return synthesisParts.directMd;
     const directLen = synthesisParts.directMd.length;
@@ -1176,7 +1178,9 @@ function AssistantBlock({
   const isWebChannel = msg.meta?.channel === "web" && !msg.error;
   const synthesisMode = String(msg.meta?.synthesisModels?.mode ?? "");
   const webNoSynthNote = String(msg.meta?.synthesisNote ?? "").trim();
-  const webSynthesisPending = /synth:(pending|streaming)/i.test(webNoSynthNote);
+  const webSynthesisWaiting = /^synth:pending$/i.test(webNoSynthNote);
+  const webSynthesisStreaming = /^synth:streaming$/i.test(webNoSynthNote);
+  const webSynthesisPending = webSynthesisWaiting || webSynthesisStreaming;
   const isAttachmentSynthesis = synthesisMode.startsWith("attachment_");
   const isDbHybridAnswer =
     msg.meta?.channel === "database" &&
@@ -1353,14 +1357,14 @@ function AssistantBlock({
         {msg.error ? (
           <p className="text-[var(--t-error)]">{intro}</p>
         ) : showWebDualPane && !hasWebSynthesis ? (
-          <p className="mb-2 text-[11px] text-[var(--t-text-dim)]">
-            共 <strong>{n}</strong> 条网页/专利来源；
-            {webSynthesisPending
-              ? "正在生成联网综合回答…"
-              : webNoSynthKeyHint
+          webSynthesisPending ? null : (
+            <p className="mb-2 text-[11px] text-[var(--t-text-dim)]">
+              共 <strong>{n}</strong> 条网页/专利来源；
+              {webNoSynthKeyHint
                 ? "配置 Key 后可生成联网综合回答。"
                 : "本轮未生成联网综合回答。"}
-          </p>
+            </p>
+          )
         ) : showWebDualPane ? null : (
           <ReactMarkdown>{intro}</ReactMarkdown>
         )}
@@ -1389,13 +1393,18 @@ function AssistantBlock({
                             </p>
                           ) : null}
                           <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
-                            {webArbitrationSucceeded
+                            {webSynthesisStreaming ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <LoadingSpinner className="h-3 w-3 shrink-0 border-[var(--t-accent)] border-t-transparent" />
+                                预览回答 · 双模型作答与第三模型仲裁中…
+                              </span>
+                            ) : webArbitrationSucceeded
                               ? `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
                               : "联网综合回答（部分模型失败时可能为降级结果）"}
                           </p>
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
                             <ReactMarkdown components={webMdLinkComponents}>
-                              {synthStreamEnabled ? synthShown : synthesisMd}
+                              {synthStreamEnabled ? synthesisShown : synthesisMd}
                             </ReactMarkdown>
                             <TypewriterCaret visible={synthCaret} />
                           </div>
@@ -1441,10 +1450,18 @@ function AssistantBlock({
                           ) : null}
                         </div>
                       </>
-                    ) : webSynthesisPending ? (
-                      <p className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200/90">
-                        正在基于检索摘录生成联网综合回答，请稍候。下方可先查看检索摘录。
-                      </p>
+                    ) : webSynthesisWaiting ? (
+                      <div
+                        className="mb-3 flex items-center gap-2.5 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-3 py-2.5 text-[11px] text-[var(--t-text-muted)]"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                      >
+                        <LoadingSpinner className="h-3.5 w-3.5 shrink-0 border-[var(--t-accent)] border-t-transparent" />
+                        <span>
+                          检索完成，已找到 <strong className="text-[var(--t-text)]">{n}</strong> 条来源。模型正在生成预览回答…
+                        </span>
+                      </div>
                     ) : (
                       <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200/90">
                         未生成联网综合回答
@@ -1726,6 +1743,7 @@ function AssistantBlock({
         msg.papers.length > 0 &&
         !msg.meta?.synthesis?.trim() &&
         msg.meta?.synthesisNote &&
+        !webSynthesisPending &&
         msg.meta.synthesisNote !== "synth:no-llm-key" ? (
           <p className="mt-3 text-[12px] text-[var(--t-text-dim)]">
             {isWebChannel
@@ -2188,6 +2206,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     () => sessions.find((s) => s.id === activeId) ?? null,
     [sessions, activeId],
   );
+  const activeAssistantShowsProgress = useMemo(() => {
+    if (!busy || !active?.messages.length) return false;
+    const last = active.messages[active.messages.length - 1];
+    if (last.role !== "assistant" || last.error) return false;
+    return /^synth:(pending|streaming|replaced)$/i.test(String(last.meta?.synthesisNote ?? ""));
+  }, [active?.messages, busy]);
 
   const exportPickCounts = useMemo(() => {
     if (!exportPickMode || !exportPickSessionId) return { total: 0, picked: 0 };
@@ -3047,7 +3071,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           });
         } else if (event.type === "synthesis_token") {
           synthesisSoFar += event.token;
-          // 每个 token 都更新 synthesis，触发前端的 useTypewriterSlice
+          // 联网 C-preview 直接展示 SSE 片段，不再叠加前端打字动画。
           upsertAssistant({
             meta: {
               // 保留已有 meta，只更新 synthesis
@@ -3064,7 +3088,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               channel: channelAtSend,
               sort: sortAtSend,
               synthesis: synthesisSoFar,
-              synthesisNote: "synth:streaming",
+              synthesisNote: "synth:replaced",
             },
           });
         } else if (event.type === "done") {
@@ -3082,6 +3106,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               rewriteNote: event.rewriteNote,
               sourcesUsed: event.sourcesUsed,
               latencyMs: event.latencyMs,
+              performanceTrace: event.performanceTrace ?? null,
               parentOperationId: event.parentOperationId,
               billing: event.billingReceipt ?? null,
               deepMine: event.deepMine ?? null,
@@ -3556,7 +3581,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                 </div>
               </div>
             ))}
-            {busy && (
+            {busy && !activeAssistantShowsProgress && (
               <div className="qp-message-enter flex gap-3 sm:gap-4">
                 <div className="qp-avatar-assistant">
                   <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
