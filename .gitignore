@@ -4,6 +4,12 @@ dist
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite-*
+*.sqlite.*
 tsconfig.tsbuildinfo
 scihub_pdf_out/
 .venv-mineru/
