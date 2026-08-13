@@ -15,3 +15,4 @@ scihub_pdf_out/
 .venv-mineru/
 backend/data/deep-mine-temp/
 .cursor
+.env
