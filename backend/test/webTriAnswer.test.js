@@ -14,6 +14,7 @@ const ENV_NAMES = [
   "LLM_MODEL",
   "WEB_TRI_MODE",
   "WEB_TRI_CONCURRENCY",
+  "WEB_STREAM_SPECULATIVE",
   "WEB_ANSWER_RETRIES",
   "SYNTHESIS_TIMEOUT_MS",
   ...["A", "B", "C"].flatMap((slot) => [
@@ -55,7 +56,7 @@ async function withMockLlm(fn) {
     req.on("data", (chunk) => { raw += chunk; });
     req.on("end", () => {
       const body = raw ? JSON.parse(raw) : {};
-      const modelMatch = String(req.url ?? "").match(/\/models\/([^:]+):generateContent/);
+      const modelMatch = String(req.url ?? "").match(/\/models\/([^:]+):(?:streamGenerateContent|generateContent)/);
       const model = String(body.model ?? (modelMatch ? decodeURIComponent(modelMatch[1]) : "unknown"));
       const call = { model, url: req.url, body };
       calls.push(call);
@@ -158,6 +159,14 @@ async function runWebAnswer() {
   });
 }
 
+async function runStreamingWebAnswer(onTextDelta) {
+  return synthesizeWebTriAnswer({
+    userQuery: "Alpha material performance",
+    papers: papers(),
+    onTextDelta,
+  });
+}
+
 test("web tri runs two drafts then C arbitration", async () => {
   await withMockLlm(async ({ baseUrl, calls }) => {
     await withEnv(providerEnv(baseUrl), async () => {
@@ -186,6 +195,41 @@ test("web tri runs two drafts then C arbitration", async () => {
       });
       assert.equal(result.llmUsage.slots.merge, undefined);
       assert.equal(result.llmUsage.total.totalTokens, 47);
+    });
+  });
+});
+
+test("streaming web tri starts speculative C before A/B finish, then returns arbitrated final text", async () => {
+  await withMockLlm(async ({ baseUrl, calls, events }) => {
+    const env = providerEnv(baseUrl);
+    env.LLM_PROVIDER_A_MODEL = "gpt-delay";
+    env.LLM_PROVIDER_B_MODEL = "qwen-delay";
+    await withEnv(env, async () => {
+      const deltas = [];
+      const result = await runStreamingWebAnswer((delta) => {
+        deltas.push(delta);
+        events.push("delta:preview");
+      });
+
+      assert.equal(calls.filter((call) => call.model === "gemini-test").length, 2);
+      const previewCall = calls.find((call) =>
+        call.model === "gemini-test" && !JSON.stringify(call.body).includes("模型 A 回答"),
+      );
+      const arbitrationCall = calls.find((call) =>
+        call.model === "gemini-test" && JSON.stringify(call.body).includes("模型 A 回答"),
+      );
+      assert.ok(previewCall);
+      assert.ok(arbitrationCall);
+      assert.ok(events.indexOf("start:gemini-test") < events.indexOf("end:gpt-delay"), events.join(","));
+      const firstPreviewDelta = events.indexOf("delta:preview");
+      assert.ok(firstPreviewDelta >= 0, events.join(","));
+      assert.ok(firstPreviewDelta < events.indexOf("end:qwen-delay"), events.join(","));
+      assert.ok(deltas.join("").includes("Gemini arbitration"));
+      assert.equal(result.synthesisModels.mode, "web_tri_speculative_arbitration");
+      assert.match(result.markdown, /Gemini arbitration/);
+      assert.ok(result.llmUsage.slots.preview);
+      assert.ok(result.llmUsage.slots.C);
+      assert.equal(result.llmUsage.total.totalTokens, 64);
     });
   });
 });

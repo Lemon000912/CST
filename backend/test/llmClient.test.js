@@ -148,3 +148,134 @@ test("provider HTTP failures are bounded and do not expose keys", async (t) => {
   assert.equal(result.errorBody.length, 500);
   assert.equal(JSON.stringify(result).includes("secret-b"), false);
 });
+
+function sseResponse(chunks, status = 200) {
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  }), { status, headers: { "Content-Type": "text/event-stream" } });
+}
+
+test("OpenAI-compatible streaming emits deltas and preserves final usage", async (t) => {
+  let body;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    body = JSON.parse(options.body);
+    return sseResponse([
+      'data: {"model":"served","choices":[{"delta":{"content":"正文"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"增量"},"finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+  });
+  const provider = {
+    slot: "A",
+    protocol: LLM_PROTOCOLS.OPENAI,
+    apiKey: "secret-a",
+    baseUrl: "https://a.example/v1",
+    model: "model-a",
+  };
+  const deltas = [];
+  const result = await generateText(provider, {
+    messages: [{ role: "user", content: "hello" }],
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, "正文增量");
+  assert.deepEqual(deltas, ["正文", "增量"]);
+  assert.equal(body.stream, true);
+  assert.deepEqual(body.stream_options, { include_usage: true });
+  assert.deepEqual(result.usage, { inputTokens: 7, outputTokens: 2, totalTokens: 9 });
+});
+
+test("Gemini streaming uses SSE and excludes thought parts", async (t) => {
+  let url;
+  t.mock.method(globalThis, "fetch", async (requestUrl) => {
+    url = String(requestUrl);
+    return sseResponse([
+      'data: {"candidates":[{"content":{"parts":[{"text":"思考","thought":true},{"text":"终稿一"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"终稿二"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}\n\n',
+    ]);
+  });
+  const provider = {
+    slot: "C",
+    protocol: LLM_PROTOCOLS.GEMINI,
+    apiKey: "secret-c",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    model: "gemini-test",
+  };
+  const deltas = [];
+  const result = await generateText(provider, {
+    messages: [{ role: "user", content: "hello" }],
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  assert.match(url, /:streamGenerateContent\?alt=sse$/);
+  assert.equal(result.text, "终稿一终稿二");
+  assert.deepEqual(deltas, ["终稿一", "终稿二"]);
+  assert.deepEqual(result.usage, { inputTokens: 5, outputTokens: 3, totalTokens: 8 });
+});
+
+test("unsupported streaming falls back to the established non-streaming request", async (t) => {
+  const bodies = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const body = JSON.parse(options.body);
+    bodies.push(body);
+    if (body.stream) return response({ error: { message: "stream unsupported" } }, 400);
+    return response({ choices: [{ message: { content: "完整回退" }, finish_reason: "stop" }] });
+  });
+  const provider = {
+    slot: "A",
+    protocol: LLM_PROTOCOLS.OPENAI,
+    apiKey: "secret-a",
+    baseUrl: "https://a.example/v1",
+    model: "model-a",
+  };
+  const deltas = [];
+  const result = await generateText(provider, {
+    messages: [{ role: "user", content: "hello" }],
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, "完整回退");
+  assert.equal(bodies.length, 3);
+  assert.equal(bodies[0].stream, true);
+  assert.deepEqual(bodies[0].stream_options, { include_usage: true });
+  assert.equal(bodies[1].stream, true);
+  assert.equal(bodies[1].stream_options, undefined);
+  assert.equal(bodies[2].stream, undefined);
+  assert.deepEqual(deltas, []);
+});
+
+test("a gateway that ignores stream mode is consumed without a duplicate request", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    return response({
+      choices: [{ message: { content: "网关返回的完整正文" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+    });
+  });
+  const provider = {
+    slot: "A",
+    protocol: LLM_PROTOCOLS.OPENAI,
+    apiKey: "secret-a",
+    baseUrl: "https://a.example/v1",
+    model: "model-a",
+  };
+  const deltas = [];
+  const result = await generateText(provider, {
+    messages: [{ role: "user", content: "hello" }],
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.ok, true);
+  assert.equal(result.text, "网关返回的完整正文");
+  assert.deepEqual(deltas, ["网关返回的完整正文"]);
+  assert.deepEqual(result.usage, { inputTokens: 4, outputTokens: 3, totalTokens: 7 });
+});

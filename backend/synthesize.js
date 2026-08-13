@@ -240,6 +240,7 @@ async function runSingleSynthesisModel(args) {
             "请基于以上摘录生成综述；**直接相关**内容写入背景/进展/技术/趋势四节；**仅间接相关**的条目只能写入 **## 间接参考与延伸线索** 且每条以 **【间接】** 开头。专利若与问题直接相关可写 **## 专利与公开情报**（放在间接参考节之前），否则放入间接参考节。",
         },
       ],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) {
       console.error("[synthesize] LLM", args.provider?.slot, args.provider?.model, result.status, result.error);
@@ -321,6 +322,7 @@ async function mergeConsensusMarkdown(args) {
             (arbitrator ? "请输出经你仲裁后的**唯一终稿**综述正文。" : "请仅输出「共享部分」综述正文。"),
         },
       ],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) {
       console.error("[synthesize/consensus]", result.status, result.error);
@@ -447,6 +449,7 @@ export async function synthesizeFromPapers(p) {
       outputAvoidanceHint: avoidHint || undefined,
       arbitratorMode: true,
       excerptPatentCount,
+      onTextDelta: p.onTextDelta,
     });
 
     if (!merged.markdown) {
@@ -501,7 +504,11 @@ export async function synthesizeFromPapers(p) {
   };
 
   if (!modelB) {
-    const one = await runSingleSynthesisModel({ ...base, provider: primary });
+    const one = await runSingleSynthesisModel({
+      ...base,
+      provider: primary,
+      onTextDelta: p.onTextDelta,
+    });
     return {
       markdown: one.markdown,
       plan: one.plan ?? null,
@@ -556,6 +563,7 @@ export async function synthesizeFromPapers(p) {
     outputAvoidanceHint: avoidHint || undefined,
     arbitratorMode: false,
     excerptPatentCount,
+    onTextDelta: p.onTextDelta,
   });
 
   if (!merged.markdown) {

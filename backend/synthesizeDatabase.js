@@ -41,7 +41,11 @@ export async function synthesizeDatabaseCombined(p) {
   const papers = Array.isArray(p.papers) ? p.papers : [];
   const hasWeb = papers.some(isWebPaper);
 
-  const litPromise = synthesizeFromPapers(p);
+  // Hybrid mode has two concurrent writers. Keep it atomic so their deltas cannot interleave.
+  const litPromise = synthesizeFromPapers({
+    ...p,
+    onTextDelta: hasWeb ? undefined : p.onTextDelta,
+  });
   const webPromise = hasWeb
     ? synthesizeWebTriAnswer({
         userQuery: p.userQuery,

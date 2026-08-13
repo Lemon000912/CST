@@ -184,6 +184,10 @@ function webTriMode() {
   return m === "single" ? "single" : "tri";
 }
 
+function speculativeWebStreamEnabled() {
+  return String(process.env.WEB_STREAM_SPECULATIVE ?? "1").trim() !== "0";
+}
+
 function resolveWebFallbackModel(primary) {
   return sanitizeModel(primary || defaultModel());
 }
@@ -292,6 +296,7 @@ async function runWebDirectKnowledgeAnswer(args) {
       maxTokens: webAnswerMaxTokens(true),
       system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
       messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) {
       return { markdown: null, note: `web_direct:${result.error}`, plan: null, planNote: null, usage: result.usage };
@@ -345,7 +350,9 @@ async function runSingleWebAnswer(args) {
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
 
-  const maxAttempts = Math.min(3, Math.max(1, Number(process.env.WEB_ANSWER_RETRIES) || 2));
+  const maxAttempts = Number.isFinite(Number(args.maxAttempts))
+    ? Math.min(3, Math.max(1, Math.floor(Number(args.maxAttempts))))
+    : Math.min(3, Math.max(1, Number(process.env.WEB_ANSWER_RETRIES) || 2));
   const provider = args.provider;
   const model = provider?.model;
   let lastNote = "web_answer:empty";
@@ -366,6 +373,7 @@ async function runSingleWebAnswer(args) {
               `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
           },
         ],
+        ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
       });
       usage = addTokenUsage(usage, result.usage);
       if (!result.ok) {
@@ -432,6 +440,7 @@ async function runWebAnswerLiteFallback(args) {
     lite: true,
     personaSkill: args.personaSkill,
     outputAvoidanceHint: args.outputAvoidanceHint,
+    onTextDelta: args.onTextDelta,
   });
 }
 
@@ -462,6 +471,7 @@ async function arbitrateTwoWebAnswers(args) {
             "请以模型 C 仲裁者身份，使用简体中文输出经比较、去重、**剔除跑题**后的完整唯一终稿；不得只返回英文资料片段、引用列表或数据残句。",
         },
       ],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) {
       const upstreamStatus = safeUpstreamErrorStatus(result);
@@ -566,6 +576,7 @@ export async function synthesizeWebTriAnswer(p) {
       personaSkill: p.personaSkill,
       outputAvoidanceHint: p.outputAvoidanceHint,
       slot: "direct",
+      onTextDelta: p.onTextDelta,
     });
     if (dr.markdown) {
       return {
@@ -595,6 +606,7 @@ export async function synthesizeWebTriAnswer(p) {
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
         slot: "direct",
+        onTextDelta: p.onTextDelta,
       });
       if (dr.markdown) {
         return {
@@ -680,6 +692,7 @@ export async function synthesizeWebTriAnswer(p) {
           provider: selectedProvider,
           slot: "A-single",
           lite: true,
+          onTextDelta: p.onTextDelta,
         })
       : unavailableWebAnswer("web_answer:provider_not_configured");
     if (!one.markdown && selectedProvider) {
@@ -692,6 +705,7 @@ export async function synthesizeWebTriAnswer(p) {
         provider: selectedProvider,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
+        onTextDelta: p.onTextDelta,
       });
     }
     const singleDrafts = {
@@ -729,13 +743,34 @@ export async function synthesizeWebTriAnswer(p) {
     });
   }
 
-  const [ra, rb] = await runWebAnswerSlots(
+  // Streaming requests use a speculative C answer for a fast first token while
+  // A/B independently build the drafts that the second C call will arbitrate.
+  // Non-streaming requests retain the established A/B -> C sequence.
+  let previewEmitted = false;
+  const useSpeculativePreview =
+    triStatus.complete &&
+    speculativeWebStreamEnabled() &&
+    typeof p.onTextDelta === "function";
+  const previewPromise = useSpeculativePreview
+    ? runSingleWebAnswer({
+        ...base,
+        provider: triProviders.C,
+        slot: "C-preview",
+        maxAttempts: 1,
+        onTextDelta: (delta) => {
+          previewEmitted = true;
+          return p.onTextDelta(delta);
+        },
+      })
+    : Promise.resolve(unavailableWebAnswer("web_preview:not_run"));
+  const draftsPromise = runWebAnswerSlots(
     [
       { ...base, provider: triProviders.A, slot: "A" },
       { ...base, provider: triProviders.B, slot: "B" },
     ],
     concurrency,
   );
+  const [preview, [ra, rb]] = await Promise.all([previewPromise, draftsPromise]);
 
   const drafts = {
     modelA: ra.markdown,
@@ -745,7 +780,11 @@ export async function synthesizeWebTriAnswer(p) {
     noteB: rb.note,
     noteC: "web_answer:not_run_arbiter_only",
   };
-  const draftUsage = { A: ra.usage, B: rb.usage };
+  const draftUsage = {
+    A: ra.usage,
+    B: rb.usage,
+    ...(useSpeculativePreview ? { preview: preview.usage } : {}),
+  };
 
   const executionMode = (mode) =>
     triStatus.complete ? mode : `${mode}_config_incomplete`;
@@ -773,6 +812,7 @@ export async function synthesizeWebTriAnswer(p) {
           provider: selectedLiteProvider,
           personaSkill: p.personaSkill,
           outputAvoidanceHint: p.outputAvoidanceHint,
+          onTextDelta: previewEmitted ? undefined : p.onTextDelta,
         })
       : unavailableWebAnswer("web_lite:provider_not_configured");
     if (lite.markdown) {
@@ -822,6 +862,8 @@ export async function synthesizeWebTriAnswer(p) {
         provider: triProviders.C,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
+        // If preview yielded nothing, preserve the regular final-C streaming path.
+        onTextDelta: previewEmitted ? undefined : p.onTextDelta,
       })
     : unavailableWebAnswer("web_arbitration:provider_not_configured");
 
@@ -830,8 +872,11 @@ export async function synthesizeWebTriAnswer(p) {
       markdown: arbitration.markdown,
       plan: arbitration.plan ?? pickWebPlan(ra, rb),
       planNote: arbitration.planNote ?? null,
-      note: `web_tri:arbitration_ok:${arbitration.note}|${sourceNote}`,
-      synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_arbitration") },
+      note: `web_tri:arbitration_ok:${arbitration.note}${useSpeculativePreview ? `|preview=${preview.note}` : ""}|${sourceNote}`,
+      synthesisModels: {
+        ...synthesisModels,
+        mode: executionMode(useSpeculativePreview ? "web_tri_speculative_arbitration" : "web_tri_arbitration"),
+      },
       llmUsage: buildLlmUsage({ ...draftUsage, C: arbitration.usage }),
       webAnswerDrafts: drafts,
     };

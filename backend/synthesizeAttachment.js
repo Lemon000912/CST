@@ -102,6 +102,7 @@ async function runAttachmentDraft(args) {
       maxTokens: Math.min(8000, Math.max(4000, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
       system: skillPrefix + ATTACHMENT_SYNTH_SYSTEM + avoid,
       messages: [{ role: "user", content: `【模型槽位】${args.slot || "?"}\n\n${userPrompt}` }],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) {
       console.error("[attachmentSynth]", args.slot, args.provider?.model, result.status, result.error);
@@ -140,6 +141,7 @@ async function mergeAttachmentDrafts(args) {
             "请输出合并后的唯一终稿。",
         },
       ],
+      ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
     });
     if (!result.ok) return { markdown: null, note: `attach_merge:${result.error}` };
     const text = result.text;
@@ -208,6 +210,7 @@ export async function synthesizeFromAttachmentContext(p) {
         provider: triCfg.C,
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
+        onTextDelta: p.onTextDelta,
       });
       if (merged.markdown) {
         return {
@@ -237,6 +240,7 @@ export async function synthesizeFromAttachmentContext(p) {
     ...base,
     provider: singleProvider,
     slot: "single",
+    onTextDelta: p.onTextDelta,
   });
   if (r.markdown) {
     return {

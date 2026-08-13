@@ -41,6 +41,7 @@ import {
   synthesizeFromAttachmentContext,
 } from "./synthesizeAttachment.js";
 import { synthesizeWebTriAnswer } from "./webTriAnswer.js";
+import { createSynthesisStreamEmitter } from "./synthesisStream.js";
 import { getPersonaSkill, listPersonas, normalizePersonaId } from "./personaSkills.js";
 import { getMcpWebSearchConfig } from "./mcpWebSearch.js";
 import { getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
@@ -1466,6 +1467,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     let synthesisModels = undefined;
     let webAnswerDrafts = undefined;
     let llmUsage = undefined;
+    const synthesisStream = createSynthesisStreamEmitter(send);
 
     // 2a. 无综述 / 无文献：跳过综述，直接进入结算
     const skipSynthesis = !includeSynthesis || !result.papers.length;
@@ -1486,6 +1488,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
             chatCompletionsUrl: llmChatUrl,
             personaSkill,
             outputAvoidanceHint: outputAvoidance || undefined,
+            onTextDelta: (delta) => synthesisStream.push(delta),
           });
           synthesisNote = synAtt.note ?? null;
           synthesisModels = synAtt.synthesisModels;
@@ -1513,6 +1516,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           chatCompletionsUrl: llmChatUrl || undefined,
           personaSkill,
           outputAvoidanceHint: outputAvoidance || undefined,
+          onTextDelta: (delta) => synthesisStream.push(delta),
         };
         const syn = channel === "web"
           ? await synthesizeWebTriAnswer(commonArgs)
@@ -1526,8 +1530,8 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         llmUsage = syn.llmUsage ?? undefined;
       }
 
-      // 只推送已经剥离结构化 JSON 的最终正文，防止 steps/extractedData 在正文中闪现。
-      if (fullSynthesis) send("synthesis_token", { token: fullSynthesis });
+      // 流中隐藏结构化 JSON；最终仍以原有解析、校验后的正文为准。
+      synthesisStream.finish(fullSynthesis);
     }
 
     // ── 阶段 3：Deep Mine（可选，与非流式路由一致） ──

@@ -1189,7 +1189,9 @@ function AssistantBlock({
   );
   const webAnswerDrafts = msg.meta?.webAnswerDrafts ?? {};
   const webTriConfigIncomplete = synthesisMode.includes("config_incomplete");
-  const webArbitrationSucceeded = synthesisMode === "web_tri_arbitration";
+  const webArbitrationSucceeded =
+    synthesisMode === "web_tri_arbitration" ||
+    synthesisMode === "web_tri_speculative_arbitration";
   const hasWebSynthesis = !!(synthesisMd && synthesisMd.trim());
   const showWebDualPane = (isWebChannel || isDbHybridAnswer) && n > 0;
   const showWebUnified = showWebDualPane && hasWebSynthesis;
@@ -3049,6 +3051,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           upsertAssistant({
             meta: {
               // 保留已有 meta，只更新 synthesis
+              channel: channelAtSend,
+              sort: sortAtSend,
+              synthesis: synthesisSoFar,
+              synthesisNote: "synth:streaming",
+            },
+          });
+        } else if (event.type === "synthesis_replace") {
+          synthesisSoFar = event.synthesis;
+          upsertAssistant({
+            meta: {
               channel: channelAtSend,
               sort: sortAtSend,
               synthesis: synthesisSoFar,
