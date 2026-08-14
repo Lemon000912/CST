@@ -5,6 +5,43 @@ export type PointBalance = {
   balance: number;
 };
 
+export type RechargeProvider = "alipay" | "wechat";
+
+export type RechargeCatalog = {
+  package: {
+    id: string;
+    amountFen: number;
+    amountYuan: number;
+    points: number;
+    pointUnits: number;
+  };
+  providers: Array<{
+    id: RechargeProvider;
+    label: string;
+    enabled: boolean;
+  }>;
+};
+
+export type RechargeOrder = {
+  id: string;
+  orderNo: string;
+  provider: RechargeProvider;
+  packageId: string;
+  amountFen: number;
+  amountYuan: number;
+  points: number;
+  pointUnits: number;
+  status: "creating" | "pending" | "paid" | "failed" | "closed";
+  codeUrl?: string | null;
+  qrCodeDataUrl?: string | null;
+  failureCode?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  paidAt?: number | null;
+  billing?: PointBalance;
+};
+
 export type Pricing = {
   unitsPerPoint: number;
   characterUnitCost: number;

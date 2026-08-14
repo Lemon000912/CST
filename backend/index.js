@@ -5,6 +5,7 @@ import { execSync } from "node:child_process";
 import { validateHeaderValue as httpValidateHeaderValue } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
+import QRCode from "qrcode";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV_PATH = path.resolve(__dirname, "..", ".env");
@@ -85,6 +86,17 @@ import {
   getPointBalance,
   stableRequestHash,
 } from "./billing.js";
+import {
+  completeRechargeOrder,
+  createRechargeOrder,
+  getRechargeCatalog,
+  getRechargeOrder,
+} from "./recharge.js";
+import {
+  PaymentProviderError,
+  verifyAlipayNotification,
+  verifyWechatNotification,
+} from "./rechargeProviders.js";
 import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
 import {
   saveUserSkill,
@@ -124,6 +136,7 @@ console.log("[GStack] 图融合引擎已初始化");
 // 认证端点限速器
 const authLimiter = createScopedLimiter({ max: 10, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
 const regLimiter  = createScopedLimiter({ max: 3,  windowMs: 60 * 60 * 1000, maxBuckets: 2000 });
+const rechargeLimiter = createScopedLimiter({ max: 20, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
 
 // 启动时清除缓存（避免旧缓存数据污染）
 searchCache.clear();
@@ -164,7 +177,7 @@ function sendStructuredError(res, error, fallback = {}) {
       ...(error.details === undefined ? {} : { details: error.details }),
     });
   }
-  if (error instanceof ApiRouteError || error instanceof PdfFulfillmentError) {
+  if (error instanceof ApiRouteError || error instanceof PdfFulfillmentError || error instanceof PaymentProviderError) {
     return res.status(error.status).json({
       error: error.message,
       code: error.code,
@@ -372,7 +385,14 @@ function agentDbgChartBackend(location, hypothesisId, message, data) {
 // #endregion
 app.use(cors({ origin: true }));
 /** 文献作图等接口会携带多篇摘录 + 综述，4MB 易触发 entity.too.large，body-parser 默认返回 HTML 导致前端「非 JSON」 */
-app.use(express.json({ limit: "24mb" }));
+app.use(express.json({
+  limit: "24mb",
+  verify: (req, _res, buffer) => {
+    if (req.originalUrl.startsWith("/api/v1/billing/recharge/callback/wechat")) {
+      req.rawBody = Buffer.from(buffer);
+    }
+  },
+}));
 
 /** 浏览器直接打开根路径时避免 Express 默认 “Cannot GET /” */
 app.get("/", (_req, res) => {
@@ -456,6 +476,67 @@ app.get("/api/v1/billing/balance", requireAuthenticatedUser, async (req, res) =>
     return res.json({ balance, pricing: PRICING_CATALOG });
   } catch (error) {
     return sendStructuredError(res, error, { message: "Unable to read point balance" });
+  }
+});
+
+app.get("/api/v1/billing/recharge/catalog", requireAuthenticatedUser, (_req, res) => {
+  return res.json(getRechargeCatalog());
+});
+
+app.post("/api/v1/billing/recharge/orders", requireAuthenticatedUser, async (req, res) => {
+  try {
+    if (!rechargeLimiter("recharge:user", req.auth.userId)) {
+      return res.status(429).set("Retry-After", "600").json({
+        error: "充值下单过于频繁，请稍后再试",
+        code: "rate-limit-exceeded",
+      });
+    }
+    const order = await createRechargeOrder({
+      userId: req.auth.userId,
+      provider: req.body?.provider,
+      idempotencyKey: requireIdempotencyKey(req),
+    });
+    const qrCodeDataUrl = order.codeUrl
+      ? await QRCode.toDataURL(order.codeUrl, { errorCorrectionLevel: "M", margin: 1, width: 280 })
+      : null;
+    return res.status(order.status === "paid" ? 200 : 201).json({ order: { ...order, qrCodeDataUrl } });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "创建充值订单失败" });
+  }
+});
+
+app.get("/api/v1/billing/recharge/orders/:id", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const order = await getRechargeOrder({ userId: req.auth.userId, orderId: req.params.id });
+    return res.json({ order });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "查询充值订单失败" });
+  }
+});
+
+app.post(
+  "/api/v1/billing/recharge/callback/alipay",
+  express.urlencoded({ extended: false, limit: "128kb" }),
+  async (req, res) => {
+    try {
+      const payment = verifyAlipayNotification(req.body);
+      if (payment.paid) await completeRechargeOrder({ provider: "alipay", ...payment });
+      return res.type("text/plain").send("success");
+    } catch (error) {
+      console.error("[recharge] 支付宝回调处理失败:", error?.code || error?.message || error);
+      return res.status(400).type("text/plain").send("failure");
+    }
+  },
+);
+
+app.post("/api/v1/billing/recharge/callback/wechat", async (req, res) => {
+  try {
+    const payment = verifyWechatNotification({ headers: req.headers, rawBody: req.rawBody, body: req.body });
+    if (payment.paid) await completeRechargeOrder({ provider: "wechat", ...payment });
+    return res.json({ code: "SUCCESS", message: "成功" });
+  } catch (error) {
+    console.error("[recharge] 微信支付回调处理失败:", error?.code || error?.message || error);
+    return res.status(400).json({ code: "FAIL", message: "支付通知处理失败" });
   }
 });
 

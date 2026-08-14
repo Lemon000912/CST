@@ -146,6 +146,10 @@ point_ledger (
 |---|---|---|
 | `GET /api/v1/billing/balance` | ✓ | 返回余额、可用余额、价格表 |
 | `GET /api/v1/billing/operations/:id` | ✓ | 查询操作收据（只本人可查）|
+| `GET /api/v1/billing/recharge/catalog` | ✓ | 返回 100 元 / 1000 积分套餐及已启用支付通道 |
+| `POST /api/v1/billing/recharge/orders` | ✓ | 创建支付宝当面付或微信 Native 扫码订单 |
+| `GET /api/v1/billing/recharge/orders/:id` | ✓ | 查询本人充值订单状态 |
+| `POST /api/v1/billing/recharge/callback/:provider` | 平台验签 | 支付宝/微信异步通知，幂等入账 |
 | `POST /api/v1/pdfs/fulfill` | ✓ | 服务端安全获取 PDF，成功扣 1 积分 |
 
 **修改路由：**
@@ -253,10 +257,10 @@ npm run build → TypeScript 无错误，Vite 构建成功
 | 项 | 说明 |
 |---|---|
 | OA Unpaywall | OA 按钮有条件接入 `fulfillPdf`，但 Unpaywall 仅返回落地页时仍走旧逻辑（不扣费）；完整接入需服务端 resolve DOI |
-| 充值/调账 | 本期不实现；余额耗尽后唯一出路是管理员直接改数据库 |
+| 退款/调账 | 扫码充值已实现；退款负向流水和管理员调账仍需后续实现 |
 | 余额校验 | 目前无定期核账脚本（钱包余额 vs ledger 累计），建议后续加 cron 校验 |
 | PostgreSQL 多实例 | 架构已为 PG 多实例做好准备（行锁、事务），但 sql.js 模式仍限单进程 |
-| 端到端测试 | 目前为单元层；账务契约集成测试（并发、负余额、幂等重放）待补充 |
+| 端到端测试 | 已覆盖 SQLite 充值入账和重复回调；支付平台沙箱及 PostgreSQL 并发回调仍需部署环境联调 |
 
 ---
 

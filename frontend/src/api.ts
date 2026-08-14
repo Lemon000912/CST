@@ -7,6 +7,9 @@ import type {
   PaperSortKey,
   PointBalance,
   Pricing,
+  RechargeCatalog,
+  RechargeOrder,
+  RechargeProvider,
   SearchChannel,
   SearchResultMeta,
 } from "./types";
@@ -141,6 +144,86 @@ export async function fetchPointBalance(): Promise<{ billing: PointBalance; pric
   const billing = parsePointBalance(data.billing ?? data.balance ?? data);
   if (!billing) throw new ApiError("积分余额响应不完整", { status: res.status });
   return { billing, pricing: parsePricing(data.pricing) };
+}
+
+function parseRechargeOrder(value: unknown): RechargeOrder | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const id = String(raw.id ?? "").trim();
+  const orderNo = String(raw.orderNo ?? "").trim();
+  const provider = String(raw.provider ?? "") as RechargeProvider;
+  const status = String(raw.status ?? "") as RechargeOrder["status"];
+  if (!id || !orderNo || !["alipay", "wechat"].includes(provider)) return undefined;
+  if (!["creating", "pending", "paid", "failed", "closed"].includes(status)) return undefined;
+  return {
+    id,
+    orderNo,
+    provider,
+    packageId: String(raw.packageId ?? ""),
+    amountFen: finiteNumber(raw.amountFen),
+    amountYuan: finiteNumber(raw.amountYuan, finiteNumber(raw.amountFen) / 100),
+    points: finiteNumber(raw.points),
+    pointUnits: finiteNumber(raw.pointUnits),
+    status,
+    codeUrl: raw.codeUrl == null ? null : String(raw.codeUrl),
+    qrCodeDataUrl: raw.qrCodeDataUrl == null ? null : String(raw.qrCodeDataUrl),
+    failureCode: raw.failureCode == null ? null : String(raw.failureCode),
+    createdAt: finiteNumber(raw.createdAt),
+    updatedAt: finiteNumber(raw.updatedAt),
+    expiresAt: finiteNumber(raw.expiresAt),
+    paidAt: raw.paidAt == null ? null : finiteNumber(raw.paidAt),
+    billing: parsePointBalance(raw.billing),
+  };
+}
+
+export async function fetchRechargeCatalog(): Promise<RechargeCatalog> {
+  const res = await fetch("/api/v1/billing/recharge/catalog", { headers: headersJson() });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw apiErrorFrom(res.status, data, `获取充值配置失败（${res.status}）`);
+  const pack = data.package as Record<string, unknown> | undefined;
+  const providers = Array.isArray(data.providers) ? data.providers : [];
+  if (!pack || !String(pack.id ?? "") || !providers.length) {
+    throw new ApiError("充值配置响应不完整", { status: res.status });
+  }
+  return {
+    package: {
+      id: String(pack.id),
+      amountFen: finiteNumber(pack.amountFen),
+      amountYuan: finiteNumber(pack.amountYuan, finiteNumber(pack.amountFen) / 100),
+      points: finiteNumber(pack.points),
+      pointUnits: finiteNumber(pack.pointUnits),
+    },
+    providers: providers
+      .map((item) => item as Record<string, unknown>)
+      .filter((item) => item.id === "alipay" || item.id === "wechat")
+      .map((item) => ({
+        id: item.id as RechargeProvider,
+        label: String(item.label ?? item.id),
+        enabled: item.enabled === true,
+      })),
+  };
+}
+
+export async function createRechargeOrder(provider: RechargeProvider): Promise<RechargeOrder> {
+  const res = await fetch("/api/v1/billing/recharge/orders", {
+    method: "POST",
+    headers: headersJson({ "Idempotency-Key": createIdempotencyKey() }),
+    body: JSON.stringify({ provider }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw apiErrorFrom(res.status, data, `创建充值订单失败（${res.status}）`);
+  const order = parseRechargeOrder(data.order);
+  if (!order) throw new ApiError("充值订单响应不完整", { status: res.status });
+  return order;
+}
+
+export async function fetchRechargeOrder(orderId: string): Promise<RechargeOrder> {
+  const res = await fetch(`/api/v1/billing/recharge/orders/${encodeURIComponent(orderId)}`, { headers: headersJson() });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw apiErrorFrom(res.status, data, `查询充值订单失败（${res.status}）`);
+  const order = parseRechargeOrder(data.order);
+  if (!order) throw new ApiError("充值订单响应不完整", { status: res.status });
+  return order;
 }
 
 export async function fetchUserSkillFavoriteKeywords(): Promise<string[] | undefined> {

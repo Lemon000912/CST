@@ -515,6 +515,33 @@ export async function initDatabase() {
         )
       `);
       await billingClient.query(`
+        CREATE TABLE IF NOT EXISTS point_recharge_orders (
+          id TEXT PRIMARY KEY,
+          order_no TEXT NOT NULL UNIQUE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          package_id TEXT NOT NULL,
+          provider TEXT NOT NULL CHECK (provider IN ('alipay', 'wechat')),
+          idempotency_key TEXT NOT NULL,
+          amount_fen BIGINT NOT NULL CHECK (amount_fen > 0),
+          point_units BIGINT NOT NULL CHECK (point_units > 0),
+          status TEXT NOT NULL CHECK (status IN ('creating', 'pending', 'paid', 'failed', 'closed')),
+          code_url TEXT,
+          provider_order_id TEXT,
+          provider_transaction_id TEXT,
+          failure_code TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          paid_at BIGINT,
+          UNIQUE(user_id, idempotency_key),
+          UNIQUE(provider, provider_transaction_id)
+        )
+      `);
+      await billingClient.query(`
+        CREATE INDEX IF NOT EXISTS point_recharge_orders_user_created
+        ON point_recharge_orders(user_id, created_at DESC)
+      `);
+      await billingClient.query(`
         CREATE OR REPLACE FUNCTION reject_point_ledger_mutation() RETURNS trigger AS $$
         BEGIN
           RAISE EXCEPTION 'point_ledger is immutable';
@@ -685,6 +712,29 @@ export async function initDatabase() {
         created_at INTEGER NOT NULL,
         UNIQUE(user_id, idempotency_key)
       );
+      CREATE TABLE IF NOT EXISTS point_recharge_orders (
+        id TEXT PRIMARY KEY,
+        order_no TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        package_id TEXT NOT NULL,
+        provider TEXT NOT NULL CHECK (provider IN ('alipay', 'wechat')),
+        idempotency_key TEXT NOT NULL,
+        amount_fen INTEGER NOT NULL CHECK (amount_fen > 0),
+        point_units INTEGER NOT NULL CHECK (point_units > 0),
+        status TEXT NOT NULL CHECK (status IN ('creating', 'pending', 'paid', 'failed', 'closed')),
+        code_url TEXT,
+        provider_order_id TEXT,
+        provider_transaction_id TEXT,
+        failure_code TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        paid_at INTEGER,
+        UNIQUE(user_id, idempotency_key),
+        UNIQUE(provider, provider_transaction_id)
+      );
+      CREATE INDEX IF NOT EXISTS point_recharge_orders_user_created
+      ON point_recharge_orders(user_id, created_at DESC);
       CREATE TRIGGER IF NOT EXISTS point_ledger_no_update
       BEFORE UPDATE ON point_ledger
       BEGIN SELECT RAISE(ABORT, 'point_ledger is immutable'); END;
