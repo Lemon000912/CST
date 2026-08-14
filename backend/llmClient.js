@@ -368,9 +368,21 @@ export async function generateText(provider, request = {}) {
       errorBody: "",
     };
   }
+  if (request.signal?.aborted) {
+    return {
+      ok: false,
+      status: 0,
+      text: "",
+      error: "aborted",
+      errorBody: "",
+      streamed: false,
+      streamFallbackRecommended: false,
+    };
+  }
 
   if (typeof request.onTextDelta === "function") {
     const streamed = await generateTextStreamingResult(provider, request);
+    if (request.signal?.aborted) return streamed;
     if (streamed.ok || !streamed.streamFallbackRecommended) return streamed;
     // Some OpenAI-compatible gateways support SSE but reject stream_options.
     if (provider.protocol !== LLM_PROTOCOLS.GEMINI && !request.omitStreamOptions) {

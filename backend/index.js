@@ -229,6 +229,38 @@ function searchBillingDetails(payload) {
   };
 }
 
+function limitSearchPayloadToBalance(payload, balanceUnits) {
+  const budgetUnits = Math.max(0, Number.isSafeInteger(balanceUnits) ? balanceUnits : 0);
+  let remainingUnits = budgetUnits;
+  let limited = false;
+  const next = { ...payload };
+
+  const synthesisPoints = Array.from(String(payload?.synthesis ?? ""));
+  if (synthesisPoints.length > remainingUnits) limited = true;
+  next.synthesis = synthesisPoints.slice(0, remainingUnits).join("") || null;
+  remainingUnits -= countUnicodeCodePoints(next.synthesis);
+
+  const deepPaperUnits = searchBillingDetails({ deepMine: payload?.deepMine }).deepPaperUnits;
+  if (deepPaperUnits > remainingUnits) {
+    if (deepPaperUnits > 0) limited = true;
+    next.deepMine = null;
+    next.deepSynthesis = null;
+  } else {
+    remainingUnits -= deepPaperUnits;
+    const deepPoints = Array.from(String(payload?.deepSynthesis ?? ""));
+    if (deepPoints.length > remainingUnits) limited = true;
+    next.deepSynthesis = deepPoints.slice(0, remainingUnits).join("") || null;
+    remainingUnits -= countUnicodeCodePoints(next.deepSynthesis);
+  }
+
+  return {
+    payload: next,
+    limited,
+    pointsExhausted: budgetUnits > 0 && remainingUnits === 0,
+    remainingUnits,
+  };
+}
+
 function getStoredSearchPapers(parentOperation) {
   if (parentOperation?.operationType !== "search" || parentOperation?.status !== "completed") {
     throw new ApiRouteError(409, "invalid-parent-operation", "Parent operation must be a completed search");
@@ -1301,6 +1333,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   // ── 计费开始（在推 SSE 头之前，失败可返回标准 JSON 错误） ──
   let activeOperation = null;
   let begun;
+  let startingBalanceUnits = 0;
   const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
   const endPapersReady = requestTrace.start("milestone.papers_ready");
   const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
@@ -1329,6 +1362,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       idempotencyKey,
       requestHash,
     });
+    if (!begun.replayed) {
+      startingBalanceUnits = begun.balance?.balanceUnits
+        ?? (await getPointBalance(req.auth.userId)).balanceUnits;
+    }
     endBillingBegin({ ok: true, replayed: Boolean(begun.replayed) });
   } catch (error) {
     endBillingBegin({ ok: false, error: String(error?.message || error).slice(0, 160) });
@@ -1491,7 +1528,18 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     let synthesisModels = undefined;
     let webAnswerDrafts = undefined;
     let llmUsage = undefined;
-    const synthesisStream = createSynthesisStreamEmitter(send);
+    let pointsExhausted = false;
+    const synthesisAbortController = new AbortController();
+    const markPointsExhausted = () => {
+      if (pointsExhausted) return;
+      pointsExhausted = true;
+      synthesisAbortController.abort();
+      send("points_exhausted", { message: "积分已用完，请充值后继续回答。" });
+    };
+    const synthesisStream = createSynthesisStreamEmitter(send, {
+      maxVisibleCodePoints: startingBalanceUnits,
+      onLimitReached: markPointsExhausted,
+    });
 
     // 2a. 无综述 / 无文献：跳过综述，直接进入结算
     const skipSynthesis = !includeSynthesis || !result.papers.length;
@@ -1518,6 +1566,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
               outputAvoidanceHint: outputAvoidance || undefined,
               onTextDelta: (delta) => pushSynthesisDelta(synthesisStream, delta),
               performanceTrace: requestTrace,
+              signal: synthesisAbortController.signal,
             }),
             (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }),
           );
@@ -1549,6 +1598,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           outputAvoidanceHint: outputAvoidance || undefined,
           onTextDelta: (delta) => pushSynthesisDelta(synthesisStream, delta),
           performanceTrace: requestTrace,
+          signal: synthesisAbortController.signal,
         };
         const syn = await traceAsync(
           requestTrace,
@@ -1570,6 +1620,13 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 
       // 流中隐藏结构化 JSON；最终仍以原有解析、校验后的正文为准。
       synthesisStream.finish(fullSynthesis);
+      fullSynthesis = synthesisStream.getVisibleText();
+      if (pointsExhausted) {
+        plan = null;
+        planNote = "synth_plan:skipped_points_exhausted";
+        webAnswerDrafts = undefined;
+        synthesisNote = "synth:points_exhausted";
+      }
       if (!firstSynthesisTokenRecorded && fullSynthesis) {
         firstSynthesisTokenRecorded = true;
         endFirstSynthesisToken({ ok: true, streamed: false });
@@ -1582,7 +1639,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     let deepSynthesisNote = null;
     const dm = req.body?.deepMine;
     const deepEnabled = dm === true || (dm && typeof dm === "object" && dm.enabled === true);
-    if (deepEnabled && !patentsOnly && result.papers.length > 0) {
+    if (deepEnabled && !pointsExhausted && !patentsOnly && result.papers.length > 0) {
       try {
         if (typeof req.socket?.setTimeout === "function") req.socket.setTimeout(920_000);
         const { runDeepMinePipeline, synthesizeDeepFromMine } = await import("./deepPaperMine.js");
@@ -1632,12 +1689,21 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }));
 
     // ── 阶段 5：结算 ──
-    const billingPayload = {
+    const rawBillingPayload = {
       papers: result.papers,
       synthesis: fullSynthesis || null,
       deepMine,
       deepSynthesis,
     };
+    const budgeted = limitSearchPayloadToBalance(rawBillingPayload, startingBalanceUnits);
+    const billingPayload = budgeted.payload;
+    fullSynthesis = billingPayload.synthesis || "";
+    deepMine = billingPayload.deepMine;
+    deepSynthesis = billingPayload.deepSynthesis;
+    if (budgeted.pointsExhausted && !pointsExhausted) markPointsExhausted();
+    if (budgeted.limited && !budgeted.pointsExhausted && rawBillingPayload.deepMine && !deepMine) {
+      deepSynthesisNote = "deep_synth:skipped_insufficient_points";
+    }
     const billingDetails = searchBillingDetails(billingPayload);
     const costUnits = calculateCostUnits({
       characterCount: billingDetails.characterCount,
@@ -1659,6 +1725,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         synthesisPlan: plan,
         deepSynthesisNote,
         synthesisNote,
+        pointsExhausted,
         synthesisModels,
         webAnswerDrafts,
         llmUsage,
@@ -1673,7 +1740,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       synthesis: fullSynthesis || null,
       synthesisNote: skipSynthesis
         ? (includeSynthesis ? "synth:no-papers" : "synth:skipped")
-        : (synthesisNote ?? (fullSynthesis ? "synth:stream_ok" : "synth:stream_failed")),
+        : (pointsExhausted ? "synth:points_exhausted" : (synthesisNote ?? (fullSynthesis ? "synth:stream_ok" : "synth:stream_failed"))),
+      pointsExhausted,
+      billingMessage: pointsExhausted ? "积分已用完，请充值后继续回答。" : undefined,
       synthesisPlan: plan,
       synthesisModels,
       webAnswerDrafts,
@@ -1728,12 +1797,22 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       });
     }
     activeOperation = begun.operation;
+    const startingBalanceUnits = begun.balance?.balanceUnits
+      ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     res.locals.searchBillingOperation = activeOperation;
     const originalJson = res.json.bind(res);
     res.json = async (body) => {
       if (res.statusCode >= 200 && res.statusCode < 300 && Array.isArray(body?.papers)) {
         try {
-          const billingDetails = searchBillingDetails(body);
+          const budgeted = limitSearchPayloadToBalance(body, startingBalanceUnits);
+          const responseBody = {
+            ...body,
+            ...budgeted.payload,
+            pointsExhausted: budgeted.pointsExhausted,
+            billingMessage: budgeted.pointsExhausted ? "积分已用完，请充值后继续回答。" : undefined,
+            ...(budgeted.limited && budgeted.pointsExhausted ? { synthesisPlan: null, webAnswerDrafts: undefined } : {}),
+          };
+          const billingDetails = searchBillingDetails(responseBody);
           const costUnits = calculateCostUnits({
             characterCount: billingDetails.characterCount,
             pdfCount: billingDetails.deepPaperCount,
@@ -1744,10 +1823,10 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             leaseToken: activeOperation.leaseToken,
             costUnits,
             billingDetails,
-            result: body,
+            result: responseBody,
           });
           return originalJson({
-            ...body,
+            ...responseBody,
             parentOperationId: activeOperation.id,
             billingReceipt: completed.receipt,
             replayed: false,

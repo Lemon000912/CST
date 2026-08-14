@@ -1726,6 +1726,11 @@ function AssistantBlock({
             </div>
           </details>
         ) : null}
+        {!msg.error && msg.meta?.pointsExhausted ? (
+          <div className="not-prose mt-3 rounded-lg border border-amber-500/45 bg-amber-500/10 px-3 py-2 text-[12px] font-medium leading-relaxed text-amber-800 dark:text-amber-200">
+            {msg.meta.billingMessage || "积分已用完，本次回答已停止。请充值后继续回答。"}
+          </div>
+        ) : null}
         {!msg.error ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
         {!msg.error &&
         msg.papers &&
@@ -2687,7 +2692,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       return;
     }
     if (pointBalance && pointBalance.balance <= 0) {
-      patchMessageMeta(msg.id, { paperChartError: `积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），暂不支持充值。` });
+      patchMessageMeta(msg.id, { paperChartError: `积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），请充值后继续使用。` });
       return;
     }
     const idempotencyKey = createIdempotencyKey();
@@ -2895,7 +2900,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       return;
     }
     if (pointBalance && pointBalance.balance <= 0) {
-      window.alert(`积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），暂不支持充值。`);
+      window.alert(`积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），请充值后继续使用。`);
       return;
     }
     const busyKey = `${msg.id}:${paperRowKey(p)}`;
@@ -3091,6 +3096,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               synthesisNote: "synth:replaced",
             },
           });
+        } else if (event.type === "points_exhausted") {
+          upsertAssistant({
+            meta: {
+              channel: channelAtSend,
+              sort: sortAtSend,
+              synthesis: synthesisSoFar,
+              synthesisNote: "synth:points_exhausted",
+              pointsExhausted: true,
+              billingMessage: event.message,
+            },
+          });
         } else if (event.type === "done") {
           if (event.billingReceipt) applyReceipt(event.billingReceipt);
           upsertAssistant({
@@ -3099,6 +3115,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               sort: sortAtSend,
               synthesis: (event.synthesis ?? synthesisSoFar) || null,
               synthesisNote: event.synthesisNote ?? null,
+              pointsExhausted: event.pointsExhausted ?? false,
+              billingMessage: event.billingMessage,
               synthesisPlan: event.synthesisPlan ?? null,
               synthesisPlanNote: event.synthesisPlanNote ?? null,
               synthesisModels: event.synthesisModels ?? null,
@@ -3720,7 +3738,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   disabled={busy || uploadBusy || exportPickMode || billingDisabled}
                   placeholder={
                     billingDisabled
-                      ? `积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），暂不支持充值`
+                      ? `积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用`
                       : exportPickMode
                         ? "请先完成或取消上方的导出消息选择…"
                         : uploadBusy
@@ -3771,7 +3789,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件
               {pricing ? ` · 1 积分=${pricing.unitsPerPoint} units` : ""}
               {willAttachConvoContext ? " · 含本对话上文" : ""}
-              {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），暂不支持充值` : ""}
+              {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
           </div>
         </div>

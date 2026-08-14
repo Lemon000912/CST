@@ -308,6 +308,7 @@ async function runWebDirectKnowledgeAnswer(args) {
       "synthesis.web.direct",
       { slot: args.slot || "direct", model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        signal: args.signal,
         timeoutMs: synthesisTimeoutMs(),
         temperature: 0.18,
         maxTokens: webAnswerMaxTokens(true),
@@ -384,6 +385,7 @@ async function runSingleWebAnswer(args) {
         `synthesis.web.${String(args.slot || "unknown").replace(/[^a-z0-9_-]/gi, "_")}.attempt_${attempt}`,
         { model, lite: Boolean(args.lite), streaming: typeof args.onTextDelta === "function" },
         () => generateText(provider, {
+          signal: args.signal,
           timeoutMs: synthesisTimeoutMs(),
           temperature: 0.12,
           maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
@@ -402,6 +404,9 @@ async function runSingleWebAnswer(args) {
       );
       usage = addTokenUsage(usage, result.usage);
       if (!result.ok) {
+        if (args.signal?.aborted) {
+          return { markdown: null, note: "web_answer:aborted", plan: null, planNote: null, usage };
+        }
         const upstreamStatus = safeUpstreamErrorStatus(result);
         const networkCode = safeNetworkErrorCode(result);
         lastNote = `web_answer:${result.error}${upstreamStatus ? `:${upstreamStatus}` : networkCode ? `:${networkCode}` : ""}`;
@@ -438,6 +443,7 @@ async function runSingleWebAnswer(args) {
       };
     } catch (e) {
       lastNote = `web_answer_err:${String(e?.message || e).slice(0, 80)}`;
+      if (args.signal?.aborted) break;
       if (attempt < maxAttempts) {
         await sleepMs(800 * attempt);
         continue;
@@ -487,6 +493,7 @@ async function arbitrateTwoWebAnswers(args) {
       "synthesis.web.C_arbitration",
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        signal: args.signal,
         timeoutMs: synthesisTimeoutMs(),
         temperature: 0.1,
         maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
@@ -610,6 +617,7 @@ export async function synthesizeWebTriAnswer(p) {
       slot: "direct",
       onTextDelta: p.onTextDelta,
       performanceTrace: p.performanceTrace,
+      signal: p.signal,
     });
     if (dr.markdown) {
       return {
@@ -641,6 +649,7 @@ export async function synthesizeWebTriAnswer(p) {
         slot: "direct",
         onTextDelta: p.onTextDelta,
         performanceTrace: p.performanceTrace,
+        signal: p.signal,
       });
       if (dr.markdown) {
         return {
@@ -696,6 +705,7 @@ export async function synthesizeWebTriAnswer(p) {
       filteredOut: picked.filteredOut,
       personaSkill: p.personaSkill,
       outputAvoidanceHint: p.outputAvoidanceHint,
+      signal: p.signal,
     },
     papers,
     userQuery,
@@ -713,6 +723,7 @@ export async function synthesizeWebTriAnswer(p) {
     personaSkill: p.personaSkill,
     outputAvoidanceHint: p.outputAvoidanceHint,
     performanceTrace: p.performanceTrace,
+    signal: p.signal,
   };
   const sourceNote = `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`;
 
@@ -848,6 +859,7 @@ export async function synthesizeWebTriAnswer(p) {
           personaSkill: p.personaSkill,
           outputAvoidanceHint: p.outputAvoidanceHint,
           onTextDelta: previewEmitted ? undefined : p.onTextDelta,
+          signal: p.signal,
         })
       : unavailableWebAnswer("web_lite:provider_not_configured");
     if (lite.markdown) {
@@ -900,6 +912,7 @@ export async function synthesizeWebTriAnswer(p) {
         performanceTrace: p.performanceTrace,
         // If preview yielded nothing, preserve the regular final-C streaming path.
         onTextDelta: previewEmitted ? undefined : p.onTextDelta,
+        signal: p.signal,
       })
     : unavailableWebAnswer("web_arbitration:provider_not_configured");
 

@@ -37,3 +37,27 @@ test("synthesis stream sends an atomic result when the provider did not stream",
   stream.finish("回退后的完整正文");
   assert.deepEqual(events, [{ event: "synthesis_token", data: { token: "回退后的完整正文" } }]);
 });
+
+test("synthesis stream stops exactly at the affordable Unicode character limit", () => {
+  const events = [];
+  let limitReached = 0;
+  const stream = createSynthesisStreamEmitter(
+    (event, data) => events.push({ event, data }),
+    {
+      maxVisibleCodePoints: 4,
+      onLimitReached: () => { limitReached += 1; },
+    },
+  );
+
+  stream.push("A😀中文B以及不会输出的后文");
+  stream.finish("A😀中文B以及不会输出的终稿");
+
+  const shown = events
+    .filter((item) => item.event === "synthesis_token")
+    .map((item) => item.data.token)
+    .join("");
+  assert.equal(shown, "A😀中文");
+  assert.equal(Array.from(stream.getVisibleText()).length, 4);
+  assert.equal(stream.isLimitReached(), true);
+  assert.equal(limitReached, 1);
+});

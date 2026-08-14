@@ -321,7 +321,8 @@ export type StreamSearchEvent =
   | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string }
   | { type: "synthesis_token"; token: string }
   | { type: "synthesis_replace"; synthesis: string }
-  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
+  | { type: "points_exhausted"; message: string }
+  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; pointsExhausted?: boolean; billingMessage?: string; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
   | { type: "error"; error: string };
 
 /**
@@ -428,6 +429,8 @@ export async function* searchPapersV1Stream(
               yield { type: "synthesis_token", token: String(obj.token ?? "") };
             } else if (eventName === "synthesis_replace") {
               yield { type: "synthesis_replace", synthesis: String(obj.synthesis ?? "") };
+            } else if (eventName === "points_exhausted") {
+              yield { type: "points_exhausted", message: String(obj.message ?? "积分已用完，请充值后继续回答。") };
             } else if (eventName === "done") {
               const doneEvent = obj as Omit<StreamSearchEvent & { type: "done" }, "type">;
               const billingReceipt = parseBillingReceipt(obj.billingReceipt ?? obj.billing) ?? null;

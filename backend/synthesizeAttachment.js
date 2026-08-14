@@ -101,6 +101,7 @@ async function runAttachmentDraft(args) {
       model: args.provider?.model,
       streaming: typeof args.onTextDelta === "function",
     }, () => generateText(args.provider, {
+      signal: args.signal,
       timeoutMs: ms,
       temperature: 0.12,
       maxTokens: Math.min(8000, Math.max(4000, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
@@ -134,6 +135,7 @@ async function mergeAttachmentDrafts(args) {
       model: args.provider?.model,
       streaming: typeof args.onTextDelta === "function",
     }, () => generateText(args.provider, {
+      signal: args.signal,
       timeoutMs: ms,
       temperature: 0.1,
       maxTokens: Math.min(8000, Math.max(4500, Number(process.env.ATTACHMENT_SYNTH_MAX_TOKENS) || 6500)),
@@ -195,6 +197,7 @@ export async function synthesizeFromAttachmentContext(p) {
     personaSkill: p.personaSkill,
     outputAvoidanceHint: p.outputAvoidanceHint,
     performanceTrace: p.performanceTrace,
+    signal: p.signal,
   };
   const chars = attachmentContext.length;
 
@@ -220,6 +223,7 @@ export async function synthesizeFromAttachmentContext(p) {
         outputAvoidanceHint: p.outputAvoidanceHint,
         onTextDelta: p.onTextDelta,
         performanceTrace: p.performanceTrace,
+        signal: p.signal,
       });
       if (merged.markdown) {
         return {

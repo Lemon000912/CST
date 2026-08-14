@@ -230,6 +230,7 @@ async function runSingleSynthesisModel(args) {
       `synthesis.literature.${String(args.provider?.slot || "single").replace(/[^a-z0-9_-]/gi, "_")}`,
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        signal: args.signal,
         timeoutMs: ms,
         temperature: 0.3,
         maxTokens: 6000,
@@ -316,6 +317,7 @@ async function mergeConsensusMarkdown(args) {
       arbitrator ? "synthesis.literature.C_arbitration" : "synthesis.literature.consensus",
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        signal: args.signal,
         timeoutMs: ms,
         temperature: arbitrator ? 0.12 : 0.15,
         maxTokens: arbitrator ? 8500 : 2200,
@@ -399,6 +401,7 @@ export async function synthesizeFromPapers(p) {
       outputAvoidanceHint: avoidHint || undefined,
       conversationContext: convoHint || undefined,
       performanceTrace: p.performanceTrace,
+      signal: p.signal,
     };
     const [ra, rb] = await Promise.all([
       runSingleSynthesisModel({ ...base, provider: triCfg.A }),
@@ -465,6 +468,7 @@ export async function synthesizeFromPapers(p) {
       excerptPatentCount,
       onTextDelta: p.onTextDelta,
       performanceTrace: p.performanceTrace,
+      signal: p.signal,
     });
 
     if (!merged.markdown) {
@@ -517,6 +521,7 @@ export async function synthesizeFromPapers(p) {
     outputAvoidanceHint: avoidHint || undefined,
     conversationContext: convoHint || undefined,
     performanceTrace: p.performanceTrace,
+    signal: p.signal,
   };
 
   if (!modelB) {
@@ -581,6 +586,7 @@ export async function synthesizeFromPapers(p) {
     excerptPatentCount,
     onTextDelta: p.onTextDelta,
     performanceTrace: p.performanceTrace,
+    signal: p.signal,
   });
 
   if (!merged.markdown) {

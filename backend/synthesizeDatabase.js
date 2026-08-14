@@ -60,6 +60,7 @@ export async function synthesizeDatabaseCombined(p) {
         personaSkill: p.personaSkill,
         outputAvoidanceHint: p.outputAvoidanceHint,
         performanceTrace: p.performanceTrace,
+        signal: p.signal,
       })
     : Promise.resolve({
         markdown: null,

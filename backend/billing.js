@@ -461,6 +461,18 @@ export async function completeBillableOperation({
       const wallet = await readWallet(tx, normalizedUserId, true);
       if (!wallet) throw new BillingError("wallet-not-found", "Point wallet was not found", 404);
       const previousBalanceUnits = normalizeInteger(wallet.balance_units, "wallet balance");
+      if (costUnits > previousBalanceUnits) {
+        throw new BillingError(
+          "insufficient-points",
+          "Point balance is insufficient to complete this operation",
+          402,
+          {
+            requiredUnits: costUnits,
+            balanceUnits: previousBalanceUnits,
+            balance: formatPointUnits(previousBalanceUnits),
+          },
+        );
+      }
       const balanceUnits = previousBalanceUnits - costUnits;
       if (!Number.isSafeInteger(balanceUnits)) {
         throw new BillingError("balance-overflow", "Point balance exceeds safe integer range", 500);

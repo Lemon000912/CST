@@ -19,7 +19,7 @@
 | 搜索回答文字 | 0.05 积分/Unicode 字符 | 仅 synthesis + deepSynthesis |
 | 图表数据点 | 0.1 积分/有效逻辑点 | 仅 LLM 提取成功的点；fallback 合成点免费 |
 | PDF 文件 | 1 积分/文件 | 普通 PDF：服务端成功获取并验证；深度 PDF：MinerU 解析成功 |
-| 余额耗尽 | 允许当次操作扣成负数 | 余额 ≤ 0 后禁止发起新操作 |
+| 余额耗尽 | 流式回答在余额归零时立即停止并提示充值 | 任何操作均不得将余额扣成负数 |
 
 ---
 
@@ -40,7 +40,7 @@ PDF     = 20 units → 1.00 积分/文件
 
 **核心 API：**
 - `beginBillableOperation` — 检查余额 > 0，同用户只允许一个 processing 操作（数据库唯一部分索引），同幂等键同请求哈希直接重放，不同请求返回 409
-- `completeBillableOperation` — 原子写：更新钱包余额 + 追加不可变 ledger + 保存完整响应和收据；允许余额扣成负数
+- `completeBillableOperation` — 原子写：更新钱包余额 + 追加不可变 ledger + 保存完整响应和收据；余额不足时拒绝超额扣费
 - `failBillableOperation` — 结束操作状态，不扣费
 - `getPointBalance` / `getBillableOperation` — 只读查询
 - `countUnicodeCodePoints` — 按 Unicode code point 计数（`Array.from().length`），正确处理中文、emoji、代理对
@@ -223,7 +223,7 @@ BillingReceipt  // operationId, costUnits, cost, balanceUnits, balance, billingD
 
 **余额保护：**
 - `billingDisabled = pointBalance.balance <= 0`
-- 余额 ≤ 0 时：发送按钮禁用、图表禁用、PDF 禁用，显示"积分已用完，暂不支持充值"
+- 余额 ≤ 0 时：发送按钮禁用、图表禁用、PDF 禁用，显示“积分已用完，请充值后继续使用”
 
 **自动图表（搜索后）：**
 
