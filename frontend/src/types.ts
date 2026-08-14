@@ -158,6 +158,9 @@ export type SearchResultMeta = {
   synthesis?: string | null;
   /** 如 synth:no-llm-key、synth:ok，便于排查未生成原因 */
   synthesisNote?: string | null;
+  /** 回答因积分耗尽而被服务端截断。 */
+  pointsExhausted?: boolean;
+  billingMessage?: string;
   /** 从模型输出解析出的可执行方案（JSON 对象），供其它程序直接读接口字段，无需解析 Markdown */
   synthesisPlan?: Record<string, unknown> | null;
   /** 未解析出 plan 时的原因，如 synth_plan:no_json_block、synth_plan:parse_error */
