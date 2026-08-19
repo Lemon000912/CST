@@ -70,9 +70,18 @@ function parsePointBalance(value: unknown): PointBalance | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
   const unitsPerPoint = finiteNumber(raw.unitsPerPoint, 20) || 20;
-  const balanceUnits = finiteNumber(raw.balanceUnits ?? raw.availableUnits, finiteNumber(raw.balance) * unitsPerPoint);
+  const rawBalanceUnits = raw.balanceUnits ?? raw.availableUnits;
+  const rawBalance = raw.balance;
+  const hasBalanceUnits = rawBalanceUnits != null && String(rawBalanceUnits).trim() !== "";
+  const hasBalance = rawBalance != null && String(rawBalance).trim() !== "";
+  // Error details can be an arbitrary object. Missing balance fields must not
+  // be interpreted as an explicit zero balance.
+  if (!hasBalanceUnits && !hasBalance) return undefined;
+  const balanceUnits = hasBalanceUnits
+    ? finiteNumber(rawBalanceUnits)
+    : Math.round(finiteNumber(rawBalance) * unitsPerPoint);
   const availableUnits = finiteNumber(raw.availableUnits, balanceUnits);
-  const balance = finiteNumber(raw.balance, balanceUnits / unitsPerPoint);
+  const balance = hasBalance ? finiteNumber(rawBalance) : balanceUnits / unitsPerPoint;
   return {
     userId: raw.userId != null ? String(raw.userId) : undefined,
     balanceUnits,
@@ -99,7 +108,16 @@ function parseBillingReceipt(value: unknown): BillingReceipt | undefined {
   const raw = value as Record<string, unknown>;
   const operationId = raw.operationId ?? raw.operation_id;
   if (operationId == null || String(operationId).trim() === "") return undefined;
-  const balanceUnits = finiteNumber(raw.balanceUnits ?? raw.availableUnits);
+  const rawBalanceUnits = raw.balanceUnits ?? raw.availableUnits;
+  const rawBalance = raw.balance;
+  const hasBalanceUnits = rawBalanceUnits != null && String(rawBalanceUnits).trim() !== "";
+  const hasBalance = rawBalance != null && String(rawBalance).trim() !== "";
+  // A PDF response may include an operation id without balance headers. Do not
+  // parse that missing balance as zero and temporarily overwrite the UI.
+  if (!hasBalanceUnits && !hasBalance) return undefined;
+  const balanceUnits = hasBalanceUnits
+    ? finiteNumber(rawBalanceUnits)
+    : Math.round(finiteNumber(rawBalance) * 20);
   const costUnits = finiteNumber(raw.costUnits ?? raw.units);
   return {
     ...raw,
@@ -107,7 +125,7 @@ function parseBillingReceipt(value: unknown): BillingReceipt | undefined {
     costUnits,
     cost: finiteNumber(raw.cost, costUnits / 20),
     balanceUnits,
-    balance: finiteNumber(raw.balance, balanceUnits / 20),
+    balance: hasBalance ? finiteNumber(rawBalance) : balanceUnits / 20,
     billingDetails:
       raw.billingDetails && typeof raw.billingDetails === "object" && !Array.isArray(raw.billingDetails)
         ? (raw.billingDetails as BillingReceipt["billingDetails"])
@@ -401,7 +419,7 @@ export async function searchPapersV1(
 // 事件序列：papers → synthesis_token（多次）→ done | error
 
 export type StreamSearchEvent =
-  | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string }
+  | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string; parentOperationId?: string }
   | { type: "synthesis_token"; token: string }
   | { type: "synthesis_replace"; synthesis: string }
   | { type: "points_exhausted"; message: string }
@@ -678,12 +696,15 @@ function receiptFromHeaders(headers: Headers): BillingReceipt | undefined {
   }
   const operationId = headers.get("Billing-Operation-Id") ?? headers.get("X-Billing-Operation-Id");
   if (!operationId) return undefined;
+  const balanceUnits = headers.get("Billing-Balance-Units") ?? headers.get("X-Billing-Balance-Units");
+  const balance = headers.get("Billing-Balance") ?? headers.get("X-Billing-Balance");
+  if (!balanceUnits?.trim() && !balance?.trim()) return undefined;
   return parseBillingReceipt({
     operationId,
     costUnits: headers.get("Billing-Cost-Units") ?? headers.get("X-Billing-Cost-Units"),
     cost: headers.get("Billing-Cost") ?? headers.get("X-Billing-Cost"),
-    balanceUnits: headers.get("Billing-Balance-Units") ?? headers.get("X-Billing-Balance-Units"),
-    balance: headers.get("Billing-Balance") ?? headers.get("X-Billing-Balance"),
+    balanceUnits,
+    balance,
     billingDetails: { pdfCount: 1 },
   });
 }
@@ -719,7 +740,7 @@ export async function fulfillPdf(opts: {
     const data = (await res.json()) as Record<string, unknown>;
     const encoded = data.pdfBase64 ?? data.base64 ?? data.data;
     if (typeof encoded !== "string" || !encoded) {
-      throw new ApiError("PDF 响应未包含文件", { status: res.status });
+      throw apiErrorFrom(res.status, data, "PDF 响应未包含文件");
     }
     const bytes = Uint8Array.from(atob(encoded.replace(/^data:application\/pdf;base64,/i, "")), (c) => c.charCodeAt(0));
     return {

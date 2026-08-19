@@ -154,6 +154,7 @@ function dedupeKey(p) {
 }
 
 function scoreSource(x) {
+  if (String(x?.pdfUrl ?? "").startsWith("db-pdf:")) return 100;
   if (x.source === "local") return 3;
   /** 爱思唯尔 Scopus：合并去重时优先保留该来源的题录与摘要 */
   if (x.source === "scopus") return 10;
@@ -309,24 +310,42 @@ function dropZeroRelevanceByTokens(papers, rawQuery, effectiveQuery, preferenceK
   return withHits.map((x) => x.p);
 }
 
-function mergeDedupe(lists) {
+export function mergeDedupe(lists) {
   const map = new Map();
+  const exactTitleKeys = new Map();
   for (const list of lists) {
     for (const p of list) {
-      const k = dedupeKey(p);
+      const normalizedTitle = normTitle(p.title);
+      const titleAlias = normalizedTitle.length >= 32 ? exactTitleKeys.get(normalizedTitle) : null;
+      const k = titleAlias || dedupeKey(p);
       const prev = map.get(k);
       if (!prev) {
         map.set(k, p);
+        if (normalizedTitle.length >= 32) exactTitleKeys.set(normalizedTitle, k);
         continue;
       }
       if (scoreSource(p) >= scoreSource(prev)) {
-        map.set(k, {
+        const merged = {
           ...prev,
           ...p,
           authors: p.authors?.length ? p.authors : prev.authors,
           summary: (p.summary || p.abstract || "").length >= (prev.summary || "").length ? p.summary || p.abstract : prev.summary,
-        });
+        };
+        const databasePdfUrl = [prev.pdfUrl, p.pdfUrl]
+          .map((value) => String(value ?? "").trim())
+          .find((value) => value.startsWith("db-pdf:"));
+        if (databasePdfUrl) {
+          const databasePaper = [prev, p].find(
+            (candidate) => String(candidate?.pdfUrl ?? "").trim() === databasePdfUrl,
+          );
+          merged.pdfUrl = databasePdfUrl;
+          merged.paper_id = databasePaper?.paper_id ?? merged.paper_id;
+          merged.id = databasePaper?.id ?? databasePaper?.paper_id ?? merged.id;
+          merged.source = databasePaper?.source ?? "local";
+        }
+        map.set(k, merged);
       }
+      if (normalizedTitle.length >= 32) exactTitleKeys.set(normalizedTitle, k);
     }
   }
   return [...map.values()];

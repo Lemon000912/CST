@@ -31,6 +31,7 @@ import {
   insertFeedback,
   getSqliteDb,
   pgPool,
+  getPaperPdfFile,
 } from "./db.js";
 import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
@@ -98,6 +99,7 @@ import {
   verifyWechatNotification,
 } from "./rechargeProviders.js";
 import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
+import { databasePdfArtifact, databasePdfPaperId } from "./databasePdf.js";
 import {
   saveUserSkill,
   getUserSkill,
@@ -275,8 +277,16 @@ function limitSearchPayloadToBalance(payload, balanceUnits) {
 }
 
 function getStoredSearchPapers(parentOperation) {
-  if (parentOperation?.operationType !== "search" || parentOperation?.status !== "completed") {
-    throw new ApiRouteError(409, "invalid-parent-operation", "Parent operation must be a completed search");
+  if (parentOperation?.operationType !== "search") {
+    throw new ApiRouteError(409, "invalid-parent-operation", "Parent operation must be a search");
+  }
+  if (parentOperation?.status === "processing") {
+    const pendingPapers = searchPapersCache.get(String(parentOperation.id));
+    if (Array.isArray(pendingPapers)) return pendingPapers;
+    throw new ApiRouteError(409, "parent-result-pending", "Parent search result is not ready yet");
+  }
+  if (parentOperation?.status !== "completed") {
+    throw new ApiRouteError(409, "invalid-parent-operation", "Parent search must be processing or completed");
   }
   const papers = parentOperation?.result?.papers;
   if (!Array.isArray(papers)) {
@@ -309,6 +319,19 @@ function selectStoredPapers(parentPapers, body, maxCount = 22) {
 
 const pdfArtifactCache = new Map();
 const PDF_ARTIFACT_CACHE_MAX_ENTRIES = 8;
+const searchPapersCache = new Map();
+const SEARCH_PAPERS_CACHE_MAX_ENTRIES = 32;
+
+function cacheSearchPapers(operationId, papers) {
+  const key = String(operationId ?? "").trim();
+  if (!key || !Array.isArray(papers)) return;
+  searchPapersCache.delete(key);
+  searchPapersCache.set(key, papers);
+  while (searchPapersCache.size > SEARCH_PAPERS_CACHE_MAX_ENTRIES) {
+    searchPapersCache.delete(searchPapersCache.keys().next().value);
+  }
+}
+
 function cachePdfArtifact(operationId, artifact) {
   pdfArtifactCache.delete(operationId);
   pdfArtifactCache.set(operationId, artifact);
@@ -1284,7 +1307,12 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
 
     let artifact = pdfArtifactCache.get(activeOperation.id);
     if (!artifact) {
-      artifact = await fetchPdfSecurely(pdfUrl);
+      const databasePaperId = databasePdfPaperId(pdfUrl);
+      if (databasePaperId) {
+        artifact = databasePdfArtifact(await getPaperPdfFile(databasePaperId));
+      } else {
+        artifact = await fetchPdfSecurely(pdfUrl);
+      }
       cachePdfArtifact(activeOperation.id, artifact);
     }
 
@@ -1338,7 +1366,8 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
     }
 
     res.set(responseHeaders);
-    return res.send(artifact.buffer);
+    res.status(200);
+    return res.end(artifact.buffer);
   } catch (error) {
     await failOperationBestEffort(activeOperation, req.auth?.userId, error);
     return sendStructuredError(res, error, { message: "PDF fulfillment failed", code: "pdf-fulfillment-failed" });
@@ -1585,6 +1614,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     );
 
     // 立即推送文献结果，前端可先渲染
+    cacheSearchPapers(activeOperation.id, result.papers);
     send("papers", {
       papers: result.papers,
       effectiveQuery: result.effectiveQuery,
@@ -1598,6 +1628,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       latencySearch: Date.now() - t0,
       persona: personaId,
       personaLabel,
+      parentOperationId: activeOperation.id,
     });
     endPapersReady({ results: result.papers.length });
 
@@ -1814,6 +1845,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       },
     }), (value) => ({ charged: Boolean(value?.receipt) }));
     const billingReceipt = completed.receipt;
+    searchPapersCache.delete(activeOperation.id);
     const performanceTrace = requestTrace.snapshot();
     console.log("[perf-summary]", JSON.stringify(performanceTrace));
 
@@ -1842,6 +1874,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     res.end();
   } catch (e) {
     console.error("[v1/search/stream]", e?.message);
+    if (activeOperation?.id) searchPapersCache.delete(activeOperation.id);
     await failOperationBestEffort(activeOperation, req.auth?.userId, e);
     if (!res.writableEnded) {
       send("error", { error: e?.message || "检索失败" });

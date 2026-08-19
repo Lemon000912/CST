@@ -2467,6 +2467,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
     if (!receipt) return;
+    if (!Number.isFinite(receipt.balanceUnits) || !Number.isFinite(receipt.balance)) return;
     setPointBalance((prev) => ({
       userId: prev?.userId,
       balanceUnits: receipt.balanceUnits,
@@ -3138,6 +3139,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         idempotencyKey,
       });
       applyReceipt(result.receipt);
+      // PDF binary responses do not always carry billing headers. Re-read the
+      // authoritative server balance so the displayed points stay accurate.
+      try {
+        const latest = await fetchPointBalance();
+        setPointBalance(latest.billing);
+        setBalanceError(null);
+      } catch {
+        // Do not block an otherwise successful PDF; retain the current balance.
+      }
       if (result.receipt) {
         patchMessageMeta(msg.id, {
           pdfReceipts: [...(msg.meta?.pdfReceipts ?? []), result.receipt],
@@ -3154,7 +3164,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     } catch (e) {
       const message = e instanceof Error ? e.message : "PDF 获取失败";
       window.alert(message);
-      if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
+      if (e instanceof ApiError && e.balance) {
+        setPointBalance(e.balance);
+      } else {
+        // Failed PDF requests must not leave an error-derived balance in the UI.
+        try {
+          const latest = await fetchPointBalance();
+          setPointBalance(latest.billing);
+          setBalanceError(null);
+        } catch {
+          // Preserve the balance already displayed if reconciliation also fails.
+        }
+      }
     } finally {
       setPdfBusyKey(null);
     }
@@ -3295,6 +3316,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               synthesisPlan: null,
               persona: event.persona,
               personaLabel: event.personaLabel,
+              parentOperationId: event.parentOperationId,
             },
           });
         } else if (event.type === "synthesis_token") {

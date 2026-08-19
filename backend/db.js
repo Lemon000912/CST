@@ -464,6 +464,18 @@ export async function initDatabase() {
           created_at BIGINT NOT NULL
         )
       `);
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS paper_pdf_files (
+          paper_id TEXT PRIMARY KEY,
+          filename TEXT NOT NULL,
+          content_type TEXT NOT NULL DEFAULT 'application/pdf',
+          byte_length BIGINT NOT NULL,
+          sha256 TEXT NOT NULL,
+          pdf_data BYTEA NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
       billingClient = await pgPool.connect();
       await billingClient.query("BEGIN");
       await billingClient.query(`
@@ -897,6 +909,29 @@ export async function createUserRecord(id, username, passwordHash, email = null,
   });
 }
 
+/** Development-only helper used by the seeded test administrator. */
+export async function setDevelopmentPointBalance(userId, balanceUnits) {
+  const normalizedUserId = String(userId ?? "").trim();
+  if (!normalizedUserId || !Number.isSafeInteger(balanceUnits) || balanceUnits < 0) {
+    throw new TypeError("Development point balance requires a user id and a non-negative safe integer");
+  }
+  const ts = Date.now();
+  if (pgPool) {
+    const result = await pgPool.query(
+      `UPDATE point_wallets SET balance_units = $1, updated_at = $2 WHERE user_id = $3`,
+      [balanceUnits, ts, normalizedUserId],
+    );
+    if (result.rowCount !== 1) throw new Error("Development administrator wallet was not found");
+    return;
+  }
+  const db = await getSqliteDb();
+  const result = await db.run(
+    `UPDATE point_wallets SET balance_units = ?, updated_at = ? WHERE user_id = ?`,
+    [balanceUnits, ts, normalizedUserId],
+  );
+  if (Number(result?.changes) !== 1) throw new Error("Development administrator wallet was not found");
+}
+
 async function backfillPointWallets() {
   const ts = Date.now();
   await withDatabaseTransaction(async (tx) => {
@@ -1078,12 +1113,54 @@ export async function searchFullPapers(q, limit = 50) {
   // supported database variant instead of failing the entire DB search.
   const tableCheck = await pgPool.query(`SELECT to_regclass('public.papers') AS table_name`);
   if (!tableCheck.rows[0]?.table_name) return [];
-  const like = `%${q.replace(/%/g, "").slice(0, 200)}%`;
+  const query = String(q ?? "").trim();
+  const words = query.toLowerCase().match(/[a-z0-9][a-z0-9+\-]{1,}/g) || [];
+  const stopWords = new Set([
+    "the", "and", "for", "with", "from", "what", "which", "how", "why", "does", "do",
+    "are", "is", "was", "were", "has", "have", "can", "could", "would", "about", "after",
+    "please", "paper", "papers", "database", "research", "result", "results", "compare", "based",
+  ]);
+  const bilingualTerms = [];
+  if (/铝合金/.test(query)) bilingualTerms.push("aluminum", "aluminium", "alloy");
+  if (/力学性能|机械性能/.test(query)) bilingualTerms.push("mechanical", "properties");
+  if (/焊接/.test(query)) bilingualTerms.push("weld", "welding");
+  if (/腐蚀/.test(query)) bilingualTerms.push("corrosion");
+  if (/磨损/.test(query)) bilingualTerms.push("wear");
+  if (/裂纹/.test(query)) bilingualTerms.push("crack");
+  if (/热处理/.test(query)) bilingualTerms.push("heat", "treatment");
+  const keywords = [...new Set([...words.filter((word) => !stopWords.has(word)), ...bilingualTerms])].slice(0, 12);
+  if (!keywords.length) return [];
+
+  const fields = ["title", "abstract", "material_name", "properties", "applications"];
+  const params = [];
+  const conditions = keywords.map((keyword) => {
+    const fieldConditions = fields.map((field) => {
+      params.push(`%${keyword.replace(/%/g, "")}%`);
+      return `${field} ILIKE $${params.length}`;
+    });
+    return `(${fieldConditions.join(" OR ")})`;
+  });
+  const queryRelevance = conditions.map((condition) => `(CASE WHEN ${condition} THEN 1 ELSE 0 END)`).join(" + ");
+  params.push(Math.min(150, Math.max(1, Number(limit) || 50)));
   const r = await pgPool.query(
-    `SELECT paper_id, doi, title, abstract, year, journal, authors_json, category, material_name, symmetry_phase, structure_descriptor, properties, applications, synthesis_method, characterization_method, quality_control, first_author, corresponding_author, citation_count, download_count, relevance_score, credibility_score FROM papers WHERE title ILIKE $1 OR abstract ILIKE $2 OR authors_json ILIKE $3 OR material_name ILIKE $1 OR properties ILIKE $2 OR applications ILIKE $3 ORDER BY relevance_score DESC, citation_count DESC NULLS LAST LIMIT $4`,
-    [like, like, like, limit]
+    `SELECT paper_id, doi, title, abstract, year, venue, journal, authors_json, category, material_name, symmetry_phase, structure_descriptor, properties, applications, synthesis_method, characterization_method, quality_control, first_author, corresponding_author, citation_count, download_count, relevance_score, credibility_score, oa_status, abs_url, pdf_url, (${queryRelevance}) AS query_relevance
+       FROM papers
+      WHERE ${conditions.join(" OR ")}
+      ORDER BY query_relevance DESC, relevance_score DESC, citation_count DESC NULLS LAST
+      LIMIT $${params.length}`,
+    params,
   );
   return r.rows;
+}
+
+export async function getPaperPdfFile(paperId) {
+  if (!pgPool) return null;
+  const result = await pgPool.query(
+    `SELECT paper_id, filename, content_type, byte_length, sha256, pdf_data
+       FROM paper_pdf_files WHERE paper_id = $1 LIMIT 1`,
+    [String(paperId ?? "").trim()],
+  );
+  return result.rows[0] || null;
 }
 
 /**

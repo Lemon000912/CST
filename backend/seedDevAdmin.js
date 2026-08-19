@@ -1,8 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { hashUserPassword } from "./auth.js";
-import { createUserRecord, findUserByUsernameKey, normalizeUsernameKey } from "./db.js";
+import {
+  createUserRecord,
+  findUserByUsernameKey,
+  normalizeUsernameKey,
+  setDevelopmentPointBalance,
+} from "./db.js";
 
 const USERNAME_RE = /^[a-z0-9_]{2,32}$/;
+const DEV_ADMIN_TEST_BALANCE_UNITS = 9_000_000_000_000_000;
+
+async function enableUnlimitedTestPoints(userId, username) {
+  if (String(process.env.DEV_ADMIN_UNLIMITED_POINTS ?? "").trim() !== "1") return;
+  await setDevelopmentPointBalance(userId, DEV_ADMIN_TEST_BALANCE_UNITS);
+  console.log("[dev-admin] unlimited test points enabled:", username);
+}
 
 /**
  * 当 `SEED_DEV_ADMIN=1` 时：若库中尚无该用户名，则创建测试管理员（与正式「角色」无关，仅便于登录联调）。
@@ -34,6 +46,7 @@ export async function seedDevAdminIfEnabled() {
 
   const existing = await findUserByUsernameKey(username);
   if (existing) {
+    await enableUnlimitedTestPoints(existing.id, username);
     console.log("[dev-admin] 用户已存在，跳过创建:", username);
     return;
   }
@@ -41,5 +54,6 @@ export async function seedDevAdminIfEnabled() {
   const id = randomUUID();
   const passwordHash = await hashUserPassword(password);
   await createUserRecord(id, username, passwordHash);
+  await enableUnlimitedTestPoints(id, username);
   console.log("[dev-admin] 已创建测试账号并发放注册积分 — 用户名:", username, "| 密码：已配置（未在日志中打印）");
 }

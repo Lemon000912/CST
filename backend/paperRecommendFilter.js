@@ -45,6 +45,7 @@ function isObviousWebNoise(p, tokens, rawQuery) {
 
 /** @param {object} p */
 export function sourceTier(p) {
+  if (String(p?.pdfUrl ?? "").startsWith("db-pdf:")) return 220;
   const s = String(p.source ?? "");
   if (s === "scopus") return 100;
   if (s === "local") return 45;
