@@ -233,6 +233,47 @@ function buildSearchResultIntro(
   return `共 **${n}** 条检索结果。${scope}${tail}`;
 }
 
+const INCOMPLETE_SEARCH_NOTE_RE = /^synth:(requesting|pending|streaming)$/i;
+
+function recoverInterruptedSearchSessions(sessions: ChatSession[]): ChatSession[] {
+  return sessions.map((session) => {
+    let changed = false;
+    const messages = session.messages.map((message) => {
+      if (
+        message.role !== "assistant" ||
+        message.error ||
+        !INCOMPLETE_SEARCH_NOTE_RE.test(String(message.meta?.synthesisNote ?? ""))
+      ) {
+        return message;
+      }
+
+      changed = true;
+      const hasPartialResult = Boolean(
+        message.meta?.synthesis?.trim() || (message.papers?.length ?? 0) > 0,
+      );
+      if (hasPartialResult) {
+        return {
+          ...message,
+          meta: {
+            ...message.meta,
+            synthesisNote: "synth:interrupted",
+            billingMessage: message.meta?.billingMessage ?? "回答生成曾被中断，已保留收到的内容。",
+          },
+        };
+      }
+
+      return {
+        ...message,
+        content: "上次请求因页面刷新或后端服务中断而未完成，请重新发送。",
+        error: true,
+        meta: { ...message.meta, synthesisNote: "synth:interrupted" },
+      };
+    });
+
+    return changed ? { ...session, messages } : session;
+  });
+}
+
 const QUERY_TABS: { field: ArxivSearchField; label: string; title: string }[] = [
   {
     field: "ti",
@@ -1389,6 +1430,8 @@ function AssistantBlock({
   const webSynthesisWaiting = /^synth:pending$/i.test(webNoSynthNote);
   const webSynthesisStreaming = /^synth:streaming$/i.test(webNoSynthNote);
   const webSynthesisPending = webSynthesisWaiting || webSynthesisStreaming;
+  const initialRequestPending = /^synth:requesting$/i.test(webNoSynthNote);
+  const synthesisInterrupted = /^synth:interrupted$/i.test(webNoSynthNote);
   const isAttachmentSynthesis = synthesisMode.startsWith("attachment_");
   const isDbHybridAnswer =
     msg.meta?.channel === "database" &&
@@ -1562,7 +1605,15 @@ function AssistantBlock({
   return (
     <div className="max-w-[min(800px,100%)]">
       <div className={`${proseTheme} ${proseBase}`}>
-        {msg.error ? (
+        {initialRequestPending ? (
+          <LoadingIndicator
+            label={getMainSearchLoadingText({
+              channel: msg.meta?.channel ?? "web",
+              patentsOnly: Boolean(msg.meta?.patentsOnly),
+              deepMine: Boolean(msg.meta?.deepMine?.enabled),
+            })}
+          />
+        ) : msg.error ? (
           <p className="text-[var(--t-error)]">{intro}</p>
         ) : showWebDualPane && !hasWebSynthesis ? (
           webSynthesisPending ? null : (
@@ -1598,6 +1649,11 @@ function AssistantBlock({
                           {webDirectKnowledgeHint ? (
                             <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-900 dark:text-amber-100">
                               本轮网页摘录匹配度不足，回答可能含<strong>未附摘录的常识推断</strong>。关键事实请点开下方来源核对，或换更具体关键词重试。
+                            </p>
+                          ) : null}
+                          {synthesisInterrupted ? (
+                            <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-900 dark:text-amber-100">
+                              回答生成过程中连接已中断，以下内容可能不完整，请重新发送以获取完整结果。
                             </p>
                           ) : null}
                           <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
@@ -2147,7 +2203,7 @@ function AssistantBlock({
           ) : null}
         </div>
       ) : null}
-      {!msg.error && onFeedback ? (
+      {!initialRequestPending && !synthesisInterrupted && !msg.error && onFeedback ? (
         <div className="mt-3 border-t border-border-subtle/60 pt-3 text-xs text-[var(--t-text-feedback)]">
           <div className="flex flex-wrap items-center gap-2">
             <span>本次回答是否有帮助？</span>
@@ -2357,7 +2413,7 @@ function LlmRewriteSettingsModal({
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { theme, setTheme } = useTheme();
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const loaded = loadSessions(getAuthProfile()?.userId);
+    const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId));
     return loaded.length ? loaded : [createSession()];
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
@@ -2424,7 +2480,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (!busy || !active?.messages.length) return false;
     const last = active.messages[active.messages.length - 1];
     if (last.role !== "assistant" || last.error) return false;
-    return /^synth:(pending|streaming|replaced)$/i.test(String(last.meta?.synthesisNote ?? ""));
+    return /^synth:(requesting|pending|streaming)$/i.test(String(last.meta?.synthesisNote ?? ""));
   }, [active?.messages, busy]);
 
   const exportPickCounts = useMemo(() => {
@@ -2532,9 +2588,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       if (cancelled) return;
       if (remote) {
         if (remote.sessions.length > 0 || local.length > 0) {
-          const merged = mergeChatSessions(local, remote.sessions);
-          setSessions(merged.length ? merged : [createSession()]);
-          saveSessions(merged, getAuthProfile()?.userId);
+          const persisted = recoverInterruptedSearchSessions(mergeChatSessions(local, remote.sessions));
+          // Hydration can finish after the user has already sent a message. Merge
+          // into the live state so the delayed server response cannot erase it.
+          setSessions((current) => {
+            const merged = mergeChatSessions(persisted, current);
+            return merged.length ? merged : [createSession()];
+          });
         }
         setSessionSyncState({
           revision: remote.revision,
@@ -3191,15 +3251,36 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (!sessionId) return;
 
     const priorMessages = sessions.find((s) => s.id === sessionId)?.messages ?? [];
+    const fieldAtSend = queryField;
+    const channelAtSend = searchChannel;
+    const sortAtSend = searchSort;
+    const patentsAtSend = patentsOnlyEnabled;
+    const deepMineAtSend = deepMineEnabled && !patentsAtSend;
 
     const userDisplay = (q || "（仅上传文件作为上下文）") + attachLine;
     const userMsg: ChatMessage = { id: uid(), role: "user", content: userDisplay };
+    const assistantId = uid();
+    const initialAssistant: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      papers: [],
+      arxivField: fieldAtSend,
+      meta: {
+        channel: channelAtSend,
+        sort: sortAtSend,
+        patentsOnly: patentsAtSend,
+        synthesis: null,
+        synthesisNote: "synth:requesting",
+        deepMine: deepMineAtSend ? { enabled: true } : null,
+      },
+    };
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId
           ? {
               ...s,
-              messages: [...s.messages, userMsg],
+              messages: [...s.messages, userMsg, initialAssistant],
               title: s.messages.length === 0 ? sessionTitleFromMessages([userMsg]) : s.title,
               updatedAt: Date.now(),
             }
@@ -3211,10 +3292,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (deepMineEnabled && !patentsOnlyEnabled) {
       setDeepMineToast("已启用深度解析：将逐篇下载 PDF 并解析，可能需较长时间");
     }
-    const fieldAtSend = queryField;
-    const channelAtSend = searchChannel;
-    const sortAtSend = searchSort;
-    const patentsAtSend = patentsOnlyEnabled;
     const attachmentContext =
       attachments.length > 0
         ? attachments.map((a) => `《${a.name}》\n${a.text}`).join("\n\n---\n\n").slice(0, 200_000)
@@ -3244,12 +3321,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         attachmentFilename,
         conversationContext: conversationContext || undefined,
         ...(patentsAtSend ? { patentsOnly: true } : {}),
-        ...(deepMineEnabled && !patentsAtSend ? { deepMine: { maxPdfMb: 20 } } : {}),
+        ...(deepMineAtSend ? { deepMine: { maxPdfMb: 20 } } : {}),
         signal: abortController.signal,
       };
 
-      // 占位助手消息（papers 到达前先显示空卡片）
-      const assistantId = uid();
       let papersReceived: Paper[] = [];
       let synthesisSoFar = "";
 
@@ -3259,19 +3334,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             if (s.id !== sessionId) return s;
             const idx = s.messages.findIndex((m) => m.id === assistantId);
             if (idx === -1) {
-              // 第一次：追加
               const newMsg: ChatMessage = {
-                id: assistantId,
-                role: "assistant",
-                content: "",
-                papers: papersReceived,
-                arxivField: fieldAtSend,
-                meta: {
-                  channel: channelAtSend,
-                  sort: sortAtSend,
-                  synthesis: synthesisSoFar || null,
-                },
+                ...initialAssistant,
                 ...patch,
+                papers: papersReceived,
+                meta: {
+                  ...initialAssistant.meta,
+                  synthesis: synthesisSoFar || null,
+                  ...(patch.meta ?? {}),
+                },
               };
               return {
                 ...s,
@@ -3294,8 +3365,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           }),
         );
       };
-
-      let streamErrored = false;
 
       for await (const event of searchPapersV1Stream(baseQ.slice(0, 12_000), streamOpts)) {
         if (event.type === "papers") {
@@ -3378,13 +3447,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             },
           });
         } else if (event.type === "error") {
-          streamErrored = true;
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
-      }
-
-      if (streamErrored) {
-        // error 已经显示，无需额外处理
       }
 
       setAttachments([]);
@@ -3409,20 +3473,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
-          const hasPlaceholder = s.messages.some((m) => m.role === "assistant" && !m.error && m.content === "");
+          const hasPlaceholder = s.messages.some((m) => m.id === assistantId);
           if (hasPlaceholder) {
             return {
               ...s,
               messages: s.messages.map((m) =>
-                m.role === "assistant" && !m.error && m.content === ""
-                  ? { ...m, content: err, error: true }
+                m.id === assistantId
+                  ? { ...m, content: err, error: true, meta: { ...m.meta, synthesisNote: "synth:error" } }
                   : m,
               ),
               updatedAt: Date.now(),
             };
           }
           const assistant: ChatMessage = {
-            id: uid(),
+            id: assistantId,
             role: "assistant",
             content: err,
             error: true,
