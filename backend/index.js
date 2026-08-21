@@ -124,6 +124,12 @@ import { extractDataTableByType } from "./dataTableExtract.js";
 import { augmentQueryWithMatsci, isMatsciAugmentConfigured } from "./matsciNerAugment.js";
 import { GStack, quickGStack } from "./gstack.js";
 import { searchCache, rewriteCache } from "./cache.js";
+import {
+  AdminPointsError,
+  adjustAdminUserPoints,
+  listAdminPointLedger,
+  listAdminPointUsers,
+} from "./adminPoints.js";
 
 const PORT = (() => {
   const n = Number.parseInt(String(process.env.PORT ?? "").trim(), 10);
@@ -2638,6 +2644,45 @@ app.get("/api/v1/admin/users", async (req, res) => {
   } catch (e) {
     console.error("[admin/users] error:", e);
     res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/** 积分后台：用户余额、统计和可追溯流水 */
+app.get("/api/v1/admin/points/users", async (req, res) => {
+  try {
+    const data = await listAdminPointUsers({
+      skip: req.query.skip,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("[admin/points/users] error:", error);
+    const status = error instanceof AdminPointsError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
+  }
+});
+
+app.get("/api/v1/admin/points/ledger", async (req, res) => {
+  try {
+    const entries = await listAdminPointLedger({ userId: req.query.userId, limit: req.query.limit });
+    return res.json({ success: true, data: { entries } });
+  } catch (error) {
+    console.error("[admin/points/ledger] error:", error);
+    const status = error instanceof AdminPointsError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
+  }
+});
+
+app.post("/api/v1/admin/points/adjust", async (req, res) => {
+  try {
+    const data = await adjustAdminUserPoints({ ...req.body, admin: req.auth });
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("[admin/points/adjust] error:", error);
+    const status = error instanceof AdminPointsError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
   }
 });
 
