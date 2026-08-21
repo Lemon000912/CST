@@ -4,8 +4,18 @@ import { apiLogin, apiRegister } from "./authApi";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
+import { EditionSwitcher } from "./EditionSwitcher";
+import type { AppEdition } from "./edition";
 
-export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
+export default function LoginScreen({
+  edition,
+  onEditionChange,
+  onLoggedIn,
+}: {
+  edition: AppEdition;
+  onEditionChange: (edition: AppEdition) => void;
+  onLoggedIn: () => void;
+}) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -39,7 +49,11 @@ export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) 
         <div className="mb-6 text-center">
           <AppLogo size="lg" className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
-          <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">请登录或注册后使用（会话与侧栏设置仍保存在本机）</p>
+          <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">{edition === "school" ? "学校版" : "企业版"}</p>
+        </div>
+
+        <div className="mb-4">
+          <EditionSwitcher edition={edition} onChange={onEditionChange} />
         </div>
 
         <div className="mb-4 flex rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-muted)] p-0.5 text-[13px]">

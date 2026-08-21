@@ -211,6 +211,10 @@ function requireIdempotencyKey(req) {
   return value;
 }
 
+function isEnterpriseEdition(req) {
+  return String(req.headers["x-app-edition"] ?? "").trim().toLowerCase() === "enterprise";
+}
+
 async function failOperationBestEffort(operation, userId, error) {
   if (!operation?.id || !operation?.leaseToken) return;
   const rawCode = String(error?.code || "operation-failed").toLowerCase();
@@ -799,6 +803,7 @@ app.post("/api/v1/user/info", async (req, res) => {
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
+    const enterpriseEdition = isEnterpriseEdition(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -811,6 +816,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
     const parentPapers = getStoredSearchPapers(parentOperation);
     const papersForChart = selectStoredPapers(parentPapers, req.body, 22);
     const requestDescriptor = {
+      edition: enterpriseEdition ? "enterprise" : "school",
       parentOperationId,
       paperIds: papersForChart.map(paperIdentity),
       hint: String(req.body?.hint ?? "").trim().slice(0, 500),
@@ -822,6 +828,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
       operationType: "chart",
       idempotencyKey,
       requestHash: stableRequestHash(requestDescriptor),
+      allowZeroBalance: enterpriseEdition,
     });
     if (begun.replayed) {
       return res.json({
@@ -842,6 +849,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
           const fallbackGenerated = res.locals.chartBillingSource !== "llm";
           const chartPointCount = fallbackGenerated ? 0 : Array.isArray(body.spec.points) ? body.spec.points.length : 0;
           const billingDetails = {
+            edition: enterpriseEdition ? "enterprise" : "school",
             parentOperationId,
             chartPointCount,
             fallbackGenerated,
@@ -851,7 +859,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
             operationId: activeOperation.id,
             userId: req.auth.userId,
             leaseToken: activeOperation.leaseToken,
-            costUnits: billingDetails.chartPointUnits,
+            costUnits: enterpriseEdition ? 0 : billingDetails.chartPointUnits,
             billingDetails,
             result: body,
             receipt: { parentOperationId },
@@ -1277,6 +1285,7 @@ app.post("/api/v1/pdf-click", (_req, res) => {
 app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
+    const enterpriseEdition = isEnterpriseEdition(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1302,12 +1311,13 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
     if (!pdfUrl) {
       throw new ApiRouteError(422, "pdf-source-unavailable", "The selected search result has no PDF source URL");
     }
-    const requestDescriptor = { parentOperationId, paperIndex, paperId };
+    const requestDescriptor = { edition: enterpriseEdition ? "enterprise" : "school", parentOperationId, paperIndex, paperId };
     const begun = await beginBillableOperation({
       userId: req.auth.userId,
       operationType: "pdf",
       idempotencyKey,
       requestHash: stableRequestHash(requestDescriptor),
+      allowZeroBalance: enterpriseEdition,
     });
     activeOperation = begun.operation;
 
@@ -1329,7 +1339,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       "Content-Disposition": pdfContentDisposition(paper?.title),
       "Cache-Control": "private, no-store",
       "X-Billing-Operation-Id": activeOperation.id,
-      "X-Billing-Cost-Units": String(receipt?.costUnits ?? calculateCostUnits({ pdfCount: 1 })),
+      "X-Billing-Cost-Units": String(receipt?.costUnits ?? (enterpriseEdition ? 0 : calculateCostUnits({ pdfCount: 1 }))),
       "X-Billing-Balance-Units": String(receipt?.balanceUnits ?? ""),
       "X-Billing-Replayed": begun.replayed ? "true" : "false",
       "X-Parent-Operation-Id": parentOperationId,
@@ -1343,6 +1353,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
 
     if (!begun.replayed) {
       const billingDetails = {
+        edition: enterpriseEdition ? "enterprise" : "school",
         parentOperationId,
         paperId,
         paperIndex,
@@ -1361,7 +1372,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationId: activeOperation.id,
         userId: req.auth.userId,
         leaseToken: activeOperation.leaseToken,
-        costUnits: calculateCostUnits({ pdfCount: 1 }),
+        costUnits: enterpriseEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1450,6 +1461,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let activeOperation = null;
   let begun;
   let startingBalanceUnits = 0;
+  const enterpriseEdition = isEnterpriseEdition(req);
   const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
   const endPapersReady = requestTrace.start("milestone.papers_ready");
   const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
@@ -1465,6 +1477,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   try {
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
+      edition: enterpriseEdition ? "enterprise" : "school",
       body: req.body ?? {},
       llmHeaders: {
         model: req.headers["x-openai-model"] ?? "",
@@ -1477,8 +1490,11 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       operationType: "search",
       idempotencyKey,
       requestHash,
+      allowZeroBalance: enterpriseEdition,
     });
-    if (!begun.replayed) {
+    if (enterpriseEdition) {
+      startingBalanceUnits = Number.MAX_SAFE_INTEGER;
+    } else if (!begun.replayed) {
       startingBalanceUnits = begun.balance?.balanceUnits
         ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     }
@@ -1822,8 +1838,11 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     if (budgeted.limited && !budgeted.pointsExhausted && rawBillingPayload.deepMine && !deepMine) {
       deepSynthesisNote = "deep_synth:skipped_insufficient_points";
     }
-    const billingDetails = searchBillingDetails(billingPayload);
-    const costUnits = calculateCostUnits({
+    const billingDetails = {
+      ...searchBillingDetails(billingPayload),
+      edition: enterpriseEdition ? "enterprise" : "school",
+    };
+    const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });
@@ -1892,8 +1911,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
+    const enterpriseEdition = isEnterpriseEdition(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
+      edition: enterpriseEdition ? "enterprise" : "school",
       body: req.body ?? {},
       llmHeaders: {
         model: req.headers["x-openai-model"] ?? "",
@@ -1907,6 +1928,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       operationType: "search",
       idempotencyKey,
       requestHash,
+      allowZeroBalance: enterpriseEdition,
     });
     if (begun.replayed) {
       return res.json({
@@ -1917,8 +1939,9 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       });
     }
     activeOperation = begun.operation;
-    const startingBalanceUnits = begun.balance?.balanceUnits
-      ?? (await getPointBalance(req.auth.userId)).balanceUnits;
+    const startingBalanceUnits = enterpriseEdition
+      ? Number.MAX_SAFE_INTEGER
+      : begun.balance?.balanceUnits ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     res.locals.searchBillingOperation = activeOperation;
     const originalJson = res.json.bind(res);
     res.json = async (body) => {
@@ -1932,8 +1955,11 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             billingMessage: budgeted.pointsExhausted ? "积分已用完，请充值后继续回答。" : undefined,
             ...(budgeted.limited && budgeted.pointsExhausted ? { synthesisPlan: null, webAnswerDrafts: undefined } : {}),
           };
-          const billingDetails = searchBillingDetails(responseBody);
-          const costUnits = calculateCostUnits({
+          const billingDetails = {
+            ...searchBillingDetails(responseBody),
+            edition: enterpriseEdition ? "enterprise" : "school",
+          };
+          const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
             characterCount: billingDetails.characterCount,
             pdfCount: billingDetails.deepPaperCount,
           });

@@ -1,6 +1,7 @@
 import type { PointBalance } from "./types";
 import type { AuthProfile } from "./authSession";
 import { setAuthSession } from "./authSession";
+import { appEditionHeader } from "./edition";
 
 type UserDto = { id: string; username: string; billing?: PointBalance };
 type AuthJson = { error?: string; token?: string; user?: UserDto; billing?: PointBalance };
@@ -37,7 +38,7 @@ async function postAuth(
   try {
     res = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...appEditionHeader() },
       body: JSON.stringify(body),
     });
   } catch (e) {

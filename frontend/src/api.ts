@@ -17,6 +17,7 @@ import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openai
 import { getPersonaId } from "./persona";
 import { getAuthToken, getEffectiveUserId } from "./authSession";
 import { getOutputAvoidanceForRequest } from "./outputPreferences";
+import { appEditionHeader } from "./edition";
 
 /** 带超时的 fetch（检索/综述等长请求） */
 async function fetchWithTimeout(
@@ -306,6 +307,7 @@ function headersJson(extra?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = {
     "Content-Type": "application/json",
     "X-User-Id": getEffectiveUserId(),
+    ...appEditionHeader(),
     ...extra,
   };
   const t = getAuthToken();

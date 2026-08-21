@@ -12,6 +12,8 @@ import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
+import { EditionSwitcher } from "./EditionSwitcher";
+import type { AppEdition } from "./edition";
 import { LoadingIndicator, LoadingSpinner } from "./LoadingIndicator";
 import {
   getMainSearchLoadingText,
@@ -528,6 +530,7 @@ function PaperCard({
   p,
   onPdfFulfill,
   pdfDisabled,
+  pointsEnabled = true,
   open,
   onOpenChange,
   maxExcerptChars = 420,
@@ -535,6 +538,7 @@ function PaperCard({
   p: Paper;
   onPdfFulfill?: (p: Paper, mode: "open" | "save") => void | Promise<void>;
   pdfDisabled?: boolean;
+  pointsEnabled?: boolean;
   open: boolean;
   onOpenChange: (next: boolean) => void;
   /** 网页渠道展开区可显示更长摘录 */
@@ -648,7 +652,7 @@ function PaperCard({
                 disabled={pdfDisabled}
                 className="inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={() => void onPdfFulfill?.(p, "open")}
-                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : "经服务端验证并获取 PDF，成功后收费 1 积分"}
+                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : pointsEnabled ? "经服务端验证并获取 PDF，成功后收费 1 积分" : "经服务端验证并获取 PDF"}
               >
                 PDF
               </button>
@@ -657,7 +661,7 @@ function PaperCard({
                 disabled={pdfDisabled}
                 className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={() => void onPdfFulfill?.(p, "save")}
-                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : "成功获取并验证 PDF 后保存，收费 1 积分"}
+                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : pointsEnabled ? "成功获取并验证 PDF 后保存，收费 1 积分" : "成功获取并验证 PDF 后保存"}
               >
                 下载
               </button>
@@ -700,7 +704,9 @@ function PaperCard({
               }}
               title={
                 p.pdfSourceId || p.sourceId
-                  ? "通过服务端验证并获取 OA PDF，成功后收费 1 积分"
+                  ? pointsEnabled
+                    ? "通过服务端验证并获取 OA PDF，成功后收费 1 积分"
+                    : "通过服务端验证并获取 OA PDF"
                   : "仅查询 Unpaywall 外部链接；落地页不表示已完成收费 PDF 交付"
               }
               className="inline-flex items-center rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-muted)] px-3 py-1.5 text-xs font-medium text-[var(--t-text)] hover:bg-[var(--t-muted-hover)] disabled:opacity-50"
@@ -1330,6 +1336,7 @@ function AssistantBlock({
   onFeedback,
   onPdfFulfill,
   billingDisabled,
+  pointsEnabled = true,
   feedbackLock,
   chartBusy,
   onMatplotlibChart,
@@ -1344,6 +1351,7 @@ function AssistantBlock({
   onFeedback?: (id: string, v: 1 | -1, detail?: AssistantFeedbackDetail) => void | Promise<void>;
   onPdfFulfill?: (msg: ChatMessage, p: Paper, mode: "open" | "save") => void | Promise<void>;
   billingDisabled?: boolean;
+  pointsEnabled?: boolean;
   feedbackLock?: 1 | -1;
   chartBusy?: boolean;
   onMatplotlibChart?: (msg: ChatMessage, hint?: string) => void | Promise<void>;
@@ -1990,12 +1998,12 @@ function AssistantBlock({
             </div>
           </details>
         ) : null}
-        {!msg.error && msg.meta?.pointsExhausted ? (
+        {!msg.error && pointsEnabled && msg.meta?.pointsExhausted ? (
           <div className="not-prose mt-3 rounded-lg border border-amber-500/45 bg-amber-500/10 px-3 py-2 text-[12px] font-medium leading-relaxed text-amber-800 dark:text-amber-200">
             {msg.meta.billingMessage || "积分已用完，本次回答已停止。请充值后继续回答。"}
           </div>
         ) : null}
-        {!msg.error ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
+        {!msg.error && pointsEnabled ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
         {!msg.error &&
         msg.papers &&
         msg.papers.length > 0 &&
@@ -2077,6 +2085,7 @@ function AssistantBlock({
                     }}
                     onPdfFulfill={(paper, mode) => onPdfFulfill?.(msg, paper, mode)}
                     pdfDisabled={billingDisabled}
+                    pointsEnabled={pointsEnabled}
                   />
                 );
               })}
@@ -2090,9 +2099,9 @@ function AssistantBlock({
           )}
         </div>
       )}
-      {msg.meta?.pdfReceipts?.map((receipt) => (
+      {pointsEnabled ? msg.meta?.pdfReceipts?.map((receipt) => (
         <BillingReceiptBadge key={receipt.operationId} receipt={receipt} kind="PDF" />
-      ))}
+      )) : null}
       {!msg.error && channelSupportsPaperChart(msg.meta?.channel) && msg.papers && msg.papers.length > 0 && onMatplotlibChart ? (
         <div className="mt-4 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-3">
           <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">文献数值图（可点击散点 + Matplotlib PNG）</p>
@@ -2134,7 +2143,7 @@ function AssistantBlock({
                   <span className="ml-1 text-[10px] font-normal text-[var(--t-text-muted)]">({msg.meta.paperChart.note})</span>
                 ) : null}
               </p>
-              <BillingReceiptBadge receipt={msg.meta.paperChart.billing} kind="图表" />
+              {pointsEnabled ? <BillingReceiptBadge receipt={msg.meta.paperChart.billing} kind="图表" /> : null}
               {msg.meta.paperChart.spec &&
               typeof msg.meta.paperChart.spec === "object" &&
               !Array.isArray(msg.meta.paperChart.spec) ? (
@@ -2410,8 +2419,17 @@ function LlmRewriteSettingsModal({
   );
 }
 
-export default function App({ onLogout }: { onLogout?: () => void } = {}) {
+export default function App({
+  edition,
+  onEditionChange,
+  onLogout,
+}: {
+  edition: AppEdition;
+  onEditionChange: (edition: AppEdition) => void;
+  onLogout?: () => void;
+}) {
   const { theme, setTheme } = useTheme();
+  const pointsEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId));
     return loaded.length ? loaded : [createSession()];
@@ -2466,7 +2484,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [pointBalance, setPointBalance] = useState<PointBalance | null>(() => getAuthProfile()?.billing ?? null);
+  const [pointBalance, setPointBalance] = useState<PointBalance | null>(() => pointsEnabled ? getAuthProfile()?.billing ?? null : null);
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [rechargeOpen, setRechargeOpen] = useState(false);
@@ -2499,6 +2517,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   }, []);
 
   useEffect(() => {
+    if (!pointsEnabled) {
+      setPointBalance(null);
+      setPricing(null);
+      setBalanceError(null);
+      setRechargeOpen(false);
+      return;
+    }
     let cancelled = false;
     void fetchPointBalance()
       .then(({ billing, pricing: nextPricing }) => {
@@ -2519,10 +2544,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [onLogout]);
+  }, [onLogout, pointsEnabled]);
 
   const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
-    if (!receipt) return;
+    if (!pointsEnabled || !receipt) return;
     if (!Number.isFinite(receipt.balanceUnits) || !Number.isFinite(receipt.balance)) return;
     setPointBalance((prev) => ({
       userId: prev?.userId,
@@ -2531,9 +2556,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       balance: receipt.balance,
     }));
     setBalanceError(null);
-  }, []);
+  }, [pointsEnabled]);
 
   const applyRechargeBalance = useCallback((billing?: PointBalance) => {
+    if (!pointsEnabled) return;
     if (billing) {
       setPointBalance(billing);
       setBalanceError(null);
@@ -2545,7 +2571,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         setBalanceError(null);
       })
       .catch((reason) => setBalanceError(reason instanceof Error ? reason.message : "积分余额刷新失败"));
-  }, []);
+  }, [pointsEnabled]);
 
   useEffect(() => {
     if (!deepMineToast) return;
@@ -2975,7 +3001,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       patchMessageMeta(msg.id, { paperChartError: "此历史回答缺少搜索操作 ID，无法生成收费图表，请重新检索。" });
       return;
     }
-    if (pointBalance && pointBalance.balance <= 0) {
+    if (pointsEnabled && pointBalance && pointBalance.balance <= 0) {
       patchMessageMeta(msg.id, { paperChartError: `积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），请充值后继续使用。` });
       return;
     }
@@ -3046,7 +3072,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     } finally {
       setChartBusyMessageId(null);
     }
-  }, [applyReceipt, patchMessageMeta, pointBalance?.balance]);
+  }, [applyReceipt, patchMessageMeta, pointBalance?.balance, pointsEnabled]);
 
   const handleGenerateDataTable = useCallback(async (msg: ChatMessage, tableType: DataTablePresetId) => {
     if (!msg.papers?.length || msg.error || !channelSupportsPaperChart(msg.meta?.channel)) return;
@@ -3183,7 +3209,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       window.alert("此历史回答缺少搜索操作 ID，无法获取收费 PDF，请重新检索。");
       return;
     }
-    if (pointBalance && pointBalance.balance <= 0) {
+    if (pointsEnabled && pointBalance && pointBalance.balance <= 0) {
       window.alert(`积分已用完（当前余额 ${formatPoints(pointBalance.balance)}），请充值后继续使用。`);
       return;
     }
@@ -3239,7 +3265,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     } finally {
       setPdfBusyKey(null);
     }
-  }, [applyReceipt, patchMessageMeta, pdfBusyKey, pointBalance?.balance]);
+  }, [applyReceipt, patchMessageMeta, pdfBusyKey, pointBalance?.balance, pointsEnabled]);
 
   const send = async (text: string) => {
     const q = text.trim();
@@ -3460,6 +3486,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       if (
         papersForAutoChart.length > 0 &&
         channelSupportsPaperChart(channelAtSend) &&
+        pointsEnabled &&
         (pointBalance?.balance ?? 0) <= 0
       ) {
         patchMessageMeta(assistantIdForChart, {
@@ -3503,7 +3530,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   const willAttachConvoContext = (active?.messages.length ?? 0) > 0;
 
-  const billingDisabled = pointBalance != null && pointBalance.balance <= 0;
+  const billingDisabled = pointsEnabled && pointBalance != null && pointBalance.balance <= 0;
   const canSend =
     (input.trim().length > 0 || attachments.length > 0) &&
     !busy &&
@@ -3520,12 +3547,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
 
   return (
     <>
-      <RechargeModal
-        open={rechargeOpen}
-        balance={pointBalance}
-        onClose={() => setRechargeOpen(false)}
-        onPaid={applyRechargeBalance}
-      />
+      {pointsEnabled ? (
+        <RechargeModal
+          open={rechargeOpen}
+          balance={pointBalance}
+          onClose={() => setRechargeOpen(false)}
+          onPaid={applyRechargeBalance}
+        />
+      ) : null}
       {deepMineToast ? (
         <div
           role="status"
@@ -3673,24 +3702,33 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             </span>
           </button>
         </div>
+        <div className="border-b border-[color:var(--t-br06)] px-2.5 py-2">
+          <EditionSwitcher edition={edition} onChange={onEditionChange} compact />
+        </div>
         <div className="flex items-center gap-2 border-b border-[color:var(--t-br06)] px-2.5 py-2">
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">账户</div>
             <div className="truncate text-[11px] text-[var(--t-text)]" title={getAuthProfile()?.username ?? ""}>
               {getAuthProfile()?.username ?? "—"}
             </div>
-            <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)]">
-              积分 {pointBalance ? formatPoints(pointBalance.balance) : balanceError ? "加载失败" : "加载中"}
-            </div>
+            {pointsEnabled ? (
+              <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)]">
+                积分 {pointBalance ? formatPoints(pointBalance.balance) : balanceError ? "加载失败" : "加载中"}
+              </div>
+            ) : (
+              <div className="mt-0.5 text-[10px] font-medium text-[var(--t-text-muted)]">企业版 · 无积分限制</div>
+            )}
           </div>
           <div className="flex shrink-0 flex-col gap-1">
-            <button
-              type="button"
-              onClick={() => setRechargeOpen(true)}
-              className="rounded-md border border-blue-500/35 bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-500 transition hover:border-blue-500/60 hover:bg-blue-500/15"
-            >
-              充值
-            </button>
+            {pointsEnabled ? (
+              <button
+                type="button"
+                onClick={() => setRechargeOpen(true)}
+                className="rounded-md border border-blue-500/35 bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-500 transition hover:border-blue-500/60 hover:bg-blue-500/15"
+              >
+                充值
+              </button>
+            ) : null}
             {onLogout ? (
               <button
                 type="button"
@@ -3850,14 +3888,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <div className="min-w-0 flex-1 text-center">
             <h1 className="truncate text-[13px] font-semibold tracking-tight text-[var(--t-text)]">{APP_NAME}</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => setRechargeOpen(true)}
-            className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-right text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] lg:hidden"
-            aria-label="查看积分并充值"
-          >
-            {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
-          </button>
+          {pointsEnabled ? (
+            <button
+              type="button"
+              onClick={() => setRechargeOpen(true)}
+              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-right text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] lg:hidden"
+              aria-label="查看积分并充值"
+            >
+              {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
+            </button>
+          ) : (
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">企业版</span>
+          )}
         </header>
 
         <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
@@ -3914,6 +3956,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                         feedbackLock={feedbackByMessage[m.id]}
                         onPdfFulfill={handlePdfFulfill}
                         billingDisabled={billingDisabled || pdfBusyKey != null}
+                        pointsEnabled={pointsEnabled}
                         chartBusy={chartBusyMessageId === m.id}
                         onMatplotlibChart={handleMatplotlibChart}
                         dataTableBusy={dataTableBusyMessageId === m.id}
@@ -4115,8 +4158,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </div>
             </div>
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
-              回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件
-              {pricing ? ` · 1 积分=${pricing.unitsPerPoint} units` : ""}
+              {pointsEnabled
+                ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
+                : "企业版 · 搜索、图表与 PDF 不使用积分"}
+              {pointsEnabled && pricing ? ` · 1 积分=${pricing.unitsPerPoint} units` : ""}
               {willAttachConvoContext ? " · 含本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
