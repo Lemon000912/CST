@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "./App";
+import type { AppEdition } from "./edition";
+import { getAppEdition, setAppEdition } from "./edition";
 import LoginScreen from "./LoginScreen";
 import { clearAuthSession, getAuthToken } from "./authSession";
 
 export default function AuthGate() {
   const isWechatPreview = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
+  const [edition, setEditionState] = useState<AppEdition>(() => getAppEdition());
   const [token, setToken] = useState<string | null>(() => getAuthToken());
   const [checking, setChecking] = useState(() => Boolean(getAuthToken()));
 
@@ -46,8 +49,19 @@ export default function AuthGate() {
     setToken(null);
   }, []);
 
+  const onEditionChange = useCallback((nextEdition: AppEdition) => {
+    setAppEdition(nextEdition);
+    setEditionState(nextEdition);
+  }, []);
+
   if (isWechatPreview) {
-    return <LoginScreen onLoggedIn={() => undefined} />;
+    return (
+      <LoginScreen
+        edition={edition}
+        onEditionChange={onEditionChange}
+        onLoggedIn={() => undefined}
+      />
+    );
   }
 
   if (checking) {
@@ -59,12 +73,12 @@ export default function AuthGate() {
   }
 
   if (!token) {
-    return <LoginScreen onLoggedIn={onLoggedIn} />;
+    return <LoginScreen edition={edition} onEditionChange={onEditionChange} onLoggedIn={onLoggedIn} />;
   }
 
   return (
     <div className="qp-app-root h-[100dvh] max-h-[100dvh] w-full overflow-hidden">
-      <App onLogout={onLogout} />
+      <App edition={edition} onEditionChange={onEditionChange} onLogout={onLogout} />
     </div>
   );
 }

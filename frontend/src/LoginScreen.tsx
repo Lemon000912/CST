@@ -14,6 +14,8 @@ import {
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
+import { EditionSwitcher } from "./EditionSwitcher";
+import type { AppEdition } from "./edition";
 
 function PreviewQrCode() {
   const size = 25;
@@ -40,7 +42,15 @@ function PreviewQrCode() {
   );
 }
 
-export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
+export default function LoginScreen({
+  edition,
+  onEditionChange,
+  onLoggedIn,
+}: {
+  edition: AppEdition;
+  onEditionChange: (edition: AppEdition) => void;
+  onLoggedIn: () => void;
+}) {
   const isWechatPreview = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
   const [mode, setMode] = useState<"login" | "register" | "wechat">("login");
@@ -204,8 +214,12 @@ export default function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) 
           <AppLogo size="lg" className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
-            {mode === "wechat" ? "验证手机号后即可完成微信绑定" : "请登录或注册后使用（会话与侧栏设置仍保存在本机）"}
+            {mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "学校版" : "企业版"}
           </p>
+        </div>
+
+        <div className="mb-4">
+          <EditionSwitcher edition={edition} onChange={onEditionChange} />
         </div>
 
         {mode === "wechat" ? (

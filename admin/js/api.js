@@ -153,6 +153,29 @@ class ApiClient {
         return data.data || data;
     }
 
+    // 积分账户列表和平台统计
+    async getPointUsers(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const data = await this.request(`/admin/points/users?${query}`);
+        return data.data || data;
+    }
+
+    // 积分流水
+    async getPointLedger(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const data = await this.request(`/admin/points/ledger?${query}`);
+        return data.data || data;
+    }
+
+    // 管理员调整用户积分
+    async adjustUserPoints(payload) {
+        const data = await this.request('/admin/points/adjust', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        return data.data || data;
+    }
+
     // PDF列表
     async getPDFs(params = {}) {
         const query = new URLSearchParams(params).toString();

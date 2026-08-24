@@ -51,6 +51,10 @@
                         <i class="fas fa-users"></i>
                         <span>用户管理</span>
                     </a>
+                    <a href="#" class="nav-item" data-page="points">
+                        <i class="fas fa-coins"></i>
+                        <span>积分管理</span>
+                    </a>
                     <a href="#" class="nav-item" data-page="pdfs">
                         <i class="fas fa-database"></i>
                         <span>文献数据库</span>
@@ -191,6 +195,80 @@
                                 <span id="user-page-info">第 1 页</span>
                                 <button id="user-next"><i class="fas fa-chevron-right"></i></button>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- 积分管理页面 -->
+                    <div id="page-points" class="page points-page">
+                        <div class="points-title-row">
+                            <div>
+                                <h2><i class="fas fa-coins"></i> 积分管理</h2>
+                                <p>统一查看用户余额、处理补偿或扣减，并通过不可修改的流水记录追溯每一次操作。</p>
+                            </div>
+                            <button id="points-refresh" class="btn-points-secondary" type="button">
+                                <i class="fas fa-rotate"></i> 刷新数据
+                            </button>
+                        </div>
+
+                        <div class="points-stats-grid">
+                            <article class="points-stat-card points-stat-balance">
+                                <div class="points-stat-icon"><i class="fas fa-wallet"></i></div>
+                                <div><span>平台积分余额</span><strong id="points-total-balance">--</strong><small>全部用户当前可用积分</small></div>
+                            </article>
+                            <article class="points-stat-card points-stat-credit">
+                                <div class="points-stat-icon"><i class="fas fa-arrow-trend-up"></i></div>
+                                <div><span>今日入账</span><strong id="points-today-credit">--</strong><small>充值、赠送及后台补偿</small></div>
+                            </article>
+                            <article class="points-stat-card points-stat-debit">
+                                <div class="points-stat-icon"><i class="fas fa-arrow-trend-down"></i></div>
+                                <div><span>今日消耗</span><strong id="points-today-debit">--</strong><small>用户功能消费与后台扣减</small></div>
+                            </article>
+                            <article class="points-stat-card points-stat-alert">
+                                <div class="points-stat-icon"><i class="fas fa-triangle-exclamation"></i></div>
+                                <div><span>需关注账户</span><strong id="points-attention-count">--</strong><small>余额不高于 100 积分</small></div>
+                            </article>
+                        </div>
+
+                        <div class="points-layout">
+                            <section class="points-panel points-users-panel">
+                                <div class="points-panel-head">
+                                    <div><h3>用户积分账户</h3><p>支持按用户名或用户 ID 检索</p></div>
+                                    <span id="points-user-count" class="points-count-chip">0 个账户</span>
+                                </div>
+                                <div class="points-toolbar">
+                                    <div class="search-box points-search-box">
+                                        <i class="fas fa-search"></i>
+                                        <input type="text" id="points-search" placeholder="搜索用户名或用户 ID...">
+                                    </div>
+                                    <div class="filter-box">
+                                        <select id="points-status-filter">
+                                            <option value="">全部余额</option>
+                                            <option value="healthy">余额充足（> 100）</option>
+                                            <option value="low">余额偏低（0～100）</option>
+                                            <option value="empty">已用完（≤ 0）</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="points-table-wrap">
+                                    <table class="data-table points-table">
+                                        <thead><tr><th>用户</th><th>当前积分</th><th>累计获得</th><th>累计消耗</th><th>最近变动</th><th>操作</th></tr></thead>
+                                        <tbody id="points-users-body"><tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr></tbody>
+                                    </table>
+                                </div>
+                                <div class="pagination points-pagination">
+                                    <button id="points-prev" disabled><i class="fas fa-chevron-left"></i></button>
+                                    <span id="points-page-info">第 1 页 / 共 1 页</span>
+                                    <button id="points-next" disabled><i class="fas fa-chevron-right"></i></button>
+                                </div>
+                            </section>
+
+                            <aside class="points-panel points-ledger-panel">
+                                <div class="points-panel-head">
+                                    <div><h3>最近积分流水</h3><p id="points-ledger-subtitle">展示全平台最近变动</p></div>
+                                    <button id="points-ledger-clear" type="button" class="points-text-button" hidden>查看全部</button>
+                                </div>
+                                <div id="points-ledger-list" class="points-ledger-list"><div class="loading"><div class="spinner"></div></div></div>
+                            </aside>
                         </div>
                     </div>
 
@@ -375,6 +453,51 @@
                     </div>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- 调整积分模态框 -->
+    <div id="points-adjust-modal" class="modal points-modal">
+        <div class="modal-content points-modal-content">
+            <div class="modal-header">
+                <div><span class="points-modal-eyebrow">管理员操作</span><h3><i class="fas fa-coins"></i> 调整用户积分</h3></div>
+                <button id="points-modal-close" class="modal-close" type="button">&times;</button>
+            </div>
+            <form id="points-adjust-form" class="modal-form">
+                <input type="hidden" id="points-adjust-user-id">
+                <div class="points-user-summary">
+                    <div class="points-avatar" id="points-adjust-avatar">U</div>
+                    <div><strong id="points-adjust-username">-</strong><span id="points-adjust-user-code">用户 ID：-</span></div>
+                    <div class="points-current-balance"><span>当前积分</span><strong id="points-adjust-current">0.00</strong></div>
+                </div>
+                <div class="form-group">
+                    <label for="points-adjust-mode">调整方式</label>
+                    <div class="points-mode-switch" id="points-mode-switch">
+                        <button type="button" class="active" data-mode="add"><i class="fas fa-plus"></i> 增加</button>
+                        <button type="button" data-mode="deduct"><i class="fas fa-minus"></i> 扣减</button>
+                        <button type="button" data-mode="set"><i class="fas fa-pen-to-square"></i> 设为</button>
+                    </div>
+                    <input type="hidden" id="points-adjust-mode" value="add">
+                </div>
+                <div class="form-group">
+                    <label for="points-adjust-amount">积分数量</label>
+                    <div class="points-amount-input"><input type="number" id="points-adjust-amount" min="0.05" step="0.05" placeholder="例如 100" required><span>积分</span></div>
+                    <small>最小调整单位为 0.05 积分</small>
+                </div>
+                <div class="points-quick-values" id="points-quick-values">
+                    <button type="button" data-value="10">10</button><button type="button" data-value="100">100</button><button type="button" data-value="500">500</button><button type="button" data-value="1000">1000</button>
+                </div>
+                <div class="form-group">
+                    <label for="points-adjust-reason">调整原因 <em>必填</em></label>
+                    <textarea id="points-adjust-reason" maxlength="500" placeholder="请写明补偿、活动奖励、异常修正等具体原因，方便后续核对" required></textarea>
+                </div>
+                <div id="points-adjust-preview" class="points-adjust-preview"><span>调整后预计余额</span><strong>--</strong></div>
+                <div id="points-adjust-error" class="points-form-error"></div>
+                <div class="modal-footer">
+                    <button type="button" id="points-modal-cancel" class="btn-cancel">取消</button>
+                    <button type="submit" id="points-adjust-submit" class="btn-submit"><i class="fas fa-check"></i> 确认调整</button>
+                </div>
+            </form>
         </div>
     </div>
 

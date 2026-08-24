@@ -17,6 +17,7 @@ import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openai
 import { getPersonaId } from "./persona";
 import { getAuthToken, getEffectiveUserId } from "./authSession";
 import { getOutputAvoidanceForRequest } from "./outputPreferences";
+import { appEditionHeader } from "./edition";
 
 /** 带超时的 fetch（检索/综述等长请求） */
 async function fetchWithTimeout(
@@ -306,6 +307,7 @@ function headersJson(extra?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = {
     "Content-Type": "application/json",
     "X-User-Id": getEffectiveUserId(),
+    ...appEditionHeader(),
     ...extra,
   };
   const t = getAuthToken();
@@ -542,14 +544,19 @@ export async function* searchPapersV1Stream(
                 parentOperationId:
                   String(obj.parentOperationId ?? billingReceipt?.operationId ?? "") || undefined,
               };
+              await reader.cancel().catch(() => undefined);
+              return;
             } else if (eventName === "error") {
               yield { type: "error", error: String(obj.error ?? "未知错误") };
+              await reader.cancel().catch(() => undefined);
+              return;
             }
           } catch { /* malformed JSON line, skip */ }
           eventName = "";
         }
       }
     }
+    yield { type: "error", error: "与后端的连接已中断，回答未完成，请确认服务已启动后重新发送。" };
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
       yield { type: "error", error: "请求已取消或超时" };

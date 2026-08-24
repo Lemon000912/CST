@@ -277,6 +277,7 @@ export async function beginBillableOperation({
   requestHash,
   request,
   leaseMs = DEFAULT_LEASE_MS,
+  allowZeroBalance = false,
 }) {
   const normalizedUserId = assertNonEmpty(userId, "userId", 128);
   const normalizedType = normalizeOperationType(operationType);
@@ -353,7 +354,7 @@ export async function beginBillableOperation({
       const wallet = await readWallet(tx, normalizedUserId, true);
       if (!wallet) throw new BillingError("wallet-not-found", "Point wallet was not found", 404);
       const balanceUnits = normalizeInteger(wallet.balance_units, "wallet balance");
-      if (balanceUnits <= 0) {
+      if (!allowZeroBalance && balanceUnits <= 0) {
         throw new BillingError("insufficient-points", "Point balance must be positive to begin an operation", 402, {
           balanceUnits,
           balance: formatPointUnits(balanceUnits),

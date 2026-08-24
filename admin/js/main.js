@@ -7,6 +7,7 @@ import { api } from './api.js';
 import { store } from './store.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { UsersPage } from './pages/users.js';
+import { PointsPage } from './pages/points.js';
 import { PDFsPage } from './pages/pdfs.js';
 import { DOIsPage } from './pages/dois.js';
 import { LogsPage } from './pages/logs.js';
@@ -16,6 +17,7 @@ import { ConfigPage } from './pages/config.js';
 const pages = {
     dashboard: DashboardPage,
     users: UsersPage,
+    points: PointsPage,
     pdfs: PDFsPage,
     doi: DOIsPage,
     logs: LogsPage,
