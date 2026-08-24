@@ -71,10 +71,18 @@ import {
   handleLogin,
   handleMe,
   handleRegister,
+  handleSendRegisterSmsCode,
+  handleWechatBindPhone,
+  handleWechatCallback,
+  handleWechatSession,
+  handleWechatStart,
+  handleSendWechatBindSmsCode,
   requireAdmin,
   requireAuthenticatedUser,
   resolveUserIdFromRequest,
 } from "./auth.js";
+import { isSmsVerificationConfigured } from "./smsVerification.js";
+import { isWechatOAuthConfigured } from "./wechatOAuth.js";
 import {
   BillingError,
   PRICING_CATALOG,
@@ -138,6 +146,8 @@ console.log("[GStack] 图融合引擎已初始化");
 // 认证端点限速器
 const authLimiter = createScopedLimiter({ max: 10, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
 const regLimiter  = createScopedLimiter({ max: 3,  windowMs: 60 * 60 * 1000, maxBuckets: 2000 });
+const smsIpLimiter = createScopedLimiter({ max: 10, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
+const smsPhoneLimiter = createScopedLimiter({ max: 3, windowMs: 10 * 60 * 1000, maxBuckets: 5000 });
 const rechargeLimiter = createScopedLimiter({ max: 20, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
 
 // 启动时清除缓存（避免旧缓存数据污染）
@@ -458,8 +468,64 @@ app.get("/api/health", (_req, res) => {
       chartFromPapers: true,
       matsciNerAugment: isMatsciAugmentConfigured(),
       deepPaperMine: true,
+      smsRegistration: isSmsVerificationConfigured(),
+      wechatLogin: isWechatOAuthConfigured(),
     },
   });
+});
+
+app.get("/api/v1/auth/wechat/start", async (req, res) => {
+  const ip = clientIp(req);
+  if (!authLimiter("wechat:start", ip)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "微信登录请求过于频繁，请稍后重试",
+      code: "rate-limit-exceeded",
+    });
+  }
+  await handleWechatStart(req, res);
+});
+
+app.get("/api/v1/auth/wechat/callback", async (req, res) => {
+  await handleWechatCallback(req, res);
+});
+
+app.post("/api/v1/auth/wechat/session", async (req, res) => {
+  await handleWechatSession(req, res);
+});
+
+app.post("/api/v1/auth/wechat/sms/send", async (req, res) => {
+  const ip = clientIp(req);
+  const phone = String(req.body?.phone ?? "").trim().slice(0, 32);
+  if (!smsIpLimiter("wechat:sms:ip", ip) || !smsPhoneLimiter("wechat:sms:phone", phone)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "验证码发送过于频繁，请稍后再试",
+      code: "sms-rate-limit-exceeded",
+    });
+  }
+  await handleSendWechatBindSmsCode(req, res);
+});
+
+app.post("/api/v1/auth/wechat/bind", async (req, res) => {
+  const ip = clientIp(req);
+  if (!authLimiter("wechat:bind", ip) || !regLimiter("wechat:bind:hour", ip)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "微信绑定请求过于频繁，请稍后再试",
+      code: "rate-limit-exceeded",
+    });
+  }
+  await handleWechatBindPhone(req, res);
+});
+
+app.post("/api/v1/auth/sms/send", async (req, res) => {
+  const ip = clientIp(req);
+  const phone = String(req.body?.phone ?? "").trim().slice(0, 32);
+  if (!smsIpLimiter("sms:ip", ip) || !smsPhoneLimiter("sms:phone", phone)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "验证码发送过于频繁，请稍后再试",
+      code: "sms-rate-limit-exceeded",
+    });
+  }
+  await handleSendRegisterSmsCode(req, res);
 });
 
 app.post("/api/v1/auth/register", async (req, res) => {

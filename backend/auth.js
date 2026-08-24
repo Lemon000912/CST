@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import {
@@ -7,11 +7,33 @@ import {
   findUserByEmail,
   findUserByPhone,
   findUserById,
+  findUserByWechatIdentity,
+  bindWechatIdentityByVerifiedPhone,
+  WechatIdentityLinkError,
   normalizeUsernameKey,
 } from "./db.js";
 import { BillingError, getPointBalance } from "./billing.js";
+import {
+  SmsVerificationError,
+  checkRegisterVerificationCode,
+  sendRegisterVerificationCode,
+} from "./smsVerification.js";
+import {
+  WechatOAuthError,
+  buildWechatAuthorizationUrl,
+  clearWechatTicket,
+  consumeWechatTicket,
+  createWechatTicket,
+  exchangeWechatCode,
+  getWechatFrontendRedirect,
+  getWechatTicket,
+  updateWechatTicket,
+} from "./wechatOAuth.js";
 
 const JWT_ISS = "paper-query";
+const WECHAT_COOKIE_PATH = "/api/v1/auth/wechat";
+const WECHAT_STATE_COOKIE = "qp_wechat_oauth_state";
+const WECHAT_TICKET_COOKIE = "qp_wechat_login_ticket";
 
 export class AuthConfigurationError extends Error {
   constructor(message) {
@@ -31,6 +53,67 @@ function getJwtSecret() {
     "[auth] JWT_SECRET 未设置或短于 32 字符，使用内置开发密钥；生产环境请务必在 .env 设置强随机 JWT_SECRET",
   );
   return new TextEncoder().encode("paper-query-dev-insecure-secret-min-32-chars!");
+}
+
+function parseRequestCookies(req) {
+  const result = {};
+  for (const part of String(req.headers?.cookie ?? "").split(";")) {
+    const separator = part.indexOf("=");
+    if (separator <= 0) continue;
+    const name = part.slice(0, separator).trim();
+    const rawValue = part.slice(separator + 1).trim();
+    try {
+      result[name] = decodeURIComponent(rawValue);
+    } catch {
+      result[name] = rawValue;
+    }
+  }
+  return result;
+}
+
+function isSecureWechatCookie() {
+  return String(process.env.NODE_ENV ?? "").toLowerCase() === "production"
+    || /^https:\/\//i.test(String(process.env.WECHAT_OPEN_REDIRECT_URI ?? "").trim());
+}
+
+function setWechatCookie(res, name, value, maxAgeSeconds) {
+  const attributes = [
+    `${name}=${encodeURIComponent(String(value))}`,
+    `Path=${WECHAT_COOKIE_PATH}`,
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  if (isSecureWechatCookie()) attributes.push("Secure");
+  res.append("Set-Cookie", attributes.join("; "));
+}
+
+function clearWechatCookie(res, name) {
+  setWechatCookie(res, name, "", 0);
+}
+
+function equalState(left, right) {
+  const a = Buffer.from(String(left ?? ""));
+  const b = Buffer.from(String(right ?? ""));
+  return a.length >= 16 && a.length === b.length && timingSafeEqual(a, b);
+}
+
+function wechatTicketFromRequest(req) {
+  return parseRequestCookies(req)[WECHAT_TICKET_COOKIE] ?? "";
+}
+
+async function successfulAuthPayload(user) {
+  const token = await signAuthToken(user.id, user.username);
+  const billing = await getPointBalance(user.id);
+  return {
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      isAdmin: isConfiguredAdminUsername(user.username),
+    },
+    billing,
+  };
 }
 
 // 邮箱验证正则
@@ -211,6 +294,225 @@ export function validatePhoneForRegister(raw) {
 }
 
 /**
+ * Send a provider-managed verification code for registration.
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export async function handleSendRegisterSmsCode(req, res) {
+  try {
+    const ph = validatePhoneForRegister(req.body?.phone);
+    if (!ph.ok) return res.status(400).json({ error: ph.error, code: "invalid-phone" });
+
+    const existingPhone = await findUserByPhone(ph.phone);
+    if (existingPhone) {
+      return res.status(409).json({ error: "手机号已被注册", code: "phone-already-registered" });
+    }
+
+    const sent = await sendRegisterVerificationCode(ph.phone);
+    return res.json({ ok: true, expiresIn: sent.expiresIn });
+  } catch (error) {
+    if (error instanceof SmsVerificationError) {
+      console.warn("[auth/sms/send]", error.code, error.providerCode || "");
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/sms/send]", error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: "短信服务暂时不可用", code: "sms-provider-failed" });
+  }
+}
+
+function redirectWechatResult(res, params, fallbackStatus = 400) {
+  try {
+    return res.redirect(302, getWechatFrontendRedirect(params));
+  } catch (error) {
+    console.error("[auth/wechat/redirect]", error instanceof Error ? error.message : error);
+    return res.status(fallbackStatus).json({
+      error: "微信登录未正确配置",
+      code: "wechat-not-configured",
+    });
+  }
+}
+
+export async function handleWechatStart(_req, res) {
+  try {
+    const state = randomBytes(24).toString("base64url");
+    setWechatCookie(res, WECHAT_STATE_COOKIE, state, 10 * 60);
+    return res.redirect(302, buildWechatAuthorizationUrl(state));
+  } catch (error) {
+    console.error("[auth/wechat/start]", error instanceof Error ? error.message : error);
+    if (error instanceof WechatOAuthError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    return res.status(500).json({ error: "微信登录启动失败", code: "wechat-start-failed" });
+  }
+}
+
+export async function handleWechatCallback(req, res) {
+  const cookies = parseRequestCookies(req);
+  clearWechatCookie(res, WECHAT_STATE_COOKIE);
+  const returnedState = String(req.query?.state ?? "");
+  if (!equalState(cookies[WECHAT_STATE_COOKIE], returnedState)) {
+    return redirectWechatResult(res, { wechat_error: "invalid_state" });
+  }
+  const code = String(req.query?.code ?? "").trim();
+  if (!code) {
+    return redirectWechatResult(res, { wechat_error: "cancelled" });
+  }
+
+  try {
+    const identity = await exchangeWechatCode(code);
+    const linkedUser = await findUserByWechatIdentity(identity);
+    const ticket = createWechatTicket(
+      linkedUser
+        ? { kind: "login", userId: linkedUser.id }
+        : { kind: "bind", identity },
+    );
+    setWechatCookie(res, WECHAT_TICKET_COOKIE, ticket.token, ticket.expiresIn);
+    return redirectWechatResult(res, { wechat: "complete" });
+  } catch (error) {
+    console.warn(
+      "[auth/wechat/callback]",
+      error?.code || error?.name || "unknown",
+      error?.providerCode || "",
+    );
+    const codeValue = error instanceof WechatOAuthError ? error.code : "wechat-callback-failed";
+    return redirectWechatResult(res, { wechat_error: codeValue }, error?.status ?? 502);
+  }
+}
+
+export async function handleWechatSession(req, res) {
+  try {
+    const ticketToken = wechatTicketFromRequest(req);
+    const ticket = getWechatTicket(ticketToken);
+    if (!ticket) {
+      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      return res.status(401).json({ error: "微信登录已过期，请重新扫码", code: "wechat-ticket-expired" });
+    }
+    if (ticket.kind === "bind") {
+      return res.json({
+        requiresPhone: true,
+        wechat: {
+          nickname: ticket.identity.nickname,
+          avatarUrl: ticket.identity.avatarUrl,
+        },
+      });
+    }
+    if (ticket.kind !== "login") {
+      clearWechatTicket(ticketToken);
+      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      return res.status(400).json({ error: "微信登录状态无效", code: "wechat-ticket-invalid" });
+    }
+    const consumed = consumeWechatTicket(ticketToken);
+    clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+    const user = consumed ? await findUserById(consumed.userId) : null;
+    if (!user) {
+      return res.status(401).json({ error: "微信绑定账号不存在", code: "wechat-user-not-found" });
+    }
+    return res.json(await successfulAuthPayload(user));
+  } catch (error) {
+    console.error("[auth/wechat/session]", error instanceof Error ? error.message : error);
+    return res.status(500).json({ error: "微信登录失败", code: "wechat-session-failed" });
+  }
+}
+
+export async function handleSendWechatBindSmsCode(req, res) {
+  try {
+    const ticket = getWechatTicket(wechatTicketFromRequest(req));
+    if (!ticket || ticket.kind !== "bind") {
+      return res.status(401).json({ error: "微信登录已过期，请重新扫码", code: "wechat-ticket-expired" });
+    }
+    const phoneResult = validatePhoneForRegister(req.body?.phone);
+    if (!phoneResult.ok) {
+      return res.status(400).json({ error: phoneResult.error, code: "invalid-phone" });
+    }
+    const sent = await sendRegisterVerificationCode(phoneResult.phone);
+    return res.json({ ok: true, expiresIn: sent.expiresIn });
+  } catch (error) {
+    if (error instanceof SmsVerificationError) {
+      console.warn("[auth/wechat/sms]", error.code, error.providerCode || "");
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/wechat/sms]", error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: "短信服务暂时不可用", code: "sms-provider-failed" });
+  }
+}
+
+export async function handleWechatBindPhone(req, res) {
+  const ticketToken = wechatTicketFromRequest(req);
+  try {
+    const ticket = getWechatTicket(ticketToken);
+    if (!ticket || ticket.kind !== "bind") {
+      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      return res.status(401).json({ error: "微信登录已过期，请重新扫码", code: "wechat-ticket-expired" });
+    }
+    const phoneResult = validatePhoneForRegister(req.body?.phone);
+    if (!phoneResult.ok) return res.status(400).json({ error: phoneResult.error, code: "invalid-phone" });
+    if (ticket.verifiedPhone) {
+      if (ticket.verifiedPhone !== phoneResult.phone) {
+        return res.status(400).json({
+          error: "手机号与已验证号码不一致，请重新扫码",
+          code: "wechat-verified-phone-mismatch",
+        });
+      }
+    } else {
+      await checkRegisterVerificationCode(phoneResult.phone, req.body?.smsCode);
+      updateWechatTicket(ticketToken, { verifiedPhone: phoneResult.phone });
+    }
+
+    const existingUser = await findUserByPhone(phoneResult.phone);
+    let newUser = null;
+    if (!existingUser) {
+      if (!String(req.body?.username ?? "").trim() || !String(req.body?.password ?? "")) {
+        return res.status(428).json({
+          error: "该手机号尚未注册，请设置用户名和密码完成新账号创建",
+          code: "wechat-new-account-details-required",
+          requiresAccountDetails: true,
+        });
+      }
+      const usernameResult = validateUsernameForRegister(req.body?.username);
+      if (!usernameResult.ok) return res.status(400).json({ error: usernameResult.error, code: "invalid-username" });
+      if (isConfiguredAdminUsername(usernameResult.username)) {
+        return res.status(409).json({ error: "用户名已被占用", code: "username-unavailable" });
+      }
+      const passwordResult = validatePasswordForRegister(req.body?.password);
+      if (!passwordResult.ok) return res.status(400).json({ error: passwordResult.error, code: "invalid-password" });
+      const emailResult = validateEmailForRegister(req.body?.email);
+      if (!emailResult.ok) return res.status(400).json({ error: emailResult.error, code: "invalid-email" });
+      newUser = {
+        id: randomUUID(),
+        username: usernameResult.username,
+        passwordHash: await hashUserPassword(passwordResult.password),
+        email: emailResult.email,
+      };
+    }
+
+    const result = await bindWechatIdentityByVerifiedPhone({
+      identity: ticket.identity,
+      phone: phoneResult.phone,
+      newUser,
+    });
+    consumeWechatTicket(ticketToken);
+    clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+    return res.status(result.created ? 201 : 200).json({
+      ...(await successfulAuthPayload(result.user)),
+      accountCreated: result.created,
+    });
+  } catch (error) {
+    if (error instanceof SmsVerificationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof WechatIdentityLinkError) {
+      const status = ["wechat-account-already-bound", "wechat-identity-already-bound"].includes(error.code) ? 409 : 400;
+      return res.status(status).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof BillingError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/wechat/bind]", error);
+    return res.status(500).json({ error: "微信绑定失败", code: "wechat-bind-failed" });
+  }
+}
+
+/**
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  */
@@ -248,6 +550,9 @@ export async function handleRegister(req, res) {
       if (existingPhone) return res.status(409).json({ error: "手机号已被注册" });
     }
 
+    // The code is bound by the provider to this phone number and scene.
+    await checkRegisterVerificationCode(ph.phone, req.body?.smsCode);
+
     const id = randomUUID();
     const hash = await hashUserPassword(p.password);
     const created = await createUserRecord(id, u.username, hash, e.email, ph.phone);
@@ -264,6 +569,10 @@ export async function handleRegister(req, res) {
     });
   } catch (err) {
     console.error("[auth/register]", err);
+    if (err instanceof SmsVerificationError) {
+      console.warn("[auth/register/sms]", err.code, err.providerCode || "");
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     if (err instanceof AuthConfigurationError) {
       return res.status(503).json({ error: "鉴权服务未正确配置", code: err.code });
     }

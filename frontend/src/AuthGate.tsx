@@ -4,6 +4,8 @@ import LoginScreen from "./LoginScreen";
 import { clearAuthSession, getAuthToken } from "./authSession";
 
 export default function AuthGate() {
+  const isWechatPreview = import.meta.env.DEV
+    && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
   const [token, setToken] = useState<string | null>(() => getAuthToken());
   const [checking, setChecking] = useState(() => Boolean(getAuthToken()));
 
@@ -43,6 +45,10 @@ export default function AuthGate() {
     clearAuthSession();
     setToken(null);
   }, []);
+
+  if (isWechatPreview) {
+    return <LoginScreen onLoggedIn={() => undefined} />;
+  }
 
   if (checking) {
     return (

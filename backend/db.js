@@ -389,6 +389,21 @@ export async function initDatabase() {
       await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email)`);
       await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique ON users (phone)`);
       await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS user_wechat_identities (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+          openid TEXT NOT NULL UNIQUE,
+          unionid TEXT,
+          nickname TEXT,
+          avatar_url TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await pgPool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS user_wechat_identities_unionid_unique
+        ON user_wechat_identities (unionid) WHERE unionid IS NOT NULL
+      `);
+      await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_skill (
           user_id TEXT PRIMARY KEY,
           persona_id TEXT DEFAULT 'researcher',
@@ -635,6 +650,17 @@ export async function initDatabase() {
         email TEXT UNIQUE,
         phone TEXT UNIQUE,
         created_at INTEGER NOT NULL
+      )
+    `);
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS user_wechat_identities (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+        openid TEXT NOT NULL UNIQUE,
+        unionid TEXT UNIQUE,
+        nickname TEXT,
+        avatar_url TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       )
     `);
     await db.exec(`
@@ -909,6 +935,194 @@ export async function createUserRecord(id, username, passwordHash, email = null,
   });
 }
 
+export class WechatIdentityLinkError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = "WechatIdentityLinkError";
+    this.code = code;
+  }
+}
+
+function normalizeWechatIdentity(identity) {
+  const openid = String(identity?.openid ?? "").trim();
+  const unionid = String(identity?.unionid ?? "").trim() || null;
+  if (!openid || openid.length > 256 || (unionid && unionid.length > 256)) {
+    throw new WechatIdentityLinkError("微信身份无效，请重新扫码", "wechat-identity-invalid");
+  }
+  return {
+    openid,
+    unionid,
+    nickname: String(identity?.nickname ?? "微信用户").trim().slice(0, 128) || "微信用户",
+    avatarUrl: String(identity?.avatarUrl ?? "").trim().slice(0, 2048) || null,
+  };
+}
+
+export async function findUserByWechatIdentity(identity) {
+  const normalized = normalizeWechatIdentity(identity);
+  if (pgPool) {
+    const result = await pgPool.query(
+      `SELECT u.id, u.username, u.email, u.phone, u.created_at
+         FROM user_wechat_identities w
+         JOIN users u ON u.id = w.user_id
+        WHERE w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2)
+        LIMIT 1`,
+      [normalized.openid, normalized.unionid],
+    );
+    return result.rows[0] || null;
+  }
+  const db = await getSqliteDb();
+  return await db.get(
+    `SELECT u.id, u.username, u.email, u.phone, u.created_at
+       FROM user_wechat_identities w
+       JOIN users u ON u.id = w.user_id
+      WHERE w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)
+      LIMIT 1`,
+    [normalized.openid, normalized.unionid, normalized.unionid],
+  );
+}
+
+/**
+ * Bind a verified WeChat identity to the account owning `phone`. If no such
+ * account exists, create it and grant signup points in the same transaction.
+ */
+export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUser }) {
+  const normalized = normalizeWechatIdentity(identity);
+  const normalizedPhone = String(phone ?? "").trim();
+  const ts = Date.now();
+  return withDatabaseTransaction(async (tx) => {
+    const linked = tx.dialect === "postgres"
+      ? await tx.get(
+        `SELECT u.id, u.username, u.email, u.phone
+           FROM user_wechat_identities w
+           JOIN users u ON u.id = w.user_id
+          WHERE w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2)
+          LIMIT 1 FOR UPDATE`,
+        [normalized.openid, normalized.unionid],
+      )
+      : await tx.get(
+        `SELECT u.id, u.username, u.email, u.phone
+           FROM user_wechat_identities w
+           JOIN users u ON u.id = w.user_id
+          WHERE w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)
+          LIMIT 1`,
+        [normalized.openid, normalized.unionid, normalized.unionid],
+      );
+    if (linked) {
+      if (String(linked.phone ?? "") !== normalizedPhone) {
+        throw new WechatIdentityLinkError(
+          "该微信已经绑定了其他手机号账号",
+          "wechat-identity-already-bound",
+        );
+      }
+      return { user: linked, created: false, alreadyLinked: true };
+    }
+
+    let user = tx.dialect === "postgres"
+      ? await tx.get(
+        "SELECT id, username, email, phone FROM users WHERE phone = $1 FOR UPDATE",
+        [normalizedPhone],
+      )
+      : await tx.get(
+        "SELECT id, username, email, phone FROM users WHERE phone = ?",
+        [normalizedPhone],
+      );
+    let created = false;
+
+    if (!user) {
+      if (!newUser?.id || !newUser?.username || !newUser?.passwordHash) {
+        throw new WechatIdentityLinkError(
+          "该手机号尚未注册，请填写新账号用户名和密码",
+          "wechat-new-account-details-required",
+        );
+      }
+      const usernameTaken = tx.dialect === "postgres"
+        ? await tx.get("SELECT id FROM users WHERE username = $1", [newUser.username])
+        : await tx.get("SELECT id FROM users WHERE username = ?", [newUser.username]);
+      if (usernameTaken) {
+        throw new WechatIdentityLinkError("用户名已被注册", "wechat-username-taken");
+      }
+      if (newUser.email) {
+        const emailTaken = tx.dialect === "postgres"
+          ? await tx.get("SELECT id FROM users WHERE email = $1", [newUser.email])
+          : await tx.get("SELECT id FROM users WHERE email = ?", [newUser.email]);
+        if (emailTaken) {
+          throw new WechatIdentityLinkError("邮箱已被注册", "wechat-email-taken");
+        }
+      }
+
+      if (tx.dialect === "postgres") {
+        await tx.run(
+          `INSERT INTO users (id, username, password_hash, email, phone, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts],
+        );
+        await tx.run(
+          `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
+           VALUES ($1,$2,$3,$3)`,
+          [newUser.id, INITIAL_POINT_GRANT_UNITS, ts],
+        );
+        await tx.run(
+          `INSERT INTO point_ledger
+           (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+           VALUES ($1,$2,NULL,'signup_grant',$3,$4,$4,$5,$6)`,
+          [crypto.randomUUID(), newUser.id, "signup_grant", INITIAL_POINT_GRANT_UNITS, JSON.stringify({ reason: "wechat_signup" }), ts],
+        );
+      } else {
+        await tx.run(
+          `INSERT INTO users (id, username, password_hash, email, phone, created_at)
+           VALUES (?,?,?,?,?,?)`,
+          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts],
+        );
+        await tx.run(
+          `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
+           VALUES (?,?,?,?)`,
+          [newUser.id, INITIAL_POINT_GRANT_UNITS, ts, ts],
+        );
+        await tx.run(
+          `INSERT INTO point_ledger
+           (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+           VALUES (?,?,NULL,'signup_grant',?,?,?,?,?)`,
+          [crypto.randomUUID(), newUser.id, "signup_grant", INITIAL_POINT_GRANT_UNITS, INITIAL_POINT_GRANT_UNITS, JSON.stringify({ reason: "wechat_signup" }), ts],
+        );
+      }
+      user = {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email ?? null,
+        phone: normalizedPhone,
+      };
+      created = true;
+    }
+
+    const existingWechat = tx.dialect === "postgres"
+      ? await tx.get("SELECT openid FROM user_wechat_identities WHERE user_id = $1", [user.id])
+      : await tx.get("SELECT openid FROM user_wechat_identities WHERE user_id = ?", [user.id]);
+    if (existingWechat) {
+      throw new WechatIdentityLinkError(
+        "该手机号对应的账号已经绑定了其他微信",
+        "wechat-account-already-bound",
+      );
+    }
+
+    if (tx.dialect === "postgres") {
+      await tx.run(
+        `INSERT INTO user_wechat_identities
+         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts],
+      );
+    } else {
+      await tx.run(
+        `INSERT INTO user_wechat_identities
+         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts, ts],
+      );
+    }
+    return { user, created, alreadyLinked: false };
+  });
+}
+
 /** Development-only helper used by the seeded test administrator. */
 export async function setDevelopmentPointBalance(userId, balanceUnits) {
   const normalizedUserId = String(userId ?? "").trim();
@@ -1170,6 +1384,19 @@ export async function getPaperPdfFile(paperId) {
 export async function searchLocalPapers(q, limit = 50) {
   const db = await getSqliteDb();
   const query = String(q ?? "").trim();
+  const queryPapers = async (sql, params) => {
+    try {
+      return await db.all(sql, params);
+    } catch (error) {
+      // PostgreSQL deployments may intentionally omit the optional SQLite
+      // papers table. In that layout SQLite is only a supplemental source, so
+      // a missing table must not discard otherwise valid PostgreSQL results.
+      if (/no such table:\s*papers\b/i.test(String(error?.message ?? error))) {
+        return [];
+      }
+      throw error;
+    }
+  };
 
   // 提取关键词：支持英文单词、化学式、中文
   const words = query.toLowerCase().match(/[a-z0-9\u4e00-\u9fff]{2,}/g) || [];
@@ -1179,7 +1406,7 @@ export async function searchLocalPapers(q, limit = 50) {
   // 如果没有提取到关键词，使用原始查询（可能是符号或非常短的查询）
   if (keywords.length === 0) {
     const like = `%${query.replace(/%/g, "").slice(0, 200)}%`;
-    return await db.all(
+    return await queryPapers(
       `SELECT paper_id, doi, title, abstract as summary, year, venue as journal, authors_json as authors, source_batch as source, created_at as published, pdf_url, abs_url, patent_number FROM papers WHERE title LIKE ? OR abstract LIKE ? OR authors_json LIKE ? ORDER BY year DESC LIMIT ?`,
       [like, like, like, limit]
     );
@@ -1199,7 +1426,7 @@ export async function searchLocalPapers(q, limit = 50) {
   const scoreParams = keywords.flatMap(k => [`%${k}%`, `%${k}%`, `%${k}%`]);
   const allParams = [...scoreParams, ...params, limit];
 
-  return await db.all(
+  return await queryPapers(
     `SELECT paper_id, doi, title, abstract as summary, year, venue as journal, authors_json as authors, source_batch as source, created_at as published, pdf_url, abs_url, patent_number,
      (${matchScores}) as relevance_score
      FROM papers WHERE ${conditions} ORDER BY relevance_score DESC, year DESC LIMIT ?`,
