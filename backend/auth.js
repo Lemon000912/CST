@@ -332,11 +332,16 @@ function redirectWechatResult(res, params, fallbackStatus = 400) {
   }
 }
 
-export async function handleWechatStart(_req, res) {
+export async function handleWechatStart(req, res) {
   try {
     const state = randomBytes(24).toString("base64url");
     setWechatCookie(res, WECHAT_STATE_COOKIE, state, 10 * 60);
-    return res.redirect(302, buildWechatAuthorizationUrl(state));
+    const authorizationUrl = buildWechatAuthorizationUrl(state);
+    if (String(req.query?.display ?? "") === "embed") {
+      res.set("Cache-Control", "no-store");
+      return res.json({ authorizationUrl });
+    }
+    return res.redirect(302, authorizationUrl);
   } catch (error) {
     console.error("[auth/wechat/start]", error instanceof Error ? error.message : error);
     if (error instanceof WechatOAuthError) {

@@ -133,8 +133,22 @@ export async function apiIsWechatLoginAvailable(): Promise<boolean> {
   }
 }
 
-export function startWechatLogin(): void {
-  window.location.assign("/api/v1/auth/wechat/start");
+export async function apiStartWechatLoginEmbed(): Promise<{ authorizationUrl: string }> {
+  const response = await fetch("/api/v1/auth/wechat/start?display=embed", {
+    headers: { Accept: "application/json" },
+  });
+  const text = await response.text();
+  const data = parseAuthJson(text) as AuthJson & { authorizationUrl?: string };
+  if (!response.ok) throw new Error(data.error || `微信登录启动失败（HTTP ${response.status}）`);
+  const authorizationUrl = String(data.authorizationUrl ?? "");
+  let parsed: URL;
+  try {
+    parsed = new URL(authorizationUrl);
+  } catch {
+    throw new Error("微信登录二维码地址无效");
+  }
+  if (!/^https?:$/.test(parsed.protocol)) throw new Error("微信登录二维码地址无效");
+  return { authorizationUrl: parsed.toString() };
 }
 
 export async function apiCompleteWechatLogin(): Promise<

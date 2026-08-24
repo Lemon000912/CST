@@ -8,7 +8,7 @@ import {
   apiRegister,
   apiSendRegisterSmsCode,
   apiSendWechatBindSmsCode,
-  startWechatLogin,
+  apiStartWechatLoginEmbed,
   type WechatBindingState,
 } from "./authApi";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
@@ -42,6 +42,80 @@ function PreviewQrCode() {
   );
 }
 
+type WxLoginOptions = {
+  self_redirect: boolean;
+  id: string;
+  appid: string;
+  scope: string;
+  redirect_uri: string;
+  state: string;
+  style: string;
+  href: string;
+};
+
+declare global {
+  interface Window {
+    WxLogin?: new (options: WxLoginOptions) => unknown;
+  }
+}
+
+function WechatQrEmbed({ authorizationUrl, onError }: { authorizationUrl: string; onError: (message: string) => void }) {
+  useEffect(() => {
+    let cancelled = false;
+    const containerId = "wechat-login-qr-container";
+    const renderQrCode = () => {
+      if (cancelled) return;
+      const WxLogin = window.WxLogin;
+      const container = document.getElementById(containerId);
+      if (!WxLogin || !container) {
+        onError("微信二维码组件加载失败，请稍后重试");
+        return;
+      }
+      try {
+        const url = new URL(authorizationUrl);
+        container.replaceChildren();
+        new WxLogin({
+          self_redirect: false,
+          id: containerId,
+          appid: url.searchParams.get("appid") || "",
+          scope: url.searchParams.get("scope") || "snsapi_login",
+          redirect_uri: url.searchParams.get("redirect_uri") || "",
+          state: url.searchParams.get("state") || "",
+          style: "black",
+          href: "",
+        });
+      } catch {
+        onError("微信二维码地址无效，请关闭后重试");
+      }
+    };
+
+    const scriptId = "wechat-wxlogin-script";
+    const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (window.WxLogin) {
+      renderQrCode();
+    } else if (existing) {
+      existing.addEventListener("load", renderQrCode, { once: true });
+      existing.addEventListener("error", () => onError("微信二维码组件加载失败，请稍后重试"), { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js";
+      script.async = true;
+      script.addEventListener("load", renderQrCode, { once: true });
+      script.addEventListener("error", () => onError("微信二维码组件加载失败，请稍后重试"), { once: true });
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+      existing?.removeEventListener("load", renderQrCode);
+      document.getElementById(containerId)?.replaceChildren();
+    };
+  }, [authorizationUrl, onError]);
+
+  return <div id="wechat-login-qr-container" className="wechat-login-qr-container" aria-label="微信扫码登录二维码" />;
+}
+
 export default function LoginScreen({
   edition,
   onEditionChange,
@@ -67,7 +141,10 @@ export default function LoginScreen({
   const [wechatAvailable, setWechatAvailable] = useState<boolean | null>(null);
   const [wechatBinding, setWechatBinding] = useState<WechatBindingState | null>(null);
   const [wechatNeedsAccountDetails, setWechatNeedsAccountDetails] = useState(false);
-  const [wechatPreviewOpen, setWechatPreviewOpen] = useState(false);
+  const [wechatQrOpen, setWechatQrOpen] = useState(false);
+  const [wechatQrUrl, setWechatQrUrl] = useState<string | null>(null);
+  const [wechatQrBusy, setWechatQrBusy] = useState(false);
+  const [wechatQrError, setWechatQrError] = useState<string | null>(null);
   const wechatCallbackHandled = useRef(false);
 
   useEffect(() => {
@@ -203,6 +280,23 @@ export default function LoginScreen({
       setErr(e instanceof Error ? e.message : "操作失败");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openWechatQr = async () => {
+    setErr(null);
+    setWechatQrError(null);
+    setWechatQrUrl(null);
+    setWechatQrOpen(true);
+    if (isWechatPreview) return;
+    setWechatQrBusy(true);
+    try {
+      const result = await apiStartWechatLoginEmbed();
+      setWechatQrUrl(result.authorizationUrl);
+    } catch (error) {
+      setWechatQrError(error instanceof Error ? error.message : "微信登录启动失败");
+    } finally {
+      setWechatQrBusy(false);
     }
   };
 
@@ -391,10 +485,7 @@ export default function LoginScreen({
               <button
                 type="button"
                 disabled={busy || wechatAvailable !== true}
-                onClick={() => {
-                  if (isWechatPreview) setWechatPreviewOpen(true);
-                  else startWechatLogin();
-                }}
+                onClick={() => void openWechatQr()}
                 className="flex items-center justify-center gap-2 rounded-xl border border-[#07c160]/30 bg-[#07c160] px-3 py-2.5 text-[13px] font-medium text-white transition hover:bg-[#06ad56] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">微</span>
@@ -404,32 +495,51 @@ export default function LoginScreen({
           ) : null}
         </div>
 
-      </div>
-      {isWechatPreview && wechatPreviewOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-white px-6 py-6 text-center shadow-2xl">
-            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#07c160] text-sm font-semibold text-white">
-              微信
-            </div>
-            <h2 className="text-lg font-semibold text-slate-900">微信扫码登录</h2>
-            <p className="mt-1 text-xs text-slate-500">使用微信扫一扫，确认登录犀材探索</p>
-            <div className="my-5 flex justify-center rounded-xl bg-slate-50 p-3">
-              <PreviewQrCode />
-            </div>
-            <p className="mb-4 text-[11px] text-amber-600">本地界面预览二维码，不可真实扫描</p>
-            <div className="flex gap-2">
+        {wechatQrOpen ? (
+          <div className="absolute inset-0 z-20 flex flex-col overflow-y-auto rounded-xl bg-[var(--t-surface)] px-6 py-6 text-center sm:px-8">
+            <div className="flex items-center justify-between">
               <button
                 type="button"
-                className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-                onClick={() => setWechatPreviewOpen(false)}
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-xl bg-[#07c160] px-3 py-2.5 text-sm font-medium text-white hover:bg-[#06ad56]"
+                className="rounded-lg px-2 py-1 text-xs text-[var(--t-text-muted)] transition hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"
                 onClick={() => {
-                  setWechatPreviewOpen(false);
+                  setWechatQrOpen(false);
+                  setWechatQrUrl(null);
+                  setWechatQrError(null);
+                }}
+              >
+                ← 返回
+              </button>
+              <span className="rounded-full bg-[#07c160]/10 px-2.5 py-1 text-[11px] font-medium text-[#07a950]">微信安全登录</span>
+            </div>
+
+            <p className="mt-4 text-sm text-[var(--t-text-muted)]">使用微信扫一扫，确认登录{APP_NAME}</p>
+
+            <div className="my-4 flex min-h-[268px] flex-1 items-center justify-center overflow-hidden rounded-xl border border-[color:var(--t-br08)] bg-white p-3">
+              {isWechatPreview ? (
+                <PreviewQrCode />
+              ) : wechatQrBusy ? (
+                <p className="text-sm text-slate-500">正在生成二维码…</p>
+              ) : wechatQrError ? (
+                <div className="px-4 text-sm text-red-600">
+                  <p>{wechatQrError}</p>
+                  <button type="button" className="mt-3 text-xs text-[#07a950] underline" onClick={() => void openWechatQr()}>
+                    重新加载
+                  </button>
+                </div>
+              ) : wechatQrUrl ? (
+                <WechatQrEmbed authorizationUrl={wechatQrUrl} onError={setWechatQrError} />
+              ) : null}
+            </div>
+
+            <p className={`text-[11px] ${isWechatPreview ? "text-amber-600" : "text-[var(--t-text-dim)]"}`}>
+              {isWechatPreview ? "本地界面预览二维码，不可真实扫描" : "二维码由微信开放平台提供，请使用本人微信扫码"}
+            </p>
+            {isWechatPreview ? (
+              <button
+                type="button"
+                className="mt-3 w-full rounded-xl bg-[#07c160] px-3 py-2.5 text-sm font-medium text-white transition hover:bg-[#06ad56]"
+                onClick={() => {
+                  setWechatQrOpen(false);
                   setWechatBinding({
                     requiresPhone: true,
                     wechat: { nickname: "微信预览用户", avatarUrl: null },
@@ -447,10 +557,10 @@ export default function LoginScreen({
               >
                 模拟扫码成功
               </button>
-            </div>
+            ) : null}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }
