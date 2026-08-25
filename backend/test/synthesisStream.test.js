@@ -31,6 +31,16 @@ test("synthesis stream hides a split structured JSON footer and reconciles final
   assert.equal(JSON.stringify(events).includes("steps"), false);
 });
 
+test("synthesis stream hides an unfenced raw structured JSON footer", () => {
+  const events = [];
+  const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));
+  stream.push("正文结论\n\n{\n  \"extractedData\": [{\"metric\": \"年份\", \"value\": \"1991\"}],\n  \"steps\": []\n}");
+  stream.finish("正文结论");
+
+  assert.equal(events.filter((x) => x.event === "synthesis_token").map((x) => x.data.token).join(""), "正文结论\n\n");
+  assert.equal(JSON.stringify(events).includes("extractedData"), false);
+});
+
 test("synthesis stream emits normal text incrementally without a replacement", () => {
   const events = [];
   const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));

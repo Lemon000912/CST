@@ -1,6 +1,13 @@
 const PRIVATE_TAIL_MARKERS = ["```json", "``` json", "【结构化 json"];
 const HOLD_BACK_CHARS = Math.max(...PRIVATE_TAIL_MARKERS.map((marker) => marker.length)) - 1;
 
+function rawJsonFooterStart(text) {
+  const m = String(text ?? "").match(/(?:^|\n)[ \t]*\{(?=[\s\S]{0,240}"(?:extractedData|steps)"\s*:)/i);
+  if (!m || m.index == null) return -1;
+  const brace = String(text).indexOf("{", m.index);
+  return brace >= 0 ? brace : -1;
+}
+
 /**
  * Streams only user-visible markdown. The structured JSON footer is held back,
  * while finish() always reconciles the UI with the already validated final text.
@@ -51,6 +58,15 @@ export function createSynthesisStreamEmitter(send, options = {}) {
       }
       if (markerIndex >= 0) {
         emit(pending.slice(0, markerIndex));
+        pending = "";
+        stopped = true;
+        return;
+      }
+      // Some providers omit the ```json fence and begin the machine footer
+      // directly with {"extractedData":...}; hide that tail from the正文 too.
+      const rawJsonIndex = rawJsonFooterStart(pending);
+      if (rawJsonIndex >= 0) {
+        emit(pending.slice(0, rawJsonIndex));
         pending = "";
         stopped = true;
         return;

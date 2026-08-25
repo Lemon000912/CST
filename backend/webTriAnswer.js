@@ -799,12 +799,24 @@ export async function synthesizeWebTriAnswer(p) {
   // then the final arbitrated answer replaces the temporary A preview atomically.
   let previewEmitted = false;
   const useAPreview = Boolean(triProviders.A) && typeof p.onTextDelta === "function";
+  // A preview uses the smaller prompt/answer budget so its first token can arrive
+  // sooner; the complete returned markdown is still retained as modelA for C/UI.
+  const aPreviewBase = useAPreview
+    ? buildLiteWebAnswerBase(
+        base,
+        papers,
+        userQuery,
+        picked.coreQuery,
+        p.conversationContext,
+      )
+    : base;
   const startA = () => runSingleWebAnswer({
-    ...base,
+    ...aPreviewBase,
     provider: triProviders.A,
     slot: "A",
     ...(useAPreview
       ? {
+          lite: true,
           streamFirstAttemptOnly: true,
           onTextDelta: (delta) => {
             previewEmitted = true;
