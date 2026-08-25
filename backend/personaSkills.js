@@ -4,12 +4,18 @@
  */
 
 const LABELS = {
-  researcher: "科研 / 研究生",
-  engineer: "工程研发 / 企业",
-  teacher: "教师 / 备课",
-  student: "本科生 / 课程作业",
-  patent: "专利 / IP 检索",
-  writer: "科普 / 科技写作",
+  school_researcher: "科研 / 研究生",
+  school_engineer: "工程师 / 校园",
+  school_teacher: "教师 / 备课",
+  school_student: "本科生 / 课程作业",
+  school_writer: "科普 / 科技写作",
+  school_patent: "专利 / IP 检索",
+  enterprise_intern: "实习生 / 研究生",
+  enterprise_tech: "技术 / 研发",
+  enterprise_consultant: "顾问 / 顾问",
+  enterprise_other: "部门 / 其他",
+  enterprise_writer: "撰写 / 专利",
+  enterprise_patent: "专利 / IP 检索",
 };
 
 const SKILLS = {
@@ -60,6 +66,22 @@ const SKILLS = {
   ].join("\n"),
 };
 
+// 版本化身份复用对应的基础 Skill；保留旧 id 以兼容历史请求与已保存数据。
+Object.assign(SKILLS, {
+  school_researcher: SKILLS.researcher,
+  school_engineer: SKILLS.engineer,
+  school_teacher: SKILLS.teacher,
+  school_student: SKILLS.student,
+  school_writer: SKILLS.writer,
+  school_patent: SKILLS.patent,
+  enterprise_intern: SKILLS.researcher,
+  enterprise_tech: SKILLS.engineer,
+  enterprise_consultant: SKILLS.engineer,
+  enterprise_other: SKILLS.teacher,
+  enterprise_writer: SKILLS.patent,
+  enterprise_patent: SKILLS.patent,
+});
+
 /** @param {string} raw */
 export function normalizePersonaId(raw) {
   const id = String(raw ?? "")
@@ -75,5 +97,5 @@ export function getPersonaSkill(personaId) {
 }
 
 export function listPersonas() {
-  return Object.keys(SKILLS).map((id) => ({ id, label: LABELS[id] || id }));
+  return Object.keys(LABELS).map((id) => ({ id, label: LABELS[id] || id }));
 }

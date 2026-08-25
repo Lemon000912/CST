@@ -2478,8 +2478,8 @@ export default function App({
     ids: Set<string>;
   } | null>(null);
   const [exportPickMode, setExportPickMode] = useState(false);
-  const [personaList, setPersonaList] = useState(DEFAULT_PERSONA_LIST);
-  const [personaId, setPersonaIdState] = useState(() => getPersonaId());
+  const [personaList, setPersonaList] = useState(() => DEFAULT_PERSONA_LIST);
+  const [personaId, setPersonaIdState] = useState(() => getPersonaId(edition));
   const [exportPickSessionId, setExportPickSessionId] = useState<string | null>(null);
   const [exportPickSelected, setExportPickSelected] = useState<Record<string, boolean>>({});
   /** 正在为某条助手消息生成 Matplotlib 图（防重复点击） */
@@ -2525,8 +2525,15 @@ export default function App({
   const [emptyWelcome] = useState(() => pickWelcomeCopy());
 
   useEffect(() => {
-    void fetchPersonaList().then(setPersonaList);
-  }, []);
+    void fetchPersonaList(edition).then((nextList) => {
+      setPersonaList(nextList);
+      setPersonaIdState((current) => {
+        const next = nextList.some((p) => p.id === current) ? current : nextList[0]?.id ?? "";
+        setPersonaId(next, edition);
+        return next;
+      });
+    });
+  }, [edition]);
 
   useEffect(() => {
     if (!pointsEnabled) {
@@ -3806,7 +3813,7 @@ export default function App({
             value={personaId}
             onChange={(e) => {
               const v = e.target.value;
-              setPersonaId(v);
+              setPersonaId(v, edition);
               setPersonaIdState(v);
             }}
             className="w-full rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-2 py-1.5 text-[11px] text-[var(--t-text)]"

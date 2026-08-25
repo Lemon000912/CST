@@ -1,48 +1,85 @@
-const STORAGE_KEY = "paper-query-persona-v1";
-const PERSONA_VERSION = "v2"; // 版本号，更新时修改
+import type { AppEdition } from "./edition";
+import { getAppEdition } from "./edition";
 
-/** 与 `backend/personaSkills.js` 中 id 保持一致；供离线或接口失败时展示 */
-export const DEFAULT_PERSONA_LIST: { id: string; label: string }[] = [
-  { id: "researcher", label: "科研 / 研究生" },
-  { id: "engineer", label: "工程研发 / 企业" },
-  { id: "teacher", label: "教师 / 备课" },
-  { id: "student", label: "本科生 / 课程作业" },
-  { id: "patent", label: "专利 / IP 检索" },
-  { id: "writer", label: "科普 / 科技写作" },
+const STORAGE_KEY = "paper-query-persona-v1";
+const PERSONA_VERSION = "v3";
+
+export type PersonaOption = { id: string; label: string };
+
+export const SCHOOL_PERSONA_LIST: PersonaOption[] = [
+  { id: "school_researcher", label: "科研 / 研究生" },
+  { id: "school_engineer", label: "工程师 / 校园" },
+  { id: "school_teacher", label: "教师 / 备课" },
+  { id: "school_student", label: "本科生 / 课程作业" },
+  { id: "school_writer", label: "科普 / 科技写作" },
+  { id: "school_patent", label: "专利 / IP 检索" },
 ];
 
-const ALLOWED = new Set(DEFAULT_PERSONA_LIST.map((p) => p.id));
+export const ENTERPRISE_PERSONA_LIST: PersonaOption[] = [
+  { id: "enterprise_intern", label: "实习生 / 研究生" },
+  { id: "enterprise_tech", label: "技术 / 研发" },
+  { id: "enterprise_consultant", label: "顾问 / 顾问" },
+  { id: "enterprise_other", label: "部门 / 其他" },
+  { id: "enterprise_writer", label: "撰写 / 专利" },
+  { id: "enterprise_patent", label: "专利 / IP 检索" },
+];
 
-/** 检查并清理过期的localStorage数据 */
+/** 与后端 personaSkills.js 中的版本化 id 保持一致。 */
+export const DEFAULT_PERSONA_LIST = SCHOOL_PERSONA_LIST;
+
+const LEGACY_TO_SCHOOL: Record<string, string> = {
+  researcher: "school_researcher",
+  engineer: "school_engineer",
+  teacher: "school_teacher",
+  student: "school_student",
+  writer: "school_writer",
+  patent: "school_patent",
+};
+
+function listForEdition(edition: AppEdition): PersonaOption[] {
+  return edition === "enterprise" ? ENTERPRISE_PERSONA_LIST : SCHOOL_PERSONA_LIST;
+}
+
+export function getPersonaListForEdition(edition: AppEdition): PersonaOption[] {
+  return listForEdition(edition);
+}
+
+const ALLOWED = new Set([
+  ...SCHOOL_PERSONA_LIST.map((p) => p.id),
+  ...ENTERPRISE_PERSONA_LIST.map((p) => p.id),
+  ...Object.keys(LEGACY_TO_SCHOOL),
+]);
+
+/** 检查并清理过期的 localStorage 数据。 */
 function cleanupOldData(): void {
   try {
     const savedVersion = localStorage.getItem("paper-query-persona-version");
     if (savedVersion !== PERSONA_VERSION) {
-      // 版本不一致，清除旧数据
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("paper-query-persona-version", PERSONA_VERSION);
-      console.log("[persona] 已清除旧版本身份数据");
     }
   } catch {
     /* ignore */
   }
 }
 
-// 初始化时清理旧数据
 cleanupOldData();
 
-export function getPersonaId(): string {
+export function getPersonaId(edition: AppEdition = getAppEdition()): string {
+  const options = listForEdition(edition);
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v && ALLOWED.has(v)) return v;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const migrated = raw ? LEGACY_TO_SCHOOL[raw] ?? raw : "";
+    if (ALLOWED.has(migrated) && options.some((p) => p.id === migrated)) return migrated;
   } catch {
     /* ignore */
   }
-  return "researcher";
+  return options[0]?.id ?? "school_researcher";
 }
 
-export function setPersonaId(id: string): void {
-  const next = ALLOWED.has(id) ? id : "researcher";
+export function setPersonaId(id: string, edition: AppEdition = getAppEdition()): void {
+  const options = listForEdition(edition);
+  const next = options.some((p) => p.id === id) ? id : options[0]?.id ?? "school_researcher";
   try {
     localStorage.setItem(STORAGE_KEY, next);
     localStorage.setItem("paper-query-persona-version", PERSONA_VERSION);
@@ -51,7 +88,6 @@ export function setPersonaId(id: string): void {
   }
 }
 
-export async function fetchPersonaList(): Promise<{ id: string; label: string }[]> {
-  // 优先使用本地列表，避免后端缓存问题
-  return DEFAULT_PERSONA_LIST;
+export async function fetchPersonaList(edition: AppEdition = getAppEdition()): Promise<PersonaOption[]> {
+  return listForEdition(edition);
 }
