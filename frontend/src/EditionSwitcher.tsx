@@ -31,7 +31,7 @@ export function EditionSwitcher({
                 : "text-[var(--t-text-muted)] hover:text-[var(--t-text)]"
             }`}
           >
-            {value === "school" ? "学校版" : "企业版"}
+            {value === "school" ? "校园版" : "企业版"}
           </button>
         );
       })}

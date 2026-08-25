@@ -153,6 +153,11 @@ function createSession(): ChatSession {
   return { id: uid(), title: "新对话", updatedAt: Date.now(), messages: [] };
 }
 
+/** 空白页是临时草稿，只有发送第一条消息后才会进入会话列表。 */
+function removeEmptySessions(sessions: ChatSession[]): ChatSession[] {
+  return sessions.filter((session) => session.messages.length > 0);
+}
+
 function sessionTitleFromMessages(messages: ChatMessage[]): string {
   const firstUser = messages.find((m) => m.role === "user");
   const t = firstUser?.content?.trim() || "新对话";
@@ -2438,12 +2443,13 @@ export default function App({
   const pointsEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId));
-    return loaded.length ? loaded : [createSession()];
+    return removeEmptySessions(loaded);
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverSaveInflightRef = useRef<Promise<void> | null>(null);
+  const [draftSession, setDraftSession] = useState<ChatSession>(() => createSession());
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [input, setInput] = useState("");
@@ -2497,8 +2503,8 @@ export default function App({
   const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
 
   const active = useMemo(
-    () => sessions.find((s) => s.id === activeId) ?? null,
-    [sessions, activeId],
+    () => (activeId ? sessions.find((s) => s.id === activeId) ?? null : draftSession),
+    [sessions, activeId, draftSession],
   );
   const activeAssistantShowsProgress = useMemo(() => {
     if (!busy || !active?.messages.length) return false;
@@ -2625,7 +2631,7 @@ export default function App({
           // into the live state so the delayed server response cannot erase it.
           setSessions((current) => {
             const merged = mergeChatSessions(persisted, current);
-            return merged.length ? merged : [createSession()];
+            return removeEmptySessions(merged);
           });
         }
         setSessionSyncState({
@@ -2644,8 +2650,9 @@ export default function App({
 
   useEffect(() => {
     if (!sessionsHydrated) return;
+    const persistedSessions = removeEmptySessions(sessions);
     try {
-      saveSessions(sessions, getAuthProfile()?.userId);
+      saveSessions(persistedSessions, getAuthProfile()?.userId);
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }
@@ -2655,7 +2662,7 @@ export default function App({
       // Guard: don't start a new PUT while one is already in flight
       if (serverSaveInflightRef.current) return;
       const baseRevision = sessionSyncState?.revision ?? null;
-      const payload = sessionsPayloadForServer(sessions);
+      const payload = sessionsPayloadForServer(persistedSessions);
       const doSave = async (): Promise<void> => {
         const result = await saveChatSessionsToServer(payload, undefined, baseRevision);
         if (result.ok) {
@@ -2672,12 +2679,13 @@ export default function App({
           });
           const serverSessions = Array.isArray(result.sessions) ? result.sessions : [];
           const merged = mergeChatSessions(serverSessions, sessions);
-          setSessions(merged.length ? merged : [createSession()]);
-          saveSessions(merged, getAuthProfile()?.userId);
+          const persistedMerged = removeEmptySessions(merged);
+          setSessions(persistedMerged);
+          saveSessions(persistedMerged, getAuthProfile()?.userId);
           // Retry once with the server's revision
           const retryRevision = result.revision ?? 0;
           const retryResult = await saveChatSessionsToServer(
-            sessionsPayloadForServer(merged),
+            sessionsPayloadForServer(persistedMerged),
             undefined,
             retryRevision,
           );
@@ -2702,7 +2710,7 @@ export default function App({
   useLayoutEffect(() => {
     setActiveId((id) => {
       if (id && sessions.some((s) => s.id === id)) return id;
-      return sessions[0]?.id ?? null;
+      return null;
     });
   }, [sessions]);
 
@@ -2845,10 +2853,9 @@ export default function App({
       setExportPickSessionId(null);
       setExportPickSelected({});
     }
-    const s = createSession();
-    activeIdRef.current = s.id;
-    setSessions((prev) => [s, ...prev]);
-    setActiveId(s.id);
+    activeIdRef.current = null;
+    setDraftSession(createSession());
+    setActiveId(null);
     setInput("");
     setAttachments([]);
     setMobileNavOpen(false);
@@ -2954,11 +2961,9 @@ export default function App({
     e.stopPropagation();
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
-      if (id === activeId && next[0]) setActiveId(next[0].id);
-      if (!next.length) {
-        const s = createSession();
-        setActiveId(s.id);
-        return [s];
+      if (id === activeId) {
+        activeIdRef.current = next[0]?.id ?? null;
+        setActiveId(next[0]?.id ?? null);
       }
       return next;
     });
@@ -3277,12 +3282,12 @@ export default function App({
     const q = text.trim();
     const attachLine =
       attachments.length > 0 ? `\n📎 ${attachments.map((a) => a.name).join("、")}` : "";
-    if ((!q && attachments.length === 0) || !activeId || busy) return;
+    if ((!q && attachments.length === 0) || busy) return;
 
-    const sessionId = activeIdRef.current ?? activeId;
+    const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
 
-    const priorMessages = sessions.find((s) => s.id === sessionId)?.messages ?? [];
+    const priorMessages = sessions.find((s) => s.id === sessionId)?.messages ?? draftSession.messages;
     const fieldAtSend = queryField;
     const channelAtSend = searchChannel;
     const sortAtSend = searchSort;
@@ -3307,18 +3312,19 @@ export default function App({
         deepMine: deepMineAtSend ? { enabled: true } : null,
       },
     };
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId
-          ? {
-              ...s,
-              messages: [...s.messages, userMsg, initialAssistant],
-              title: s.messages.length === 0 ? sessionTitleFromMessages([userMsg]) : s.title,
-              updatedAt: Date.now(),
-            }
-          : s,
-      ),
-    );
+    setSessions((prev) => {
+      const existing = prev.find((s) => s.id === sessionId);
+      const base = existing ?? (draftSession.id === sessionId ? draftSession : createSession());
+      const promoted = {
+        ...base,
+        messages: [...base.messages, userMsg, initialAssistant],
+        title: base.messages.length === 0 ? sessionTitleFromMessages([userMsg]) : base.title,
+        updatedAt: Date.now(),
+      };
+      return existing ? prev.map((s) => (s.id === sessionId ? promoted : s)) : [promoted, ...prev];
+    });
+    activeIdRef.current = sessionId;
+    setActiveId(sessionId);
     setInput("");
     setBusy(true);
     if (deepMineEnabled && !patentsOnlyEnabled) {
@@ -3813,7 +3819,7 @@ export default function App({
           </select>
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-          {sessions.map((s) => (
+          {sessions.filter((s) => s.messages.length > 0).map((s) => (
             <div key={s.id} className="group relative mb-1">
               <button
                 type="button"

@@ -308,7 +308,7 @@ export default function LoginScreen({
           <AppLogo size="lg" className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
-            {mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "学校版" : "企业版"}
+            {mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : "企业版"}
           </p>
         </div>
 
