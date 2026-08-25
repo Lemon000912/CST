@@ -205,7 +205,7 @@ test("web tri runs two drafts then C arbitration", async () => {
   });
 });
 
-test("streaming web tri starts speculative C before A/B finish, then returns arbitrated final text", async () => {
+test("streaming web tri streams A while B runs, then returns arbitrated final text", async () => {
   await withMockLlm(async ({ baseUrl, calls, events }) => {
     const env = providerEnv(baseUrl);
     env.LLM_PROVIDER_A_MODEL = "gpt-delay";
@@ -217,25 +217,17 @@ test("streaming web tri starts speculative C before A/B finish, then returns arb
         events.push("delta:preview");
       });
 
-      assert.equal(calls.filter((call) => call.model === "gemini-test").length, 2);
-      const previewCall = calls.find((call) =>
-        call.model === "gemini-test" && !JSON.stringify(call.body).includes("模型 A 回答"),
-      );
-      const arbitrationCall = calls.find((call) =>
-        call.model === "gemini-test" && JSON.stringify(call.body).includes("模型 A 回答"),
-      );
-      assert.ok(previewCall);
+      assert.equal(calls.filter((call) => call.model === "gemini-test").length, 1);
+      const arbitrationCall = calls.find((call) => call.model === "gemini-test");
       assert.ok(arbitrationCall);
-      assert.ok(events.indexOf("start:gemini-test") < events.indexOf("end:gpt-delay"), events.join(","));
+      assert.ok(events.indexOf("start:gpt-delay") < events.indexOf("end:qwen-delay"), events.join(","));
       const firstPreviewDelta = events.indexOf("delta:preview");
       assert.ok(firstPreviewDelta >= 0, events.join(","));
-      assert.ok(firstPreviewDelta < events.indexOf("end:qwen-delay"), events.join(","));
-      assert.ok(deltas.join("").includes("Gemini arbitration"));
-      assert.equal(result.synthesisModels.mode, "web_tri_speculative_arbitration");
+      assert.ok(deltas.join("").includes("gpt-delay answer"));
+      assert.equal(result.synthesisModels.mode, "web_tri_arbitration");
       assert.match(result.markdown, /Gemini arbitration/);
-      assert.ok(result.llmUsage.slots.preview);
       assert.ok(result.llmUsage.slots.C);
-      assert.equal(result.llmUsage.total.totalTokens, 64);
+      assert.equal(result.llmUsage.total.totalTokens, 47);
     });
   });
 });

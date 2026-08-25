@@ -3422,7 +3422,7 @@ export default function App({
           });
         } else if (event.type === "synthesis_token") {
           synthesisSoFar += event.token;
-          // 联网 C-preview 直接展示 SSE 片段，不再叠加前端打字动画。
+          // 联网 A 草稿直接展示 SSE 片段；C 仲裁完成后由 synthesis_replace 原子替换。
           upsertAssistant({
             meta: {
               // 保留已有 meta，只更新 synthesis

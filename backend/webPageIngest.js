@@ -235,7 +235,16 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
 
   const byId = new Map(list.map((p) => [String(p.paper_id ?? p.id ?? ""), { ...p }]));
 
-  for (const t of targets) {
+  /**
+   * 网页正文抓取使用小型 worker pool：保留结果顺序，但允许多个站点同时请求，
+   * 避免单个慢站点把后续所有页面串行阻塞。默认 4 路，最多 6 路。
+   */
+  const concurrency = Math.min(
+    6,
+    Math.max(1, Number(opts.concurrency ?? process.env.WEB_FETCH_CONCURRENCY) || 4),
+  );
+  let nextIndex = 0;
+  const fetchOne = async (t) => {
     const key = String(t.paper_id ?? t.id ?? "");
     const url = String(t.absUrl ?? "").trim();
     const row = byId.get(key) || { ...t };
@@ -246,6 +255,22 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
       () => fetchWebPageText(url, timeoutMs),
       (value) => ({ ok: Boolean(value?.ok), via: value?.via, error: value?.error }),
     );
+    return { key, row, got };
+  };
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= targets.length) return;
+      results[index] = await fetchOne(targets[index]);
+    }
+  };
+  const results = [];
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, targets.length) }, () => worker()),
+  );
+
+  for (const result of results) {
+    const { key, row, got } = result;
     if (!got.ok) {
       errors++;
       row.webFetchNote = got.error;

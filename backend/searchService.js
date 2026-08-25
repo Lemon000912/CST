@@ -646,7 +646,15 @@ async function runWebIntelSearch(opts) {
   }
 
   let webMerged = webPaperBuckets.flat();
-  const followUp = inferFollowUpWebQueries(webMerged, rawQuery);
+  /**
+   * 第二轮只作为低频兜底：限制查询数和等待预算，避免特殊实体问题把整条请求拖到
+   * 首轮超时之后再额外等待 30～40 秒。环境变量仍可把上限调得更保守，但不会突破这里的硬上限。
+   */
+  const round2QueryCap = Math.min(
+    2,
+    Math.max(1, Number(process.env.WEB_ROUND2_QUERY_MAX) || 2),
+  );
+  const followUp = inferFollowUpWebQueries(webMerged, rawQuery).slice(0, round2QueryCap);
   if (followUp.length) {
     sourcesUsed.push(`web_round2:${followUp.length}`);
     const round2Tasks = followUp.map((q, i) => ({
@@ -669,7 +677,7 @@ async function runWebIntelSearch(opts) {
       { tasks: round2Tasks.length },
       () => raceWithTimeout(
         round2Tasks,
-        Math.min(42_000, Math.max(22_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 32_000)),
+        Math.min(15_000, Math.max(8_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 12_000)),
       ),
       (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
     );
@@ -680,21 +688,44 @@ async function runWebIntelSearch(opts) {
     }
   }
 
-  if (isBookIntentQuery(webSearchQ) && webMerged.length < 3) {
+  if (isBookIntentQuery(webSearchQ) && webMerged.length < 2) {
     const bp = buildBookWebSearchPlan(webSearchQ, effectiveQuery);
     const rescueQs = bp.queries.length
-      ? bp.queries.slice(0, 5)
-      : extractBookTitles(webSearchQ).map((t) => `${t} 目录 章节`);
-    for (const rq of rescueQs) {
+      ? bp.queries.slice(0, 2)
+      : extractBookTitles(webSearchQ).map((t) => `${t} 目录 章节`).slice(0, 2);
+    /** 书籍救援并行执行少量最高优先级查询，并设置每轮总等待上限。 */
+    const rescueTasks = rescueQs.map((rq, i) => ({
+      name: `book_rescue_q${i}`,
+      promise: traceAsync(
+        performanceTrace,
+        `search.web.book_rescue.query_${i + 1}`,
+        { queryChars: rq.length },
+        () => fetchMergedWebPapers(rq, Math.max(perWebQ, 36), {
+          chineseQuery: webSearchQ,
+          performanceTrace,
+          tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
+        }),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+      ),
+    }));
+    const rescueTimeoutMs = Math.min(
+      20_000,
+      Math.max(8_000, Number(process.env.WEB_BOOK_RESCUE_TIMEOUT_MS) || 15_000),
+    );
+    const rescueResults = await traceAsync(
+      performanceTrace,
+      "search.web.book_rescue.wait",
+      { tasks: rescueTasks.length, timeoutMs: rescueTimeoutMs },
+      () => raceWithTimeout(rescueTasks, rescueTimeoutMs),
+      (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
+    );
+    for (const rr of rescueResults) {
       if (webMerged.length >= 8) break;
-      try {
-        const w = await fetchMergedWebPapers(rq, Math.max(perWebQ, 36), { chineseQuery: webSearchQ });
-        if (w?.papers?.length) {
-          webMerged = webMerged.concat(w.papers);
-          sourcesUsed.push(w.toolName ? `book_rescue:${w.toolName}` : "book_rescue:web");
-        }
-      } catch (e) {
-        console.warn("[search] book_clue rescue failed", rq.slice(0, 40), e?.message || e);
+      if (rr.status === "fulfilled" && rr.value?.papers?.length) {
+        webMerged = webMerged.concat(rr.value.papers);
+        sourcesUsed.push(rr.value.toolName ? `book_rescue:${rr.value.toolName}` : "book_rescue:web");
+      } else if (rr.status !== "fulfilled") {
+        console.warn("[search] book_clue rescue failed", rr.name, rr.reason);
       }
     }
     if (rescueQs.length) sourcesUsed.push("book_clue_emergency_fetch");

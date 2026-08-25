@@ -187,13 +187,6 @@ function webTriMode() {
   return m === "single" ? "single" : "tri";
 }
 
-function speculativeWebStreamEnabled() {
-  // A speculative C answer can begin at an arbitrary point or be much shorter
-  // than the eventual arbitration result.  Keep the preview opt-in so the
-  // default stream always starts with the complete, arbitrated answer.
-  return String(process.env.WEB_STREAM_SPECULATIVE ?? "0").trim() !== "0";
-}
-
 function resolveWebFallbackModel(primary) {
   return sanitizeModel(primary || defaultModel());
 }
@@ -385,6 +378,13 @@ async function runSingleWebAnswer(args) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      /**
+       * 预览只展示第一次尝试，避免首轮质量重试时把两份回答拼接到同一个正文里。
+       * 最终的 ra.markdown 仍取质量检查通过的完整尝试，供 C 仲裁。
+       */
+      const streamThisAttempt =
+        typeof args.onTextDelta === "function" &&
+        (!args.streamFirstAttemptOnly || attempt === 1);
       const result = await traceAsync(
         args.performanceTrace,
         `synthesis.web.${String(args.slot || "unknown").replace(/[^a-z0-9_-]/gi, "_")}.attempt_${attempt}`,
@@ -403,7 +403,7 @@ async function runSingleWebAnswer(args) {
                 `【模型槽位】${args.slot || "?"}${attempt > 1 ? ` · 重试${attempt}` : ""}\n\n${userPrompt}`,
             },
           ],
-          ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
+          ...(streamThisAttempt ? { onTextDelta: args.onTextDelta } : {}),
         }),
         (value) => ({ status: value?.status, outputChars: String(value?.text ?? "").length, error: value?.error }),
       );
@@ -794,34 +794,34 @@ export async function synthesizeWebTriAnswer(p) {
     });
   }
 
-  // Streaming requests use a speculative C answer for a fast first token while
-  // A/B independently build the drafts that the second C call will arbitrate.
-  // Non-streaming requests retain the established A/B -> C sequence.
+  // Streaming requests use A's own draft as the temporary preview while B builds
+  // its independent draft silently. C is called only after both drafts complete,
+  // then the final arbitrated answer replaces the temporary A preview atomically.
   let previewEmitted = false;
-  const useSpeculativePreview =
-    triStatus.complete &&
-    speculativeWebStreamEnabled() &&
-    typeof p.onTextDelta === "function";
-  const previewPromise = useSpeculativePreview
-    ? runSingleWebAnswer({
-        ...base,
-        provider: triProviders.C,
-        slot: "C-preview",
-        maxAttempts: 1,
-        onTextDelta: (delta) => {
-          previewEmitted = true;
-          return p.onTextDelta(delta);
-        },
-      })
-    : Promise.resolve(unavailableWebAnswer("web_preview:not_run"));
-  const draftsPromise = runWebAnswerSlots(
-    [
-      { ...base, provider: triProviders.A, slot: "A" },
-      { ...base, provider: triProviders.B, slot: "B" },
-    ],
-    concurrency,
-  );
-  const [preview, [ra, rb]] = await Promise.all([previewPromise, draftsPromise]);
+  const useAPreview = Boolean(triProviders.A) && typeof p.onTextDelta === "function";
+  const startA = () => runSingleWebAnswer({
+    ...base,
+    provider: triProviders.A,
+    slot: "A",
+    ...(useAPreview
+      ? {
+          streamFirstAttemptOnly: true,
+          onTextDelta: (delta) => {
+            previewEmitted = true;
+            return p.onTextDelta(delta);
+          },
+        }
+      : {}),
+  });
+  const startB = () => runSingleWebAnswer({ ...base, provider: triProviders.B, slot: "B" });
+  let ra;
+  let rb;
+  if (concurrency >= 2) {
+    [ra, rb] = await Promise.all([startA(), startB()]);
+  } else {
+    ra = await startA();
+    rb = await startB();
+  }
 
   const drafts = {
     modelA: ra.markdown,
@@ -834,7 +834,6 @@ export async function synthesizeWebTriAnswer(p) {
   const draftUsage = {
     A: ra.usage,
     B: rb.usage,
-    ...(useSpeculativePreview ? { preview: preview.usage } : {}),
   };
 
   const executionMode = (mode) =>
@@ -926,10 +925,10 @@ export async function synthesizeWebTriAnswer(p) {
       markdown: arbitration.markdown,
       plan: arbitration.plan ?? pickWebPlan(ra, rb),
       planNote: arbitration.planNote ?? null,
-      note: `web_tri:arbitration_ok:${arbitration.note}${useSpeculativePreview ? `|preview=${preview.note}` : ""}|${sourceNote}`,
+      note: `web_tri:arbitration_ok:${arbitration.note}${previewEmitted ? "|preview=A" : ""}|${sourceNote}`,
       synthesisModels: {
         ...synthesisModels,
-        mode: executionMode(useSpeculativePreview ? "web_tri_speculative_arbitration" : "web_tri_arbitration"),
+        mode: executionMode("web_tri_arbitration"),
       },
       llmUsage: buildLlmUsage({ ...draftUsage, C: arbitration.usage }),
       webAnswerDrafts: drafts,
