@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createSynthesisStreamEmitter } from "../synthesisStream.js";
+import { parseSynthesisOutput } from "../synthesisExtract.js";
+
+test("invalid structured JSON footer is removed from visible markdown", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n```json\n{\"extractedData\":[{\"source_ref\":\"[5](https://example.com/a)\"}]\n```",
+  );
+  assert.equal(parsed.markdown, "正文结论");
+  assert.equal(parsed.plan, null);
+  assert.equal(parsed.planNote, "synth_plan:parse_error");
+});
 
 test("synthesis stream hides a split structured JSON footer and reconciles final markdown", () => {
   const events = [];

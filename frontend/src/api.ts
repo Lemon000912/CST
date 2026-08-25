@@ -339,7 +339,7 @@ export async function searchPapersV1(
     conversationContext?: string;
     /** 默认 true：检索后调用 LLM 生成带 DOI 标注的文献综述 */
     includeSynthesis?: boolean;
-    /** 默认 true：为 false 时不外呼专利与全网网页（DDG/Dataify/MCP）；其它检索不变 */
+    /** 默认 true：为 false 时不外呼专利与全网网页（Wikipedia/CORE 等）；其它检索不变 */
     useMcpWeb?: boolean;
     /** 为 true 时仅返回专利条目（OpenAlex 专利 + 专利网页），并尽量补全 patentNumber；默认不生成综述除非 includeSynthesis 显式为 true */
     patentsOnly?: boolean;

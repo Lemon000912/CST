@@ -74,7 +74,12 @@ export function parseSynthesisOutput(raw) {
         planNote: plan?.extractedData?.length ? "synth_plan:ok" : "synth_plan:ok_no_data",
       };
     } catch {
-      return { markdown: text, plan: null, planNote: "synth_plan:parse_error" };
+      // The footer is an internal machine-readable section.  Providers
+      // occasionally emit invalid JSON (for example an unescaped URL inside
+      // source_ref); never leak that implementation detail into the answer.
+      // Keep the human-readable markdown before the trailing fence and report
+      // the parse failure only through metadata.
+      return { markdown, plan: null, planNote: "synth_plan:parse_error" };
     }
   }
 

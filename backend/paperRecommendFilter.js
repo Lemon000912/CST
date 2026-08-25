@@ -16,6 +16,8 @@ const WEB_SOURCES = new Set([
   "searx_web",
   "qwant_web",
   "mojeek_web",
+  "wikipedia_web",
+  "core",
   "entity_seed",
 ]);
 
@@ -55,6 +57,8 @@ export function sourceTier(p) {
   if (s === "openalex") return 38;
   if (s === "arxiv") return 18;
   if (s === "dataify_web") return 38;
+  if (s === "core") return 48;
+  if (s === "wikipedia_web") return 30;
   if (s === "tavily_web") return 40;
   if (s === "searx_web") return 37;
   if (s === "mcp_web") return 36;
@@ -123,11 +127,21 @@ function extractChinesePhrasesForFilter(raw) {
   const m = String(raw ?? "").match(/[\u4e00-\u9fff]{2,12}/g);
   if (!m?.length) return [];
   const seen = new Set();
+  const generic = new Set(["公司", "企业", "产品", "材料", "相关", "研究", "方面", "问题", "信息"]);
   const out = [];
+  const push = (w) => {
+    const s = String(w ?? "").trim();
+    if (s.length < 2 || generic.has(s) || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
   for (const w of m) {
-    if (seen.has(w)) continue;
-    seen.add(w);
-    out.push(w);
+    push(w);
+    // 中文长查询常被网页标题拆写（如“锂离子电池正极材料”→“锂离子电池”“正极材料”）。
+    // 召回阶段加入连续四字短语，避免必须整句完全匹配。
+    if (w.length >= 8) {
+      for (let i = 0; i + 4 <= w.length; i += 4) push(w.slice(i, i + 4));
+    }
     if (out.length >= 12) break;
   }
   return out;
@@ -387,7 +401,13 @@ export function strictRecommendFilterAndRank(papers, mergedTokens, max, opts) {
       const relOk = x.rel >= 0.14 || x.hits >= 2 || alias >= 55;
       const patentOk =
         isPatentSource(x.p) && (alias >= 35 || (x.hits >= 1 && x.rel >= 0.08));
-      const webOk = isWebSource(x.p) && relOk && (corp ? x.hits >= 1 : x.hits >= 2);
+      const recallWebOk =
+        webSearchRecallMode() &&
+        isWebSource(x.p) &&
+        (x.hits >= 1 && x.rel >= 0.06 || alias >= 35);
+      const webOk =
+        isWebSource(x.p) &&
+        (corp ? (x.hits >= 1 && (relOk || recallWebOk)) : (relOk || recallWebOk));
       if (webOk || patentOk) strong.push(x);
     }
     let out = strong.slice(0, cap).map((x) => x.p);

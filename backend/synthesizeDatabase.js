@@ -12,6 +12,8 @@ const WEB_SOURCES = new Set([
   "searx_web",
   "qwant_web",
   "mojeek_web",
+  "wikipedia_web",
+  "core",
   "entity_seed",
 ]);
 

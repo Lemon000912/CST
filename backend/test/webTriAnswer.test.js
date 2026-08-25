@@ -143,6 +143,7 @@ function providerEnv(baseUrl) {
   return {
     WEB_TRI_MODE: "tri",
     WEB_TRI_CONCURRENCY: "2",
+    WEB_STREAM_SPECULATIVE: "1",
     WEB_ANSWER_RETRIES: "1",
     SYNTHESIS_TIMEOUT_MS: "5000",
     LLM_PROVIDER_A_API_KEY: "key-a",

@@ -24,6 +24,8 @@ import { extractDoiCandidate } from "./doi.js";
 import { extractPatentNumberFromPaper } from "./patentNumber.js";
 import { fetchDataifyWebPapers, getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
 import { fetchTavilyWebPapers, getTavilyWebSearchConfig } from "./tavilyWebSearch.js";
+import { fetchWikipediaWebPapers, getWikipediaSearchConfig } from "./wikipediaSearch.js";
+import { fetchCoreWebPapers, getCoreSearchConfig } from "./coreSearch.js";
 import {
   FREE_WEB_SEARCH_CATALOG,
   fetchSearxWebSearch,
@@ -52,15 +54,16 @@ export function isCnBingFallbackEnabled() {
 /**
  * 允许参与「全网合并」的源：
  * 免费（默认）：ddg, searx, qwant, mojeek
- * 需 Key：dataify, tavily, mcp
+ * 需 Key：core, tavily, mcp
  * 可选：bing（须 WEB_USE_BING=1）
  * @returns {Set<string>}
  */
 export function getWebSourceAllowlist() {
-  const defaultFree = getFreeWebSourceIds().join(",");
+  // 保留原通用网页检索，并叠加 Wikipedia 与 CORE；Semantic Scholar 仍由数据库渠道负责。
+  const defaultFree = "tavily,dataify,searx,wikipedia,core";
   const raw = String(process.env.WEB_SOURCES ?? defaultFree).trim().toLowerCase();
   const parts = raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
-  const set = new Set(parts.length ? parts : getFreeWebSourceIds());
+  const set = new Set(parts.length ? parts : ["tavily", "dataify", "searx", "wikipedia", "core"]);
   if (isBingWebEnabled()) set.add("bing");
   else set.delete("bing");
   return set;
@@ -76,6 +79,8 @@ export function getWebSourcesStatus() {
     mojeek: allow.has("mojeek"),
     dataify: allow.has("dataify") && Boolean(getDataifyWebSearchConfig()),
     tavily: allow.has("tavily") && Boolean(getTavilyWebSearchConfig()),
+    wikipedia: allow.has("wikipedia") && Boolean(getWikipediaSearchConfig()),
+    core: allow.has("core") && Boolean(getCoreSearchConfig()),
     mcp: allow.has("mcp") && isMcpUsable(),
     bing: allow.has("bing") && isBingWebEnabled(),
   };
@@ -628,14 +633,16 @@ function _ddgToPapers(items, sourceLabel, maxPapers = 20) {
   return papers;
 }
 
-/** 合并去重时优先保留高质量源（Tavily > Dataify > MCP > … > Bing 标签的 ddg_web） */
+/** 合并去重时优先保留高质量源（CORE > Tavily > Dataify > Wikipedia > SearX > MCP > …） */
 const WEB_MERGE_SOURCE_RANK = {
-  tavily_web: 1,
-  dataify_web: 2,
-  mcp_web: 3,
-  searx_web: 4,
-  qwant_web: 5,
-  mojeek_web: 6,
+  core: 1,
+  tavily_web: 2,
+  dataify_web: 3,
+  wikipedia_web: 4,
+  searx_web: 5,
+  mcp_web: 6,
+  qwant_web: 7,
+  mojeek_web: 8,
   ddg_patent: 7,
   ddg_web: 8,
 };
@@ -669,12 +676,11 @@ function resolveWebMergeCaps(requestedMax) {
   );
   const totalCap = Math.min(mergeCap, Math.max(20, Number(requestedMax) || 50));
   const perSource = Math.min(perSourceCap, Math.max(16, Math.ceil(totalCap * 0.88)));
-  const dataifyCap = Math.min(64, Math.ceil(perSource * 1.35));
-  return { totalCap, perSource, dataifyCap };
+  return { totalCap, perSource };
 }
 
 /**
- * 并行合并全网网页：Dataify / MCP Brave / DuckDuckGo（默认不含 Bing，见 WEB_SOURCES、WEB_USE_BING）。
+ * 并行合并全网网页：Wikipedia / CORE / 其它显式配置源（默认不含 Bing，见 WEB_SOURCES、WEB_USE_BING）。
  * @param {string} query
  * @param {number} max 合并去重后的目标条数上限
  */
@@ -693,15 +699,16 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   );
   if (!q) return { papers: [], note: "empty-query", toolName: null };
 
-  const { totalCap, perSource, dataifyCap: dataifyCapBase } = resolveWebMergeCaps(max);
+  const { totalCap, perSource } = resolveWebMergeCaps(max);
   const allow = getWebSourceAllowlist();
-  const wantPaidWeb =
-    (allow.has("dataify") && Boolean(getDataifyWebSearchConfig())) ||
+  const wantPreferredWeb =
     (allow.has("tavily") && Boolean(getTavilyWebSearchConfig())) ||
-    (allow.has("mcp") && isMcpUsable());
+    (allow.has("mcp") && isMcpUsable()) ||
+    allow.has("wikipedia") ||
+    (allow.has("core") && Boolean(getCoreSearchConfig()));
   /** cn.bing 快路径会跳过 Dataify/Tavily/MCP；WEB_SOURCES 含它们时不走快路径 */
   const fastBing = !/^(0|false|off|no)$/i.test(String(process.env.WEB_BING_FAST_PATH ?? "1").trim());
-  if (fastBing && isCnBingFallbackEnabled() && !wantPaidWeb) {
+  if (fastBing && isCnBingFallbackEnabled() && !wantPreferredWeb) {
     try {
       const bingR = await tracedSource("bing_fast", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true }));
       if (bingR.papers?.length >= 4) {
@@ -715,9 +722,6 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
       console.warn("[web] bing_fast failed:", e?.message);
     }
   }
-  const dataifyCap =
-    allow.has("dataify") && getDataifyWebSearchConfig() ? dataifyCapBase : perSource;
-
   const tasks = [];
 
   const tavilyCap = Math.min(20, Math.ceil(perSource * 1.2));
@@ -730,9 +734,30 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   }
   if (allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
-      tracedSource("dataify", () => fetchDataifyWebPapers(q, dataifyCap))
+      tracedSource("dataify", () => fetchDataifyWebPapers(q, Math.min(64, Math.ceil(perSource * 1.35))))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
+  if (allow.has("wikipedia")) {
+    tasks.push(
+      tracedSource("wikipedia", () => fetchWikipediaWebPapers(q, perSource))
+        .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
+  if (allow.has("core") && getCoreSearchConfig()) {
+    tasks.push(
+      tracedSource("core", () => fetchCoreWebPapers(q, perSource))
+        .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
+  if (allow.has("searx")) {
+    tasks.push(
+      tracedSource("searx", () => fetchSearxWebSearch(q, perSource))
+        .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mcp") && isMcpUsable()) {
@@ -754,13 +779,6 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
       tracedSource("ddg", () => fetchDuckDuckGoSearch(q, perSource, { skipBing: true }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
-    );
-  }
-  if (allow.has("searx")) {
-    tasks.push(
-      tracedSource("searx", () => fetchSearxWebSearch(q, perSource))
-        .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
-        .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("qwant")) {
@@ -794,7 +812,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   if (!tasks.length) {
     return {
       papers: [],
-      note: "web_no_sources:set WEB_SOURCES=ddg,searx,qwant,mojeek",
+      note: "web_no_sources:set WEB_SOURCES=wikipedia,core",
       toolName: null,
     };
   }

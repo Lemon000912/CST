@@ -1321,12 +1321,12 @@ app.get("/api/v1/mcp/status", (_req, res) => {
     freeWebSearchCatalog: FREE_WEB_SEARCH_CATALOG,
     bingWebEnabled: isBingWebEnabled(),
     hint: tv
-      ? "已配置 TAVILY_API_KEY（Tavily REST 搜索）。免费源仍默认并行：ddg + searx + qwant + mojeek。"
+      ? "已配置 TAVILY_API_KEY（Tavily REST 搜索）；当前网页源由 WEB_SOURCES 控制。"
       : df
-        ? "已配置 DATAIFY_API_KEY（付费源）。免费源默认并行：DuckDuckGo + SearXNG + Qwant + Mojeek。"
+        ? "检测到 DATAIFY_API_KEY，但 Dataify 搜索已从当前网页源方案移除。"
         : c
-          ? "已配置 Brave MCP（需 Key）。免费源仍默认并行：ddg + searx + qwant + mojeek。"
-          : "免费全网源（无需注册）：ddg、searx、qwant、mojeek，见 freeWebSearchCatalog。可选 TAVILY_API_KEY、DATAIFY_API_KEY 或 BRAVE_API_KEY。默认不用 Bing。",
+          ? "已配置 Brave MCP（需 Key）；当前网页源由 WEB_SOURCES 控制。"
+      : "网页渠道默认源：通用网页搜索（Dataify/Tavily/SearX）+ Wikipedia + CORE（CORE 需 CORE_API_KEY）；Semantic Scholar 保留数据库渠道。可选 BRAVE_API_KEY。",
     scopusHint: sc
       ? "已配置 ELSEVIER_API_KEY：在「数据库优先」渠道检索时会合并 Scopus 题录。"
       : "未配置 ELSEVIER_API_KEY：不影响「网页」渠道；仅「数据库优先」渠道无法使用 Scopus。",
@@ -1334,7 +1334,7 @@ app.get("/api/v1/mcp/status", (_req, res) => {
       ? "web_only"
       : "web_patent_intel",
     webChannelHint:
-      "「网页」渠道：仅全网网页（Dataify / Brave MCP / DuckDuckGo），不查 arXiv/Crossref/Scopus 等论文库；可选专利（WEB_CHANNEL_PATENTS=0 关闭）。",
+      "「网页」渠道：默认通用网页搜索 + Wikipedia + CORE，不查 arXiv/Crossref/Semantic Scholar/Scopus 等数据库论文；可选专利（WEB_CHANNEL_PATENTS=0 关闭）。",
     unpaywallOaConfigured: Boolean(
       String(process.env.UNPAYWALL_EMAIL ?? process.env.OPENALEX_CONTACT_EMAIL ?? "").trim(),
     ),

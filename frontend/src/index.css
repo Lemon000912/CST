@@ -650,6 +650,13 @@ html {
 
   .qp-markdown-scroll pre {
     max-width: 100%;
+    /* Keep streamed preview text visible instead of clipping long lines behind
+       a horizontal scrollbar.  Model previews often contain long English
+       fragments/URLs before the final markdown is available; wrapping those
+       lines makes the whole excerpt readable while preserving code spacing. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }

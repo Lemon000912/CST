@@ -225,7 +225,7 @@ function buildSearchResultIntro(
   const isWeb = msg.meta?.channel === "web";
   if (n === 0) {
     if (isWeb) {
-      return `未检索到相关网页来源（当前为**网页渠道**，不查论文库）。可换关键词、补充公司名/股票代码，或检查网络与 \`.env\` 中 \`WEB_SOURCES\` 是否正常。${scope}${tail}`;
+      return `未检索到相关网页来源（当前为**网页渠道**，不查数据库论文）。可换关键词、补充公司名/股票代码，或检查 Wikipedia/CORE 与 \`.env\` 中 \`WEB_SOURCES\` 是否正常。${scope}${tail}`;
     }
     return `未检索到匹配文献。可尝试更换关键词、短语检索（"..."）、或显式 \`author:\` / \`year:\` 约束。${scope}${tail}`;
   }
@@ -516,7 +516,9 @@ function isWebSourcePaper(p: Paper): boolean {
     p.source === "mcp_web" ||
     p.source === "ddg_web" ||
     p.source === "dataify_web" ||
-    p.source === "tavily_web"
+    p.source === "tavily_web" ||
+    p.source === "wikipedia_web" ||
+    p.source === "core"
   );
 }
 
@@ -554,7 +556,9 @@ function PaperCard({
     p.source === "mcp_web" ||
     p.source === "ddg_web" ||
     p.source === "dataify_web" ||
-    p.source === "tavily_web";
+    p.source === "tavily_web" ||
+    p.source === "wikipedia_web" ||
+    p.source === "core";
   const src = p.source
     ? p.source === "scopus"
       ? " · Scopus（爱思唯尔）"
@@ -846,7 +850,9 @@ function formatSourceUsedTag(tag: string): string {
     tag === "tavily_web" ||
     tag === "searx_web" ||
     tag === "qwant_web" ||
-    tag === "mojeek_web"
+    tag === "mojeek_web" ||
+    tag === "wikipedia_web" ||
+    tag === "core"
   )
     return "网页";
   if (tag === "openalex_patents" || tag.startsWith("patents:")) return "专利";

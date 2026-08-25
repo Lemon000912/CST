@@ -52,6 +52,8 @@ const WEB_PAGE_SOURCES = new Set([
   "searx_web",
   "qwant_web",
   "mojeek_web",
+  "wikipedia_web",
+  "core",
   "entity_seed",
 ]);
 
@@ -143,6 +145,8 @@ function dedupeKey(p) {
       p.source === "searx_web" ||
       p.source === "qwant_web" ||
       p.source === "mojeek_web" ||
+      p.source === "wikipedia_web" ||
+      p.source === "core" ||
       p.source === "ddg_patent" ||
       p.source === "openalex_patent") &&
     p.absUrl
@@ -161,6 +165,8 @@ function scoreSource(x) {
   if (x.source === "arxiv") return 2;
   if (x.source === "dataify_web") return 2.22;
   if (x.source === "tavily_web") return 2.24;
+  if (x.source === "core") return 2.28;
+  if (x.source === "wikipedia_web") return 2.05;
   if (x.source === "searx_web") return 2.18;
   if (x.source === "mcp_web") return 2.15;
   if (x.source === "qwant_web") return 2.12;
@@ -634,7 +640,7 @@ async function runWebIntelSearch(opts) {
       const wp = wv?.papers ?? [];
       if (wp.length) {
         webPaperBuckets.push(wp);
-        sourcesUsed.push(wv.toolName ? `web:${wv.toolName}` : "web");
+        sourcesUsed.push(wv.toolName ? `web:${wv.toolName}(${wp.length})` : `web(${wp.length})`);
       }
     }
   }

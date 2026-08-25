@@ -21,6 +21,8 @@ const WEB_SOURCES = new Set([
   "searx_web",
   "qwant_web",
   "mojeek_web",
+  "wikipedia_web",
+  "core",
   "entity_seed",
 ]);
 const PATENT_SOURCES = new Set(["ddg_patent", "openalex_patent"]);
@@ -108,11 +110,18 @@ function extractChinesePhrases(raw) {
   const stop = new Set(["公司", "产品", "材料", "关于", "简介", "概述", "综合", "方案", "检索", "网页", "渠道"]);
   const seen = new Set();
   const out = [];
+  const push = (w) => {
+    const s = String(w ?? "").trim();
+    if (s.length < 2 || stop.has(s) || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
   for (const w of m) {
-    if (w.length < 2 || stop.has(w)) continue;
-    if (seen.has(w)) continue;
-    seen.add(w);
-    out.push(w);
+    push(w);
+    // 长中文技术词经常被网页标题拆成多个短语，加入连续四字块提升召回。
+    if (w.length >= 8) {
+      for (let i = 0; i + 4 <= w.length; i += 4) push(w.slice(i, i + 4));
+    }
     if (out.length >= 16) break;
   }
   return out;

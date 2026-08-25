@@ -110,6 +110,8 @@ export type Paper = {
     | "openalex_patent"
     | "europepmc"
     | "semantic_scholar"
+    | "wikipedia_web"
+    | "core"
     | "scopus";
   oa_status?: string | null;
   isReferencedByCount?: number | null;

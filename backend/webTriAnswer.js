@@ -43,7 +43,9 @@ function isWebPaper(p) {
     s === "tavily_web" ||
     s === "searx_web" ||
     s === "qwant_web" ||
-    s === "mojeek_web"
+    s === "mojeek_web" ||
+    s === "wikipedia_web" ||
+    s === "core"
   );
 }
 
@@ -186,7 +188,10 @@ function webTriMode() {
 }
 
 function speculativeWebStreamEnabled() {
-  return String(process.env.WEB_STREAM_SPECULATIVE ?? "1").trim() !== "0";
+  // A speculative C answer can begin at an arbitrary point or be much shorter
+  // than the eventual arbitration result.  Keep the preview opt-in so the
+  // default stream always starts with the complete, arbitrated answer.
+  return String(process.env.WEB_STREAM_SPECULATIVE ?? "0").trim() !== "0";
 }
 
 function resolveWebFallbackModel(primary) {
