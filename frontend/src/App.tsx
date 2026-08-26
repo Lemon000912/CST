@@ -14,7 +14,7 @@ import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
 import { EditionSwitcher } from "./EditionSwitcher";
 import type { AppEdition } from "./edition";
-import { LoadingIndicator, LoadingSpinner } from "./LoadingIndicator";
+import { LoadingIndicator, LoadingSpinner, RhinoAnimation } from "./LoadingIndicator";
 import {
   getMainSearchLoadingText,
   LOADING_CHART,
@@ -1345,6 +1345,8 @@ function BillingReceiptBadge({ receipt, kind }: { receipt?: BillingReceipt | nul
 function AssistantBlock({
   msg,
   onFeedback,
+  onRegenerate,
+  regenerateDisabled = false,
   onPdfFulfill,
   billingDisabled,
   pointsEnabled = true,
@@ -1360,6 +1362,8 @@ function AssistantBlock({
 }: {
   msg: ChatMessage;
   onFeedback?: (id: string, v: 1 | -1, detail?: AssistantFeedbackDetail) => void | Promise<void>;
+  onRegenerate?: () => void | Promise<void>;
+  regenerateDisabled?: boolean;
   onPdfFulfill?: (msg: ChatMessage, p: Paper, mode: "open" | "save") => void | Promise<void>;
   billingDisabled?: boolean;
   pointsEnabled?: boolean;
@@ -2243,6 +2247,17 @@ function AssistantBlock({
             >
               不满意 −1
             </button>
+            {onRegenerate ? (
+              <button
+                type="button"
+                disabled={regenerateDisabled}
+                onClick={() => void onRegenerate()}
+                className="qp-feedback-btn disabled:cursor-not-allowed disabled:opacity-40"
+                title="使用原问题和原检索设置重新运行完整流程"
+              >
+                重新生成
+              </button>
+            ) : null}
           </div>
           {negOpen && feedbackLock === undefined ? (
             <div className="mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] p-3 text-[11px] text-[var(--t-text)]">
@@ -3012,6 +3027,25 @@ export default function App({
     }
   };
 
+  const handleRegenerate = async (messageId: string) => {
+    if (busy) return;
+    const session = active;
+    if (!session) return;
+    const assistantIndex = session.messages.findIndex((message) => message.id === messageId);
+    if (assistantIndex < 1 || session.messages[assistantIndex - 1]?.role !== "user") return;
+    const source = session.messages[assistantIndex - 1];
+    const query = source.content.split("\n📎")[0].trim();
+    if (!query || query === "（仅上传文件作为上下文）") return;
+    await send(query, {
+      field: session.messages[assistantIndex]?.arxivField,
+      channel: session.messages[assistantIndex]?.meta?.channel,
+      sort: session.messages[assistantIndex]?.meta?.sort,
+      patentsOnly: Boolean(session.messages[assistantIndex]?.meta?.patentsOnly),
+      deepMine: Boolean(session.messages[assistantIndex]?.meta?.deepMine?.enabled),
+      priorMessages: session.messages.slice(0, assistantIndex - 1),
+    });
+  };
+
   const handleMatplotlibChart = useCallback(async (msg: ChatMessage, hint?: string) => {
     if (!msg.papers?.length || msg.error || !channelSupportsPaperChart(msg.meta?.channel)) return;
     const parentOperationId = msg.meta?.parentOperationId ?? msg.meta?.billing?.operationId;
@@ -3285,7 +3319,17 @@ export default function App({
     }
   }, [applyReceipt, patchMessageMeta, pdfBusyKey, pointBalance?.balance, pointsEnabled]);
 
-  const send = async (text: string) => {
+  const send = async (
+    text: string,
+    overrides?: {
+      field?: ArxivSearchField;
+      channel?: SearchChannel;
+      sort?: PaperSortKey;
+      patentsOnly?: boolean;
+      deepMine?: boolean;
+      priorMessages?: ChatMessage[];
+    },
+  ) => {
     const q = text.trim();
     const attachLine =
       attachments.length > 0 ? `\n📎 ${attachments.map((a) => a.name).join("、")}` : "";
@@ -3294,12 +3338,15 @@ export default function App({
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
 
-    const priorMessages = sessions.find((s) => s.id === sessionId)?.messages ?? draftSession.messages;
-    const fieldAtSend = queryField;
-    const channelAtSend = searchChannel;
-    const sortAtSend = searchSort;
-    const patentsAtSend = patentsOnlyEnabled;
-    const deepMineAtSend = deepMineEnabled && !patentsAtSend;
+    const priorMessages =
+      overrides?.priorMessages ??
+      sessions.find((s) => s.id === sessionId)?.messages ??
+      draftSession.messages;
+    const fieldAtSend = overrides?.field ?? queryField;
+    const channelAtSend = overrides?.channel ?? searchChannel;
+    const sortAtSend = overrides?.sort ?? searchSort;
+    const patentsAtSend = overrides?.patentsOnly ?? patentsOnlyEnabled;
+    const deepMineAtSend = (overrides?.deepMine ?? deepMineEnabled) && !patentsAtSend;
 
     const userDisplay = (q || "（仅上传文件作为上下文）") + attachLine;
     const userMsg: ChatMessage = { id: uid(), role: "user", content: userDisplay };
@@ -3962,7 +4009,14 @@ export default function App({
                     {m.role === "user" ? (
                       "我"
                     ) : (
-                      <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                      active?.id != null && m.id === active.messages[active.messages.length - 1]?.id ? (
+                        <RhinoAnimation
+                          animate={busy}
+                          className="h-full w-full object-contain mix-blend-multiply"
+                        />
+                      ) : (
+                        <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                      )
                     )}
                   </div>
                   <div className="min-w-0 flex-1 pt-1">
@@ -3972,6 +4026,8 @@ export default function App({
                       <AssistantBlock
                         msg={m}
                         onFeedback={handleFeedback}
+                        onRegenerate={() => handleRegenerate(m.id)}
+                        regenerateDisabled={busy}
                         feedbackLock={feedbackByMessage[m.id]}
                         onPdfFulfill={handlePdfFulfill}
                         billingDisabled={billingDisabled || pdfBusyKey != null}
