@@ -1,3 +1,38 @@
+import { useEffect, useState } from "react";
+
+const RHINO_FRAMES = Array.from({ length: 9 }, (_, index) => `/rhino/rhino-${index + 1}.jpg`);
+
+/** 犀牛序列帧：挂载时循环播放，组件卸载时自然停止。 */
+export function RhinoAnimation({
+  className = "h-16 w-20",
+  animate = true,
+}: {
+  className?: string;
+  animate?: boolean;
+}) {
+  const [frame, setFrame] = useState(animate ? 0 : 4);
+
+  useEffect(() => {
+    if (!animate) {
+      setFrame(4);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setFrame((current) => (current + 1) % RHINO_FRAMES.length);
+    }, 180);
+    return () => window.clearInterval(timer);
+  }, [animate]);
+
+  return (
+    <img
+      src={RHINO_FRAMES[frame]}
+      alt="正在处理"
+      className={`shrink-0 rounded-md object-contain ${className}`}
+      draggable={false}
+    />
+  );
+}
+
 /** 统一加载指示（三点跳动 + 文案），替代各处零散 spinner /「检索文献」类提示 */
 export function LoadingIndicator({
   label,
