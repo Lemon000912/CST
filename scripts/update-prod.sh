@@ -7,6 +7,7 @@ cd "$ROOT"
 
 npm run build
 sudo systemctl restart ailunwen-api.service
+sudo systemctl restart ailunwen-pdf-sync.service
 sudo systemctl reload apache2
 
 echo "[update-prod] 完成。访问 http://$(hostname -I | awk '{print $1}')/"

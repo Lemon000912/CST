@@ -1444,11 +1444,18 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
     if (!artifact) {
       const databasePaperId = databasePdfPaperId(pdfUrl);
       if (databasePaperId) {
-        artifact = databasePdfArtifact(await getPaperPdfFile(databasePaperId));
+        artifact = await databasePdfArtifact(await getPaperPdfFile(databasePaperId));
       } else {
         artifact = await fetchPdfSecurely(pdfUrl);
       }
-      cachePdfArtifact(activeOperation.id, artifact);
+      // Remote artifacts are small in-memory buffers. Server-library PDFs are
+      // streamed from disk and must never be retained in the process cache.
+      if (artifact.buffer) cachePdfArtifact(activeOperation.id, artifact);
+    }
+
+    const artifactByteLength = Number(artifact.byteLength ?? artifact.buffer?.length);
+    if (!Number.isSafeInteger(artifactByteLength) || artifactByteLength < 5) {
+      throw new ApiRouteError(422, "invalid-pdf-content", "The selected PDF has an invalid byte length");
     }
 
     const billingDetails = {
@@ -1457,19 +1464,19 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       paperId,
       paperIndex,
       pdfCount: 1,
-      byteLength: artifact.buffer.length,
+      byteLength: artifactByteLength,
       contentType: "application/pdf",
     };
     const metadata = {
       parentOperationId,
       paperId,
       paperIndex,
-      byteLength: artifact.buffer.length,
+      byteLength: artifactByteLength,
       contentType: "application/pdf",
     };
     const contentDisposition = pdfContentDisposition(paper?.title);
     // Validate source-derived headers before any debit is committed.
-    httpValidateHeaderValue("Content-Length", String(artifact.buffer.length));
+    httpValidateHeaderValue("Content-Length", String(artifactByteLength));
     httpValidateHeaderValue("Content-Disposition", contentDisposition);
     httpValidateHeaderValue("X-Parent-Operation-Id", parentOperationId);
 
@@ -1491,7 +1498,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
     let receipt = billingResult.operation.receipt;
     const responseHeaders = {
       "Content-Type": "application/pdf",
-      "Content-Length": String(artifact.buffer.length),
+      "Content-Length": String(artifactByteLength),
       "Content-Disposition": contentDisposition,
       "Cache-Control": "private, no-store",
       "X-Billing-Operation-Id": activeOperation.id,
@@ -1523,7 +1530,14 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
 
     res.set(responseHeaders);
     res.status(200);
-    return res.end(artifact.buffer);
+    if (artifact.buffer) return res.end(artifact.buffer);
+    const stream = fs.createReadStream(artifact.filePath);
+    stream.on("error", (streamError) => {
+      console.error("[pdf] server file stream failed:", streamError?.message ?? streamError);
+      res.destroy(streamError);
+    });
+    stream.pipe(res);
+    return undefined;
   } catch (error) {
     await failOperationBestEffort(activeOperation, req.auth?.userId, error);
     return sendStructuredError(res, error, { message: "PDF fulfillment failed", code: "pdf-fulfillment-failed" });
