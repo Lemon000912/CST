@@ -418,14 +418,16 @@ export async function searchPapersV1(
 
 // ── 流式搜索 SSE 接口 ────────────────────────────────────────────
 // 对应后端 POST /api/v1/search/stream
-// 事件序列：papers → synthesis_token（多次）→ done | error
+// PDF 旁路事件与 synthesis token 独立交错，不改变回答事件顺序和来源数组。
 
 export type StreamSearchEvent =
   | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string; parentOperationId?: string }
+  | { type: "pdf_source_ready"; source: Paper; status?: SearchResultMeta["pdfCrawlStatus"]; total?: number; completed?: number; failed?: number }
+  | { type: "pdf_crawl_status"; status: SearchResultMeta["pdfCrawlStatus"]; total: number; completed: number; failed: number }
   | { type: "synthesis_token"; token: string }
   | { type: "synthesis_replace"; synthesis: string }
   | { type: "points_exhausted"; message: string }
-  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; pointsExhausted?: boolean; billingMessage?: string; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean }
+  | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; pointsExhausted?: boolean; billingMessage?: string; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean; pdfSources?: Paper[]; pdfCrawlStatus?: SearchResultMeta["pdfCrawlStatus"]; pdfCrawlProgress?: SearchResultMeta["pdfCrawlProgress"] }
   | { type: "error"; error: string };
 
 /**
@@ -528,6 +530,10 @@ export async function* searchPapersV1Stream(
             const obj = JSON.parse(payload) as Record<string, unknown>;
             if (eventName === "papers") {
               yield { type: "papers", ...(obj as Omit<StreamSearchEvent & { type: "papers" }, "type">) };
+            } else if (eventName === "pdf_source_ready") {
+              yield { type: "pdf_source_ready", ...(obj as Omit<StreamSearchEvent & { type: "pdf_source_ready" }, "type">) };
+            } else if (eventName === "pdf_crawl_status") {
+              yield { type: "pdf_crawl_status", ...(obj as Omit<StreamSearchEvent & { type: "pdf_crawl_status" }, "type">) };
             } else if (eventName === "synthesis_token") {
               yield { type: "synthesis_token", token: String(obj.token ?? "") };
             } else if (eventName === "synthesis_replace") {
@@ -567,6 +573,32 @@ export async function* searchPapersV1Stream(
     clearTimeout(timeoutId);
     externalSignal?.removeEventListener("abort", abort);
   }
+}
+
+export type PdfSourceJob = {
+  operationId: string;
+  status: "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  failed: number;
+  sources: Paper[];
+};
+
+/** 查询独立 PDF 旁路状态；只返回已经验证并保存的 PDF。 */
+export async function getCachedPdfSources(parentOperationId: string): Promise<PdfSourceJob> {
+  const res = await fetch(`/api/v1/search/${encodeURIComponent(parentOperationId)}/pdf-sources`, {
+    headers: headersJson(),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw apiErrorFrom(res.status, data, "读取 PDF 缓存状态失败");
+  return {
+    operationId: String(data.operationId ?? parentOperationId),
+    status: data.status === "running" || data.status === "failed" ? data.status : "completed",
+    total: finiteNumber(data.total),
+    completed: finiteNumber(data.completed),
+    failed: finiteNumber(data.failed),
+    sources: Array.isArray(data.sources) ? (data.sources as Paper[]) : [],
+  };
 }
 
 export async function submitFeedback(payload: {
@@ -725,16 +757,34 @@ export async function fulfillPdf(opts: {
   idempotencyKey?: string;
 }): Promise<FulfillPdfResult> {
   const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();
-  const res = await fetch("/api/v1/pdfs/fulfill", {
-    method: "POST",
-    headers: headersJson({ "Idempotency-Key": idempotencyKey }),
-    body: JSON.stringify({
-      parentOperationId: opts.parentOperationId,
-      ...(opts.sourceId ? { sourceId: opts.sourceId, pdfSourceId: opts.sourceId } : {}),
-      ...(opts.paperId ? { paperId: opts.paperId } : {}),
-      ...(opts.paperIndex != null ? { paperIndex: opts.paperIndex } : {}),
-    }),
+  const requestBody = JSON.stringify({
+    parentOperationId: opts.parentOperationId,
+    ...(opts.sourceId ? { sourceId: opts.sourceId, pdfSourceId: opts.sourceId } : {}),
+    ...(opts.paperId ? { paperId: opts.paperId } : {}),
+    ...(opts.paperIndex != null ? { paperIndex: opts.paperIndex } : {}),
   });
+  let res: Response | null = null;
+  let lastNetworkError: unknown = null;
+  // 大型缓存 PDF 偶尔会被开发代理中断。使用同一个幂等键自动重试，
+  // 后端只会重放同一交付操作，不会因自动重试重复计费。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      res = await fetch("/api/v1/pdfs/fulfill", {
+        method: "POST",
+        headers: headersJson({ "Idempotency-Key": idempotencyKey }),
+        body: requestBody,
+      });
+      break;
+    } catch (error) {
+      lastNetworkError = error;
+      if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 450 * (attempt + 1)));
+    }
+  }
+  if (!res) {
+    throw lastNetworkError instanceof Error
+      ? new Error(`PDF 下载连接中断（已自动重试）：${lastNetworkError.message}`)
+      : new Error("PDF 下载连接中断（已自动重试）");
+  }
   const contentType = res.headers.get("content-type") ?? "";
   if (!res.ok) {
     let data: Record<string, unknown> = {};

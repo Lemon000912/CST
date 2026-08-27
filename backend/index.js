@@ -89,6 +89,7 @@ import {
   beginBillableOperation,
   calculateCostUnits,
   completeBillableOperation,
+  completeImmediateBillableOperation,
   countUnicodeCodePoints,
   failBillableOperation,
   getBillableOperation,
@@ -107,6 +108,11 @@ import {
   verifyWechatNotification,
 } from "./rechargeProviders.js";
 import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
+import {
+  getPdfSourceJob,
+  loadCachedPdfSource,
+  startPdfSourceCrawl,
+} from "./pdfSourceSidecar.js";
 import { databasePdfArtifact, databasePdfPaperId } from "./databasePdf.js";
 import {
   saveUserSkill,
@@ -1348,6 +1354,27 @@ app.post("/api/v1/pdf-click", (_req, res) => {
   });
 });
 
+app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const operationId = String(req.params?.operationId ?? "").trim();
+    const operation = await getBillableOperation({ operationId, userId: req.auth.userId });
+    if (operation?.operationType !== "search") {
+      throw new ApiRouteError(409, "invalid-parent-operation", "Parent operation must be a search");
+    }
+    const job = await getPdfSourceJob(operationId);
+    return res.json(job ?? {
+      operationId,
+      status: operation.status === "processing" ? "running" : "completed",
+      total: 0,
+      completed: 0,
+      failed: 0,
+      sources: [],
+    });
+  } catch (error) {
+    return sendStructuredError(res, error, { message: "Unable to read cached PDF sources" });
+  }
+});
+
 app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
@@ -1362,32 +1389,58 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       userId: req.auth.userId,
     });
     const parentPapers = getStoredSearchPapers(parentOperation);
-    const requestedIndex = Number.isInteger(req.body?.paperIndex) ? req.body.paperIndex : null;
-    const requestedId = String(req.body?.paperId ?? "").trim();
-    let paperIndex = requestedIndex;
-    if (paperIndex === null && requestedId) {
-      paperIndex = parentPapers.findIndex((paper, index) => paperIdentity(paper, index) === requestedId);
+    const requestedSourceId = String(req.body?.pdfSourceId ?? req.body?.sourceId ?? "").trim();
+    let prefetchedArtifact = null;
+    let paper = null;
+    let paperIndex = null;
+    if (requestedSourceId) {
+      const cached = await loadCachedPdfSource(parentOperationId, requestedSourceId);
+      if (!cached) {
+        throw new ApiRouteError(422, "pdf-cache-unavailable", "The selected PDF is not available in the verified cache");
+      }
+      paperIndex = Number(cached.source?.sourceIndex);
+      if (!Number.isInteger(paperIndex) || paperIndex < 0 || paperIndex >= parentPapers.length) {
+        throw new ApiRouteError(409, "pdf-cache-source-mismatch", "Cached PDF does not match the parent search");
+      }
+      paper = cached.source;
+      prefetchedArtifact = cached.artifact;
+    } else {
+      const requestedIndex = Number.isInteger(req.body?.paperIndex) ? req.body.paperIndex : null;
+      const requestedId = String(req.body?.paperId ?? "").trim();
+      paperIndex = requestedIndex;
+      if (paperIndex === null && requestedId) {
+        paperIndex = parentPapers.findIndex((candidate, index) => paperIdentity(candidate, index) === requestedId);
+      }
+      if (!Number.isInteger(paperIndex) || paperIndex < 0 || paperIndex >= parentPapers.length) {
+        throw new ApiRouteError(400, "paper-not-found", "paperIndex or paperId must identify a paper in the parent search");
+      }
+      paper = parentPapers[paperIndex];
     }
-    if (!Number.isInteger(paperIndex) || paperIndex < 0 || paperIndex >= parentPapers.length) {
-      throw new ApiRouteError(400, "paper-not-found", "paperIndex or paperId must identify a paper in the parent search");
-    }
-    const paper = parentPapers[paperIndex];
     const paperId = paperIdentity(paper, paperIndex);
     const pdfUrl = String(paper?.pdfUrl ?? paper?.pdf_url ?? "").trim();
-    if (!pdfUrl) {
+    if (!prefetchedArtifact && !pdfUrl) {
       throw new ApiRouteError(422, "pdf-source-unavailable", "The selected search result has no PDF source URL");
     }
-    const requestDescriptor = { edition: enterpriseEdition ? "enterprise" : "school", parentOperationId, paperIndex, paperId };
-    const begun = await beginBillableOperation({
-      userId: req.auth.userId,
-      operationType: "pdf",
-      idempotencyKey,
-      requestHash: stableRequestHash(requestDescriptor),
-      allowZeroBalance: enterpriseEdition,
-    });
-    activeOperation = begun.operation;
+    const requestDescriptor = {
+      edition: enterpriseEdition ? "enterprise" : "school",
+      parentOperationId,
+      paperIndex,
+      paperId,
+      sourceId: requestedSourceId || undefined,
+    };
+    const requestHash = stableRequestHash(requestDescriptor);
+    const begun = prefetchedArtifact
+      ? null
+      : await beginBillableOperation({
+        userId: req.auth.userId,
+        operationType: "pdf",
+        idempotencyKey,
+        requestHash,
+        allowZeroBalance: enterpriseEdition,
+      });
+    activeOperation = begun?.operation ?? null;
 
-    let artifact = pdfArtifactCache.get(activeOperation.id);
+    let artifact = prefetchedArtifact ?? pdfArtifactCache.get(activeOperation.id);
     if (!artifact) {
       const databasePaperId = databasePdfPaperId(pdfUrl);
       if (databasePaperId) {
@@ -1398,42 +1451,62 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       cachePdfArtifact(activeOperation.id, artifact);
     }
 
-    let receipt = begun.operation.receipt;
+    const billingDetails = {
+      edition: enterpriseEdition ? "enterprise" : "school",
+      parentOperationId,
+      paperId,
+      paperIndex,
+      pdfCount: 1,
+      byteLength: artifact.buffer.length,
+      contentType: "application/pdf",
+    };
+    const metadata = {
+      parentOperationId,
+      paperId,
+      paperIndex,
+      byteLength: artifact.buffer.length,
+      contentType: "application/pdf",
+    };
+    const contentDisposition = pdfContentDisposition(paper?.title);
+    // Validate source-derived headers before any debit is committed.
+    httpValidateHeaderValue("Content-Length", String(artifact.buffer.length));
+    httpValidateHeaderValue("Content-Disposition", contentDisposition);
+    httpValidateHeaderValue("X-Parent-Operation-Id", parentOperationId);
+
+    let billingResult = begun;
+    if (prefetchedArtifact) {
+      billingResult = await completeImmediateBillableOperation({
+        userId: req.auth.userId,
+        operationType: "pdf",
+        idempotencyKey,
+        requestHash,
+        costUnits: enterpriseEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
+        billingDetails,
+        result: metadata,
+        receipt: { parentOperationId },
+      });
+      activeOperation = billingResult.operation;
+    }
+
+    let receipt = billingResult.operation.receipt;
     const responseHeaders = {
       "Content-Type": "application/pdf",
       "Content-Length": String(artifact.buffer.length),
-      "Content-Disposition": pdfContentDisposition(paper?.title),
+      "Content-Disposition": contentDisposition,
       "Cache-Control": "private, no-store",
       "X-Billing-Operation-Id": activeOperation.id,
       "X-Billing-Cost-Units": String(receipt?.costUnits ?? (enterpriseEdition ? 0 : calculateCostUnits({ pdfCount: 1 }))),
       "X-Billing-Balance-Units": String(receipt?.balanceUnits ?? ""),
-      "X-Billing-Replayed": begun.replayed ? "true" : "false",
+      "X-Billing-Replayed": billingResult.replayed ? "true" : "false",
       "X-Parent-Operation-Id": parentOperationId,
       "Access-Control-Expose-Headers": "X-Billing-Operation-Id, X-Billing-Cost-Units, X-Billing-Balance-Units, X-Billing-Replayed, X-Parent-Operation-Id, Content-Disposition",
     };
-    // Build and validate all response headers before completion so a bad title
-    // can never debit points and then fail while constructing the response.
+    // Validate the final billing headers before writing the response.
     for (const [name, value] of Object.entries(responseHeaders)) {
       httpValidateHeaderValue(name, value);
     }
 
-    if (!begun.replayed) {
-      const billingDetails = {
-        edition: enterpriseEdition ? "enterprise" : "school",
-        parentOperationId,
-        paperId,
-        paperIndex,
-        pdfCount: 1,
-        byteLength: artifact.buffer.length,
-        contentType: "application/pdf",
-      };
-      const metadata = {
-        parentOperationId,
-        paperId,
-        paperIndex,
-        byteLength: artifact.buffer.length,
-        contentType: "application/pdf",
-      };
+    if (begun && !begun.replayed) {
       const completed = await completeBillableOperation({
         operationId: activeOperation.id,
         userId: req.auth.userId,
@@ -1515,8 +1588,9 @@ app.post("/api/v1/feedback", async (req, res) => {
 // POST /api/v1/search/stream
 // 与 /api/v1/search 参数完全兼容；额外实现两阶段 SSE：
 //   1. event:papers  — runPaperSearch 完成后立即推送文献列表
-//   2. event:synthesis_token — LLM 综述 token 逐字推送
-//   3. event:done  — 含最终元数据（latencyMs、billingReceipt、parentOperationId 等）
+//   2. event:pdf_source_ready — 旁路爬取成功并已缓存的 PDF 来源
+//   3. event:synthesis_token — LLM 综述 token 逐字推送
+//   4. event:done  — 含最终元数据（latencyMs、billingReceipt、parentOperationId 等）
 app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimitHit(ip)) {
@@ -1579,7 +1653,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 
   /** 推送一帧 SSE */
   const send = (event, data) => {
-    if (res.writableEnded) return;
+    if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -1600,6 +1674,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         latencySearch: 0,
       });
     }
+    const replayPdfJob = await getPdfSourceJob(op.id);
+    for (const source of replayPdfJob?.sources ?? []) {
+      send("pdf_source_ready", { source, ...replayPdfJob });
+    }
     if (stored.synthesis) {
       send("synthesis_token", { token: stored.synthesis });
     }
@@ -1618,11 +1696,28 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       replayed: true,
       latencyMs: 0,
       performanceTrace: stored.performanceTrace ?? requestTrace.snapshot(),
+      pdfSources: replayPdfJob?.sources ?? [],
+      pdfCrawlStatus: replayPdfJob?.status ?? "completed",
+      pdfCrawlProgress: replayPdfJob
+        ? { total: replayPdfJob.total, completed: replayPdfJob.completed, failed: replayPdfJob.failed }
+        : undefined,
     });
     return res.end();
   }
 
   activeOperation = begun.operation;
+  let clientDisconnected = false;
+  const synthesisAbortController = new AbortController();
+  res.once("close", () => {
+    if (res.writableEnded) return;
+    clientDisconnected = true;
+    synthesisAbortController.abort();
+    void failOperationBestEffort(
+      activeOperation,
+      req.auth?.userId,
+      new ApiRouteError(499, "client-disconnected", "Search client disconnected"),
+    );
+  });
 
   try {
     // ── 解析请求参数（与 /api/v1/search 完全一致） ──
@@ -1700,6 +1795,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       }),
       (value) => ({ results: value?.papers?.length ?? 0, fromCache: Boolean(value?.fromCache) }),
     );
+    if (clientDisconnected) {
+      throw new ApiRouteError(499, "client-disconnected", "Search client disconnected");
+    }
 
     // 立即推送文献结果，前端可先渲染
     cacheSearchPapers(activeOperation.id, result.papers);
@@ -1720,6 +1818,27 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     });
     endPapersReady({ results: result.papers.length });
 
+    // PDF 旁路只读取原始引用来源并顺序运行；不修改 result.papers，亦不参与或阻塞回答合成。
+    if (channel === "web" && result.papers.length > 0) {
+      void startPdfSourceCrawl({
+        operationId: activeOperation.id,
+        papers: result.papers,
+        onSourceReady: (source, job) => send("pdf_source_ready", {
+          source,
+          status: job.status,
+          total: job.total,
+          completed: job.completed,
+          failed: job.failed,
+        }),
+        onProgress: (job) => send("pdf_crawl_status", {
+          status: job.status,
+          total: job.total,
+          completed: job.completed,
+          failed: job.failed,
+        }),
+      });
+    }
+
     // ── 阶段 2：综述（附件优先 → 流式默认） ──
     let fullSynthesis = "";
     let synthesisNote = null;
@@ -1729,7 +1848,6 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     let webAnswerDrafts = undefined;
     let llmUsage = undefined;
     let pointsExhausted = false;
-    const synthesisAbortController = new AbortController();
     const markPointsExhausted = () => {
       if (pointsExhausted) return;
       pointsExhausted = true;
@@ -1879,6 +1997,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       }
     }
 
+    if (clientDisconnected) {
+      throw new ApiRouteError(499, "client-disconnected", "Search client disconnected");
+    }
+
     // ── 阶段 4：记录查询日志 ──
     await traceAsync(requestTrace, "request.query_log_write", {}, () => logQuery({
       userId: req.auth.userId,
@@ -1912,6 +2034,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });
+    const pdfJobAtCompletion = channel === "web" ? await getPdfSourceJob(activeOperation.id) : null;
     const completed = await traceAsync(requestTrace, "request.billing_complete", {}, () => completeBillableOperation({
       operationId: activeOperation.id,
       userId: req.auth.userId,
@@ -1933,6 +2056,8 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         webAnswerDrafts,
         llmUsage,
         performanceTrace: requestTrace.snapshot(),
+        pdfSources: pdfJobAtCompletion?.sources ?? [],
+        pdfCrawlStatus: pdfJobAtCompletion?.status,
       },
     }), (value) => ({ charged: Boolean(value?.receipt) }));
     const billingReceipt = completed.receipt;
@@ -1961,13 +2086,18 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       parentOperationId: activeOperation.id,
       billingReceipt,
       performanceTrace,
+      pdfSources: pdfJobAtCompletion?.sources ?? [],
+      pdfCrawlStatus: pdfJobAtCompletion?.status,
+      pdfCrawlProgress: pdfJobAtCompletion
+        ? { total: pdfJobAtCompletion.total, completed: pdfJobAtCompletion.completed, failed: pdfJobAtCompletion.failed }
+        : undefined,
     });
     res.end();
   } catch (e) {
     console.error("[v1/search/stream]", e?.message);
     if (activeOperation?.id) searchPapersCache.delete(activeOperation.id);
     await failOperationBestEffort(activeOperation, req.auth?.userId, e);
-    if (!res.writableEnded) {
+    if (!res.writableEnded && !res.destroyed) {
       send("error", { error: e?.message || "检索失败" });
       res.end();
     }

@@ -38,6 +38,7 @@ import {
   fetchPointBalance,
   fetchRechargeCatalog,
   fetchRechargeOrder,
+  getCachedPdfSources,
   fulfillPdf,
   searchPapersV1,
   searchPapersV1Stream,
@@ -661,7 +662,11 @@ function PaperCard({
                 disabled={pdfDisabled}
                 className="inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={() => void onPdfFulfill?.(p, "open")}
-                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : pointsEnabled ? "经服务端验证并获取 PDF，成功后收费 1 积分" : "经服务端验证并获取 PDF"}
+                title={pdfDisabled
+                  ? "积分已用完，暂不能获取 PDF"
+                  : p.pdfCached
+                    ? pointsEnabled ? "PDF 已预先验证并保存；打开后收费 1 积分" : "PDF 已预先验证并保存"
+                    : pointsEnabled ? "经服务端验证并获取 PDF，成功后收费 1 积分" : "经服务端验证并获取 PDF"}
               >
                 PDF
               </button>
@@ -670,13 +675,17 @@ function PaperCard({
                 disabled={pdfDisabled}
                 className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={() => void onPdfFulfill?.(p, "save")}
-                title={pdfDisabled ? "积分已用完，暂不能获取 PDF" : pointsEnabled ? "成功获取并验证 PDF 后保存，收费 1 积分" : "成功获取并验证 PDF 后保存"}
+                title={pdfDisabled
+                  ? "积分已用完，暂不能获取 PDF"
+                  : p.pdfCached
+                    ? pointsEnabled ? "直接下载已缓存 PDF，收费 1 积分" : "直接下载已缓存 PDF"
+                    : pointsEnabled ? "成功获取并验证 PDF 后保存，收费 1 积分" : "成功获取并验证 PDF 后保存"}
               >
                 下载
               </button>
             </>
           ) : null}
-          {doiNorm && /^10\.\d{4,9}\//.test(doiNorm) ? (
+          {!p.pdfCached && doiNorm && /^10\.\d{4,9}\//.test(doiNorm) ? (
             <button
               type="button"
               disabled={oaBusy || pdfDisabled}
@@ -1573,8 +1582,9 @@ function AssistantBlock({
     [],
   );
 
-  const paperKeys = useMemo(() => (msg.papers ?? []).map(paperRowKey), [msg.papers]);
-  const paperKeysSig = paperKeys.join("|");
+  const listedSourcePapers = isWebChannel ? (msg.meta?.pdfSources ?? []) : (msg.papers ?? []);
+  const paperKeys = useMemo(() => listedSourcePapers.map(paperRowKey), [listedSourcePapers]);
+  const answerPaperKeysSig = useMemo(() => (msg.papers ?? []).map(paperRowKey).join("|"), [msg.papers]);
   const [openPaperKeys, setOpenPaperKeys] = useState<Set<string>>(() => new Set());
   /** 整条论文列表区域（工具栏 + 各条卡片）是否展开 */
   const [paperListSectionOpen, setPaperListSectionOpen] = useState(false);
@@ -1584,8 +1594,8 @@ function AssistantBlock({
   useEffect(() => {
     setOpenPaperKeys(new Set());
     setWebRefsOpen(false);
-    setPaperListSectionOpen(msg.meta?.channel === "web" && !msg.meta?.synthesis?.trim());
-  }, [msg.id, paperKeysSig, msg.meta?.channel, msg.meta?.synthesis]);
+    setPaperListSectionOpen(false);
+  }, [msg.id, answerPaperKeysSig]);
 
   const [negOpen, setNegOpen] = useState(false);
   const [negAspects, setNegAspects] = useState<Set<string>>(() => new Set());
@@ -2053,13 +2063,15 @@ function AssistantBlock({
               className="qp-btn-list-toggle"
             >
               {paperListSectionOpen
-                ? showWebUnified
+                ? isWebChannel
                   ? "收起全部来源"
                   : "收起论文列表"
-                : showWebUnified
+                : isWebChannel
                   ? "查看全部来源"
                   : "展开论文列表"}
-              <span className="ml-1 font-normal text-[var(--t-text-muted)]">（{n} 条）</span>
+              <span className="ml-1 font-normal text-[var(--t-text-muted)]">
+                （{isWebChannel ? listedSourcePapers.length : n} 条）
+              </span>
             </button>
             {paperListSectionOpen ? (
               <>
@@ -2081,8 +2093,9 @@ function AssistantBlock({
             ) : null}
           </div>
           {paperListSectionOpen ? (
-            <div className="flex flex-col gap-3">
-              {msg.papers.map((p) => {
+            listedSourcePapers.length > 0 ? (
+              <div className="flex flex-col gap-3">
+              {listedSourcePapers.map((p) => {
                 const k = paperRowKey(p);
                 return (
                   <PaperCard
@@ -2104,14 +2117,21 @@ function AssistantBlock({
                   />
                 );
               })}
-            </div>
-          ) : (
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2 text-[11px] text-[var(--t-text-dim)]">
+                {isWebChannel && msg.meta?.pdfCrawlStatus === "running"
+                  ? "尚未发现可公开下载的 PDF，正在继续处理后面的引用来源。"
+                  : isWebChannel
+                    ? "引用来源中没有找到可公开下载并已验证的 PDF。"
+                    : "暂无论文条目。"}
+              </p>
+            )
+          ) : !isWebChannel ? (
             <p className="rounded-lg border border-dashed border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2 text-[11px] text-[var(--t-text-dim)]">
-              {showWebDualPane
-                ? "来源列表已收起；上方「检索摘录」已展示主要原文片段，展开可查看全部条目与打开链接。"
-                : "论文列表已收起。点击「展开论文列表」可再次查看全部条目与操作按钮。"}
+              论文列表已收起。点击「展开论文列表」可再次查看全部条目与操作按钮。
             </p>
-          )}
+          ) : null}
         </div>
       )}
       {pointsEnabled ? msg.meta?.pdfReceipts?.map((receipt) => (
@@ -3418,7 +3438,21 @@ export default function App({
       };
 
       let papersReceived: Paper[] = [];
+      let pdfSourcesReceived: Paper[] = [];
+      let pdfCrawlStatusReceived: "running" | "completed" | "failed" | undefined;
+      let pdfCrawlOperationId = "";
       let synthesisSoFar = "";
+
+      const mergePdfSources = (incoming: Paper[]) => {
+        const byId = new Map<string, Paper>();
+        for (const source of [...pdfSourcesReceived, ...incoming]) {
+          const key = String(source.pdfSourceId ?? source.sourceId ?? `${source.sourceIndex ?? -1}:${paperRowKey(source)}`);
+          byId.set(key, source);
+        }
+        pdfSourcesReceived = [...byId.values()].sort(
+          (a, b) => (a.sourceIndex ?? Number.MAX_SAFE_INTEGER) - (b.sourceIndex ?? Number.MAX_SAFE_INTEGER),
+        );
+      };
 
       const upsertAssistant = (patch: Partial<ChatMessage>) => {
         setSessions((prev) =>
@@ -3461,6 +3495,10 @@ export default function App({
       for await (const event of searchPapersV1Stream(baseQ.slice(0, 12_000), streamOpts)) {
         if (event.type === "papers") {
           papersReceived = event.papers ?? [];
+          pdfCrawlOperationId = event.parentOperationId ?? pdfCrawlOperationId;
+          if ((event.channel ?? channelAtSend) === "web" && papersReceived.length > 0) {
+            pdfCrawlStatusReceived = "running";
+          }
           upsertAssistant({
             papers: papersReceived,
             meta: {
@@ -3478,6 +3516,34 @@ export default function App({
               persona: event.persona,
               personaLabel: event.personaLabel,
               parentOperationId: event.parentOperationId,
+              pdfSources: pdfSourcesReceived,
+              pdfCrawlStatus: pdfCrawlStatusReceived,
+              pdfCrawlProgress: pdfCrawlStatusReceived
+                ? { total: papersReceived.length, completed: 0, failed: 0 }
+                : undefined,
+            },
+          });
+        } else if (event.type === "pdf_source_ready") {
+          if (event.source) mergePdfSources([event.source]);
+          pdfCrawlStatusReceived = event.status ?? pdfCrawlStatusReceived ?? "running";
+          upsertAssistant({
+            meta: {
+              pdfSources: pdfSourcesReceived,
+              pdfCrawlStatus: pdfCrawlStatusReceived,
+              pdfCrawlProgress: {
+                total: event.total ?? papersReceived.length,
+                completed: event.completed ?? 0,
+                failed: event.failed ?? 0,
+              },
+            },
+          });
+        } else if (event.type === "pdf_crawl_status") {
+          pdfCrawlStatusReceived = event.status;
+          upsertAssistant({
+            meta: {
+              pdfSources: pdfSourcesReceived,
+              pdfCrawlStatus: event.status,
+              pdfCrawlProgress: { total: event.total, completed: event.completed, failed: event.failed },
             },
           });
         } else if (event.type === "synthesis_token") {
@@ -3514,6 +3580,9 @@ export default function App({
             },
           });
         } else if (event.type === "done") {
+          pdfCrawlOperationId = event.parentOperationId ?? pdfCrawlOperationId;
+          if (event.pdfSources?.length) mergePdfSources(event.pdfSources);
+          pdfCrawlStatusReceived = event.pdfCrawlStatus ?? pdfCrawlStatusReceived;
           if (event.billingReceipt) applyReceipt(event.billingReceipt);
           upsertAssistant({
             meta: {
@@ -3536,11 +3605,42 @@ export default function App({
               deepMine: event.deepMine ?? null,
               deepSynthesis: event.deepSynthesis ?? null,
               deepSynthesisNote: event.deepSynthesisNote ?? null,
+              pdfSources: pdfSourcesReceived,
+              pdfCrawlStatus: pdfCrawlStatusReceived,
+              pdfCrawlProgress: event.pdfCrawlProgress,
             },
           });
         } else if (event.type === "error") {
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
+      }
+
+      // 回答 SSE 正常结束后，PDF 旁路可能仍在按原序处理后续来源。
+      // 后台轮询仅更新独立 pdfSources，不会再次发起检索或改变回答内容。
+      if (channelAtSend === "web" && pdfCrawlOperationId && pdfCrawlStatusReceived === "running") {
+        void (async () => {
+          let consecutiveErrors = 0;
+          for (let attempt = 0; attempt < 720; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 2500));
+            try {
+              const job = await getCachedPdfSources(pdfCrawlOperationId);
+              consecutiveErrors = 0;
+              mergePdfSources(job.sources);
+              pdfCrawlStatusReceived = job.status;
+              upsertAssistant({
+                meta: {
+                  pdfSources: pdfSourcesReceived,
+                  pdfCrawlStatus: job.status,
+                  pdfCrawlProgress: { total: job.total, completed: job.completed, failed: job.failed },
+                },
+              });
+              if (job.status !== "running") return;
+            } catch {
+              consecutiveErrors += 1;
+              if (consecutiveErrors >= 6) return;
+            }
+          }
+        })();
       }
 
       setAttachments([]);

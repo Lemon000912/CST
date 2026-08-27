@@ -90,6 +90,10 @@ export type Paper = {
   /** 服务端计费 PDF 交付的不透明来源 id（字段名兼容后端演进） */
   pdfSourceId?: string;
   sourceId?: string;
+  /** 在“引用来源”原始数组中的位置；缓存 PDF 下载时保持原序关联。 */
+  sourceIndex?: number;
+  /** 服务端已验证并保存该 PDF，点击下载不会再次爬取远端。 */
+  pdfCached?: boolean;
   /** 后端归一化 id（SQLite / 融合去重） */
   paper_id?: string;
   /** 专利公开号/申请号（网页渠道专利补充等） */
@@ -231,6 +235,14 @@ export type SearchResultMeta = {
   billing?: BillingReceipt | null;
   /** 当前回答内成功交付的 PDF 收据 */
   pdfReceipts?: BillingReceipt[];
+  /** 独立 PDF 旁路已成功验证并缓存的来源；不参与回答合成。 */
+  pdfSources?: Paper[];
+  pdfCrawlStatus?: "running" | "completed" | "failed";
+  pdfCrawlProgress?: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
   /** Matplotlib 数值图等 */
   paperChart?: {
     mime: string;

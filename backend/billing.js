@@ -411,6 +411,177 @@ export async function beginBillableOperation({
   }
 }
 
+/**
+ * Atomically records and charges an operation that has already finished its
+ * expensive work. Unlike beginBillableOperation(), this never creates a
+ * `processing` row, so a cached child artifact can be delivered while its
+ * parent search operation is still running.
+ */
+export async function completeImmediateBillableOperation({
+  userId,
+  operationType,
+  idempotencyKey,
+  requestHash,
+  request,
+  costUnits,
+  billingDetails = {},
+  result,
+  receipt = {},
+}) {
+  const normalizedUserId = assertNonEmpty(userId, "userId", 128);
+  const normalizedType = normalizeOperationType(operationType);
+  const normalizedKey = assertNonEmpty(idempotencyKey, "idempotencyKey", 200);
+  const normalizedHash = requestHash
+    ? assertNonEmpty(requestHash, "requestHash", 128)
+    : stableRequestHash(request);
+  if (!/^[a-f0-9]{64}$/i.test(normalizedHash)) {
+    throw new BillingError("invalid-request-hash", "requestHash must be a SHA-256 hex digest", 400);
+  }
+  if (!Number.isSafeInteger(costUnits) || costUnits < 0) {
+    throw new BillingError("invalid-cost", "costUnits must be a non-negative safe integer", 400);
+  }
+
+  let resultJson;
+  let detailsJson;
+  try {
+    resultJson = JSON.stringify(result ?? null);
+    detailsJson = JSON.stringify(billingDetails ?? {});
+    if (resultJson === undefined || detailsJson === undefined) throw new TypeError("Value is not serializable");
+  } catch (error) {
+    throw new BillingError("result-not-serializable", "Billing result could not be serialized", 500, {
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    return await withDatabaseTransaction(async (tx) => {
+      const existing = await readOperationByKey(tx, normalizedUserId, normalizedType, normalizedKey, true);
+      if (existing) {
+        const replay = replayOrConflict(existing, normalizedHash);
+        if (replay) {
+          return { ...replay, receipt: replay.operation.receipt };
+        }
+      }
+
+      const wallet = await readWallet(tx, normalizedUserId, true);
+      if (!wallet) throw new BillingError("wallet-not-found", "Point wallet was not found", 404);
+      const previousBalanceUnits = normalizeInteger(wallet.balance_units, "wallet balance");
+      if (costUnits > previousBalanceUnits) {
+        throw new BillingError(
+          "insufficient-points",
+          "Point balance is insufficient to complete this operation",
+          402,
+          {
+            requiredUnits: costUnits,
+            balanceUnits: previousBalanceUnits,
+            balance: formatPointUnits(previousBalanceUnits),
+          },
+        );
+      }
+      const balanceUnits = previousBalanceUnits - costUnits;
+      if (!Number.isSafeInteger(balanceUnits)) {
+        throw new BillingError("balance-overflow", "Point balance exceeds safe integer range", 500);
+      }
+
+      const operationId = existing?.status === "failed" ? String(existing.id) : crypto.randomUUID();
+      const now = Date.now();
+      const finalReceipt = {
+        ...receipt,
+        operationId,
+        costUnits,
+        cost: formatPointUnits(costUnits),
+        previousBalanceUnits,
+        balanceUnits,
+        balance: formatPointUnits(balanceUnits),
+        billingDetails,
+      };
+      let receiptJson;
+      try {
+        receiptJson = JSON.stringify(finalReceipt);
+      } catch {
+        throw new BillingError("result-not-serializable", "Billing receipt could not be serialized", 500);
+      }
+
+      if (tx.dialect === "postgres") {
+        if (existing?.status === "failed") {
+          await tx.run(
+            `UPDATE point_operations SET status = 'completed', cost_units = $1,
+             billing_details_json = $2, result_json = $3, receipt_json = $4,
+             error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = $5, completed_at = $5
+             WHERE id = $6`,
+            [costUnits, detailsJson, resultJson, receiptJson, now, operationId],
+          );
+        } else {
+          await tx.run(
+            `INSERT INTO point_operations
+             (id, user_id, operation_type, idempotency_key, request_hash, status, cost_units,
+              billing_details_json, result_json, receipt_json, created_at, updated_at, completed_at)
+             VALUES ($1,$2,$3,$4,$5,'completed',$6,$7,$8,$9,$10,$10,$10)`,
+            [operationId, normalizedUserId, normalizedType, normalizedKey, normalizedHash,
+              costUnits, detailsJson, resultJson, receiptJson, now],
+          );
+        }
+        await tx.run(
+          `UPDATE point_wallets SET balance_units = $1, updated_at = $2 WHERE user_id = $3`,
+          [balanceUnits, now, normalizedUserId],
+        );
+        await tx.run(
+          `INSERT INTO point_ledger
+           (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+           VALUES ($1,$2,$3,'debit',$4,$5,$6,$7,$8)`,
+          [crypto.randomUUID(), normalizedUserId, operationId, `operation:${operationId}`, -costUnits, balanceUnits, detailsJson, now],
+        );
+      } else {
+        if (existing?.status === "failed") {
+          await tx.run(
+            `UPDATE point_operations SET status = 'completed', cost_units = ?,
+             billing_details_json = ?, result_json = ?, receipt_json = ?,
+             error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = ?, completed_at = ?
+             WHERE id = ?`,
+            [costUnits, detailsJson, resultJson, receiptJson, now, now, operationId],
+          );
+        } else {
+          await tx.run(
+            `INSERT INTO point_operations
+             (id, user_id, operation_type, idempotency_key, request_hash, status, cost_units,
+              billing_details_json, result_json, receipt_json, created_at, updated_at, completed_at)
+             VALUES (?,?,?,?,?,'completed',?,?,?,?,?,?,?)`,
+            [operationId, normalizedUserId, normalizedType, normalizedKey, normalizedHash,
+              costUnits, detailsJson, resultJson, receiptJson, now, now, now],
+          );
+        }
+        await tx.run(
+          `UPDATE point_wallets SET balance_units = ?, updated_at = ? WHERE user_id = ?`,
+          [balanceUnits, now, normalizedUserId],
+        );
+        await tx.run(
+          `INSERT INTO point_ledger
+           (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+           VALUES (?,?,?,'debit',?,?,?,?,?)`,
+          [crypto.randomUUID(), normalizedUserId, operationId, `operation:${operationId}`, -costUnits, balanceUnits, detailsJson, now],
+        );
+      }
+
+      return {
+        replayed: false,
+        operation: publicOperation(await readOperationById(tx, operationId)),
+        receipt: finalReceipt,
+      };
+    });
+  } catch (error) {
+    if (error instanceof BillingError) throw error;
+    if (error?.code === "23505" || /UNIQUE constraint failed/i.test(String(error?.message))) {
+      const db = await getReadDb();
+      const existing = await readOperationByKey(db, normalizedUserId, normalizedType, normalizedKey);
+      if (existing) {
+        const replay = replayOrConflict(existing, normalizedHash);
+        if (replay) return { ...replay, receipt: replay.operation.receipt };
+      }
+    }
+    throw new BillingUnavailableError(undefined, error);
+  }
+}
+
 export async function completeBillableOperation({
   operationId,
   userId,
