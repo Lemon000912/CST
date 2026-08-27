@@ -20,7 +20,16 @@ console.log("[env] primary LLM configured:", llmConfigured ? "Yes" : "No");
 
 const dbUrl = process.env.DATABASE_URL;
 console.log("[env] DATABASE_URL loaded:", dbUrl ? "Yes" : "No");
-console.log("[env] DATABASE_URL prefix:", dbUrl ? dbUrl.slice(0, 30) + "..." : "N/A");
+let dbDestination = "N/A";
+if (dbUrl) {
+  try {
+    const parsedDbUrl = new URL(dbUrl);
+    dbDestination = `${parsedDbUrl.protocol}//${parsedDbUrl.hostname}:${parsedDbUrl.port || "default"}${parsedDbUrl.pathname}`;
+  } catch {
+    dbDestination = "configured (invalid URL format)";
+  }
+}
+console.log("[env] DATABASE_URL destination:", dbDestination);
 
 import cors from "cors";
 import {

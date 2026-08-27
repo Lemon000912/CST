@@ -91,8 +91,8 @@ async function indexPdf(client, root, category, filePath, stat, sha256, now) {
          created_at, updated_at, authors_json, pdf_url, category, material_name,
          citation_count, download_count, relevance_score, credibility_score, language, summary
        ) VALUES (
-         $1, NULL, $2, $3, $4, $5, $5, 'local', 'server_pdf_library',
-         $6, $6, '[]', $7, $8, $9, 0, 0, 100, 100, 'unknown', $3
+         $1, NULL, $2, $3, $4, $5, $6, 'local', 'server_pdf_library',
+         $7, $8, '[]', $9, $10, $11, 0, 0, 100, 100, 'unknown', $12
        )
        ON CONFLICT (paper_id) DO UPDATE SET
          title = EXCLUDED.title,
@@ -111,10 +111,13 @@ async function indexPdf(client, root, category, filePath, stat, sha256, now) {
         abstract,
         yearMatch ? Number(yearMatch[0]) : null,
         category.folderName,
+        category.folderName,
+        now,
         now,
         `db-pdf:${paperId}`,
         category.code,
         category.folderName,
+        abstract,
       ],
     );
     await client.query(
