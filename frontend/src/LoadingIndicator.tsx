@@ -1,7 +1,3 @@
-import { useEffect, useState } from "react";
-
-const RHINO_FRAMES = Array.from({ length: 9 }, (_, index) => `/rhino/rhino-${index + 1}.jpg`);
-
 /** 犀牛序列帧：挂载时循环播放，组件卸载时自然停止。 */
 export function RhinoAnimation({
   className = "h-16 w-20",
@@ -10,23 +6,10 @@ export function RhinoAnimation({
   className?: string;
   animate?: boolean;
 }) {
-  const [frame, setFrame] = useState(animate ? 0 : 4);
-
-  useEffect(() => {
-    if (!animate) {
-      setFrame(4);
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setFrame((current) => (current + 1) % RHINO_FRAMES.length);
-    }, 180);
-    return () => window.clearInterval(timer);
-  }, [animate]);
-
   return (
     <img
-      src={RHINO_FRAMES[frame]}
-      alt="正在处理"
+      src={animate ? "/rhino/rhino-generating.gif" : "/rhino/rhino-5.jpg"}
+      alt={animate ? "正在处理" : "处理完成"}
       className={`shrink-0 rounded-md object-contain ${className}`}
       draggable={false}
     />
