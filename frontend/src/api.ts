@@ -120,11 +120,15 @@ function parseBillingReceipt(value: unknown): BillingReceipt | undefined {
     ? finiteNumber(rawBalanceUnits)
     : Math.round(finiteNumber(rawBalance) * 20);
   const costUnits = finiteNumber(raw.costUnits ?? raw.units);
+  const rawCost = raw.cost;
+  const hasCost = rawCost != null && String(rawCost).trim() !== "";
   return {
     ...raw,
     operationId: String(operationId),
     costUnits,
-    cost: finiteNumber(raw.cost, costUnits / 20),
+    // Binary PDF responses expose cost in point units only. Treat a missing
+    // or null cost header as absent instead of converting null to 0.
+    cost: hasCost ? finiteNumber(rawCost, costUnits / 20) : costUnits / 20,
     balanceUnits,
     balance: hasBalance ? finiteNumber(rawBalance) : balanceUnits / 20,
     billingDetails:
