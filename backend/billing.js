@@ -326,6 +326,27 @@ export async function beginBillableOperation({
       let active = tx.dialect === "postgres"
         ? await tx.get(`SELECT * FROM point_operations WHERE user_id = $1 AND status = 'processing' FOR UPDATE`, [normalizedUserId])
         : await tx.get(`SELECT * FROM point_operations WHERE user_id = ? AND status = 'processing'`, [normalizedUserId]);
+      // Chart generation used to hold the user's global processing lease while
+      // the LLM rendered in the background. New chart requests settle
+      // immediately after generation and no longer create processing rows.
+      // Reap a legacy/stale chart lease when the user starts another operation
+      // so it cannot block searches for up to the one-hour default lease.
+      if (active && String(active.operation_type) === "chart" && normalizedType !== "chart") {
+        if (tx.dialect === "postgres") {
+          await tx.run(
+            `UPDATE point_operations SET status = 'failed', error_code = 'superseded-legacy-chart',
+             lease_expires_at = NULL, lease_token = NULL, updated_at = $1, completed_at = $1 WHERE id = $2`,
+            [now, active.id],
+          );
+        } else {
+          await tx.run(
+            `UPDATE point_operations SET status = 'failed', error_code = 'superseded-legacy-chart',
+             lease_expires_at = NULL, lease_token = NULL, updated_at = ?, completed_at = ? WHERE id = ?`,
+            [now, now, active.id],
+          );
+        }
+        active = null;
+      }
       if (active && (Number(active.lease_expires_at) || 0) <= now) {
         if (tx.dialect === "postgres") {
           await tx.run(

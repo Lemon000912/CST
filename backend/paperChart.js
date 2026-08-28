@@ -87,17 +87,15 @@ export async function extractChartSpecWithLlm(papers, opts) {
   const system =
     "你是「从文献摘录抽取数值并溯源」的助手。用户会给出若干条带标识符（DOI/arXiv/专利号/URL等）的摘要摘录（可能较长）。\n" +
     "文献类型包括学术论文、专利、网页等，所有类型均可提取数据。\n" +
-    "任务：找出**摘要中明确写出**的数值，组成二维散点图的 (x, y)。\n" +
-    "**重要原则：宁可多提取、不可遗漏**。只要摘要中有任何能用数字表示的物理量、性能指标、实验参数，都应该提取为一个数据点。\n" +
-    "优先提取以下类型的数值：\n" +
-    "- X轴优先：年份、温度、压力、浓度、剂量、尺寸、波长、频率、厚度\n" +
-    "- Y轴优先：效率(%)、产率(%)、容量、密度、带隙(eV)、电导率、强度、硬度、模量、迁移率、透光率、热导率、功率密度、电流密度、电压、任何性能指标\n" +
-    "**同一篇**内若同时出现年份与性能数，可用 doi_x=doi_y=该篇 DOI。\n" +
+    "任务：从摘录中选择一组**含义一致、单位一致、可相互比较**的数值，组成二维散点图的 (x, y)。\n" +
+    "**重要原则：可比性优先于数量**。一张图只能表达一个明确关系，例如“年份→比容量(mAh/g)”或“温度(°C)→效率(%)”。\n" +
+    "禁止把效率、增长率、市场占比、温度、电压、容量、带隙等不同含义或不同单位的数字混在同一纵轴。\n" +
+    "若无法找到至少 2 个含义和单位一致的可比点，返回空 points；不得用文献序号、任意数字或无明确物理含义的数字凑点。\n" +
     "严格要求：\n" +
-    "1) **不得编造**数字；x、y 必须能在对应摘录原文中找到；但只要能找到，就一定要提取，不要遗漏。\n" +
-    "2) **每篇文献至少尝试提取 1-2 个点**：如果该篇摘要同时有多个性能指标（如效率+填充因子、电导率+热导率等），每个指标组合作为一个点。\n" +
+    "1) **不得编造**数字；x、y 必须能在对应摘录原文中找到，并在 quote 中保留支持该点的短句。\n" +
+    "2) 只收录与所选坐标含义完全一致的点，不要求每篇文献都贡献数据。\n" +
     "3) 溯源方式任选其一：**(A)** 填 `doi_x`/`doi_y`（10.xxxx/… 或摘录头行的 DOI 原文）；**(B)** 仅有 arXiv 时 `arxiv_x`/`arxiv_y` 填如 2301.12345；**(C)** 填 `paper_index`（1 表示第 1 条摘录、2 表示第 2 条…），若 x、y 都来自同一篇则只填 `paper_index` 即可，服务端会映射到该条 DOI/arXiv。\n" +
-    "4) 最多 60 个点；尽量让每篇文献都贡献至少一个点。同一年份的多个值请在±1.5范围内随机微调x坐标（如2022.0、2022.6、2022.3、2021.5…），避免点完全重叠。\n" +
+    "4) 最多 60 个点；不要为了避免重叠而篡改原始数值，渲染器会自动处理重叠。\n" +
     "5) **只输出一个 JSON 对象**，禁止 markdown 围栏、禁止注释。\n" +
     "JSON schema:\n" +
     '{ "title": string, "x_axis": { "label": string }, "y_axis": { "label": string }, "chart_type": "scatter",\n' +
@@ -108,7 +106,7 @@ export async function extractChartSpecWithLlm(papers, opts) {
     "示例（结构示意）：{\"title\":\"…\",\"x_axis\":{\"label\":\"年份\"},\"y_axis\":{\"label\":\"效率(%)\"},\"chart_type\":\"scatter\",\"points\":[{\"x\":2022,\"y\":24.5,\"paper_index\":1,\"quote\":\"we achieve 24.5%\"}]}";
 
   const defaultHint =
-    "请为【每一条】摘要都至少产出一个数据点，不要遗漏任何一条文献。常见组合=\"年份→x、性能指标→y\"。没有性能指标的文献，可从摘要中找任意可度量的物理量作为y。务必填写paper_index。";
+    "请从全部摘录中选择数据最充分的一组同含义、同单位指标作图。常见组合为“年份→同一种性能指标”。宁可只保留少量可靠点，也不要混合不同指标；务必填写 paper_index 和 quote。";
   const syn = String(opts.synthesisMarkdown ?? "").trim().slice(0, 8000);
   const synBlock =
     syn.length > 0
@@ -121,8 +119,12 @@ export async function extractChartSpecWithLlm(papers, opts) {
     synBlock;
 
   try {
+    const timeoutMs = Math.min(
+      180_000,
+      Math.max(25_000, Number(process.env.PAPER_CHART_TIMEOUT_MS) || 120_000),
+    );
     const result = await generateText(provider, {
-      timeoutMs: 25_000,
+      timeoutMs,
       temperature: 0.22,
       maxTokens: 6000,
       system,
@@ -289,184 +291,90 @@ export function normalizeChartSpec(spec, paperRefs = null) {
 }
 
 /**
- * LLM 无法出点时的后备：从每篇摘要抓年份（元数据或正文）与首个百分数或 eV，凑散点图。
+ * LLM 无法形成图表时的保守后备：只选择一种单位明确的指标，绝不混合不同物理量。
+ * 后备点用于展示与重试提示，不作为有效计费点。
  * @param {unknown[]} papers
  * @returns {object | null} 可交给 normalizeChartSpec 的原始 spec
  */
 export function buildFallbackChartSpecFromAbstracts(papers) {
   const arr = Array.isArray(papers) ? papers.slice(0, 50) : [];
-  const rawPoints = [];
-  
-  // 为每篇论文尝试提取数据点
+  const metrics = [
+    {
+      type: "specific_capacity",
+      label: "比容量 (mAh/g)",
+      regex: /(\d+(?:\.\d+)?)\s*(mAh\s*\/\s*g|Ah\s*\/\s*kg)\b/gi,
+      convert: (value) => value,
+    },
+    {
+      type: "voltage",
+      label: "电压 (V)",
+      regex: /(\d+(?:\.\d+)?)\s*(mV|V)\b/gi,
+      convert: (value, unit) => (/^mv$/i.test(unit) ? value / 1000 : value),
+    },
+    {
+      type: "energy_ev",
+      label: "能量/带隙 (eV)",
+      regex: /(\d+(?:\.\d+)?)\s*(eV)\b/gi,
+      convert: (value) => value,
+    },
+    {
+      type: "percent",
+      label: "百分数 (%)",
+      regex: /(\d+(?:\.\d+)?)\s*([％%])/g,
+      convert: (value) => value,
+    },
+  ];
+  const candidatesByType = new Map(metrics.map((metric) => [metric.type, []]));
+
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
-    const tag = paperDoiOrArxivTag(p);
-    const summary = String(p.summary ?? p.abstract ?? "");
-    const title = String(p.title ?? "").slice(0, 100);
-    const paperId = tag || String(p.id ?? p.paper_id ?? "").slice(0, 80) || `文献-${i + 1}`;
-    
-    // 提取所有可能的数值
-    const extractedValues = [];
-    
-    // 1. 百分数 (24.5%, 3.2 %, ...) - 太阳能效率等
-    const pctMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*[％%]/g);
-    for (const m of pctMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'percent' });
-    }
-    
-    // 2. eV (1.5 eV, 0.95eV) - 带隙
-    const evMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*eV\b/gi);
-    for (const m of evMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'eV' });
-    }
-    
-    // 3. 温度 (300 K 或 25°C)
-    const tempMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:K|°C|°F)\b/g);
-    for (const m of tempMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'temp' });
-    }
-    
-    // 4. 波长/频率 (500 nm, 10 GHz)
-    const waveMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:nm|μm|mm|cm|m|GHz|MHz|THz)\b/g);
-    for (const m of waveMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'wave' });
-    }
-    
-    // 5. 浓度/密度
-    const concMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:g\/cm³|kg\/m³|mol\/L|M|mg\/mL|μg\/mL|wt%|vol%)/g);
-    for (const m of concMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'conc' });
-    }
-    
-    // 6. 电学单位
-    const elecMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:mA\/cm²|mW\/cm²|W\/m²|W\/cm²|mA|mV|V|A|Ω|S\/cm|S\/m|μA|kW|MW|GW|TW|μW|nW|pW)/gi);
-    for (const m of elecMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'elec' });
-    }
-    
-    // 7. 厚度/尺寸 (nm, μm, mm)
-    const thickMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:nm|μm|mm|cm|pm)\b/g);
-    for (const m of thickMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'thick' });
-    }
-
-    // 8. 时间单位 (小时、分钟、秒、天) — 常见于专利和工艺描述
-    const timeMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:小时|分钟|秒|天|h\b|min\b|s\b|day|hour|minute)/gi);
-    for (const m of timeMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'time' });
-    }
-
-    // 9. 重量/质量 (g, kg, mg, μg, ton, lb)
-    const massMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:g\b|kg\b|mg\b|μg\b|吨|千克|克|毫克)/gi);
-    for (const m of massMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'mass' });
-    }
-
-    // 10. 长度/面积/体积 (m², m³, L, mL, ha, acre)
-    const areaMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:m²|m³|L\b|mL\b|ha\b|acre|升|毫升|公顷)/gi);
-    for (const m of areaMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'area' });
-    }
-
-    // 11. 速度/加速度 (m/s, km/h, rpm, Hz)
-    const speedMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*(?:m\/s|km\/h|rpm|Hz\b|kHz\b|MHz\b)/gi);
-    for (const m of speedMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'speed' });
-    }
-
-    // 12. 比率/倍数（如"3倍"、"2.5倍"、"提高了40%"）
-    const ratioMatches = summary.matchAll(/(\d+(?:\.\d+)?)\s*倍/g);
-    for (const m of ratioMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: m[0], type: 'ratio' });
-    }
-    const improvedMatches = summary.matchAll(/提高[了到达]?\s*(\d+(?:\.\d+)?)\s*[％%]/g);
-    for (const m of improvedMatches) {
-      extractedValues.push({ val: Number(m[1]), unit: '提高' + m[0], type: 'percent' });
-    }
-    
-    // 13. 通用数字（最后尝试）
-    if (extractedValues.length === 0) {
-      const numMatches = summary.matchAll(/\b(\d+(?:\.\d+)?)\b/g);
-      for (const m of numMatches) {
-        const val = Number(m[1]);
-        // 过滤掉年份和明显不合理的值
-        if (val >= 0.001 && val < 10000 && !String(val).match(/^(19|20)\d{2}$/)) {
-          extractedValues.push({ val, unit: m[0], type: 'generic' });
-        }
-      }
-    }
-    
-    // X轴：年份或索引
-    let x = p.year != null ? Number(p.year) : NaN;
+    const summary = String(p?.summary ?? p?.abstract ?? "");
+    if (!summary) continue;
+    const sourceTag = paperDoiOrArxivTag(p);
+    if (!sourceTag) continue;
+    let x = p?.year != null ? Number(p.year) : NaN;
     if (!Number.isFinite(x) || x < 1900 || x > 2100) {
-      const ym = summary.match(/\b(19\d{2}|20\d{2})\b/);
-      x = ym ? Number(ym[0]) : (i + 1);
+      const yearMatch = summary.match(/\b(19\d{2}|20\d{2})\b/);
+      x = yearMatch ? Number(yearMatch[0]) : i + 1;
     }
-    
-    // 为每个提取的数值创建一个点（先用较大偏移避免同一论文内重叠）
-    if (extractedValues.length > 0) {
-      const half = (extractedValues.length - 1) / 2;
-      for (let j = 0; j < Math.min(extractedValues.length, 5); j++) {
-        const ev = extractedValues[j];
-        const spread = (j - half) * 0.4;
-        rawPoints.push({
-          x: x + spread,
-          y: ev.val,
-          doi: String(p.doi ?? "").trim() || null,
-          doi_x: paperId,
-          doi_y: paperId,
-          title: title || null,
-          quote: `${ev.unit} (${ev.type})`,
+    for (const metric of metrics) {
+      let addedForPaper = 0;
+      for (const match of summary.matchAll(metric.regex)) {
+        const rawValue = Number(match[1]);
+        const value = metric.convert(rawValue, String(match[2] ?? ""));
+        if (!Number.isFinite(value)) continue;
+        candidatesByType.get(metric.type).push({
+          x,
+          y: value,
+          doi: String(p?.doi ?? "").trim() || null,
+          doi_x: sourceTag,
+          doi_y: sourceTag,
+          paper_index: i + 1,
+          quote: match[0],
         });
-        if (rawPoints.length >= 60) break;
-      }
-    } else {
-      // 如果没有提取到数值，使用索引作为Y值（确保每篇论文至少有一个点）
-      rawPoints.push({
-        x,
-        y: i + 1,
-        doi: String(p.doi ?? "").trim() || null,
-        doi_x: paperId,
-        doi_y: paperId,
-        title: title || null,
-        quote: `文献 ${i + 1} (无明确数值)`,
-      });
-    }
-    
-    if (rawPoints.length >= 60) break;
-  }
-  
-  // 第二轮：按x坐标分组，对同一x上重叠的点进行jitter散开
-  const xGroups = new Map();
-  for (const pt of rawPoints) {
-    const xk = Math.round(pt.x * 10) / 10;
-    if (!xGroups.has(xk)) xGroups.set(xk, []);
-    xGroups.get(xk).push(pt);
-  }
-  const spreadPoints = [];
-  for (const [, group] of xGroups) {
-    if (group.length === 1) {
-      spreadPoints.push(group[0]);
-    } else {
-      const half = (group.length - 1) / 2;
-      const spreadWidth = Math.max(0.6, group.length * 0.25);
-      for (let i = 0; i < group.length; i++) {
-        spreadPoints.push({
-          ...group[i],
-          x: group[i].x + (i - half) * (spreadWidth / group.length),
-        });
+        addedForPaper += 1;
+        if (addedForPaper >= 2) break;
       }
     }
   }
-  
-  if (spreadPoints.length < 1) return null;
-  
+
+  const selectedMetric = metrics
+    .map((metric) => ({ metric, points: candidatesByType.get(metric.type) }))
+    .filter((entry) => entry.points.length >= 2)
+    .sort((a, b) => {
+      const paperCountA = new Set(a.points.map((point) => point.paper_index)).size;
+      const paperCountB = new Set(b.points.map((point) => point.paper_index)).size;
+      return paperCountB - paperCountA || b.points.length - a.points.length;
+    })[0];
+  if (!selectedMetric) return null;
+
+  const points = selectedMetric.points.slice(0, 55);
   return {
-    title: `文献数值分布（共 ${spreadPoints.length} 个数据点）`,
+    title: `${selectedMetric.metric.label}文献分布（规则后备）`,
     chart_type: "scatter",
     x_axis: { label: "年份/文献序号" },
-    y_axis: { label: "提取的数值（效率%/带隙eV/温度/浓度等）" },
-    points: spreadPoints,
+    y_axis: { label: selectedMetric.metric.label },
+    points,
   };
 }
 

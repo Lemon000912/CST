@@ -846,8 +846,13 @@ function channelLabel(c?: SearchChannel): string {
     : "网页+专利（无论文库；网页须带网址）";
 }
 
-/** 文献数值图仅用于数据库渠道，网页渠道不展示、不自动作图 */
-function channelSupportsPaperChart(c?: SearchChannel): boolean {
+/** 所有检索渠道只要返回了可追溯来源，都可以抽取数值并生成图表。 */
+function channelSupportsPaperChart(_c?: SearchChannel): boolean {
+  return true;
+}
+
+/** 预设材料数据表仍只用于数据库渠道，避免与网页综述的关键数据表重复。 */
+function channelSupportsDataTable(c?: SearchChannel): boolean {
   return c !== "web";
 }
 
@@ -1336,6 +1341,7 @@ function RechargeModal({
 function BillingReceiptBadge({ receipt, kind }: { receipt?: BillingReceipt | null; kind: "回答" | "图表" | "PDF" }) {
   if (!receipt) return null;
   const details = receipt.billingDetails ?? {};
+  const fallbackChart = kind === "图表" && details.fallbackGenerated === true;
   const quantity =
     kind === "回答"
       ? details.characterCount
@@ -1343,10 +1349,17 @@ function BillingReceiptBadge({ receipt, kind }: { receipt?: BillingReceipt | nul
         ? details.validPointCount ?? details.pointCount ?? details.chartPointCount
         : details.pdfCount ?? details.deepPaperCount;
   const unit = kind === "回答" ? "字符" : kind === "图表" ? "有效数据点" : "文件";
+  const renderedPointCount = details.renderedPointCount;
   return (
     <div className="not-prose mt-2 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md border border-[color:var(--t-br07)] bg-[var(--t-muted)] px-2 py-1 text-[10px] leading-snug text-[var(--t-text-muted)]">
       <span className="font-semibold text-[var(--t-text)]">{kind}计费</span>
-      {typeof quantity === "number" ? <span>{quantity.toLocaleString()} {unit}</span> : null}
+      {fallbackChart ? (
+        <span>
+          规则后备图
+          {typeof renderedPointCount === "number" ? ` · ${renderedPointCount.toLocaleString()} 个展示点` : ""}
+          （未按点计费）
+        </span>
+      ) : typeof quantity === "number" ? <span>{quantity.toLocaleString()} {unit}</span> : null}
       <span>· 消费 {formatPoints(receipt.cost)} 积分</span>
       <span>· 余额 {formatPoints(receipt.balance)}</span>
     </div>
@@ -1724,20 +1737,6 @@ function AssistantBlock({
                               ))}
                             </div>
                           ) : null}
-                          {msg.meta?.synthesisPlan &&
-                          typeof msg.meta.synthesisPlan === "object" ? (
-                            <ExtractedDataPanel plan={msg.meta.synthesisPlan} />
-                          ) : null}
-                          {channelSupportsPaperChart(msg.meta?.channel) &&
-                          !msg.error &&
-                          n > 0 &&
-                          onGenerateDataTable ? (
-                            <DataTableGeneratorPanel
-                              msg={msg}
-                              busy={dataTableBusy}
-                              onGenerate={onGenerateDataTable}
-                            />
-                          ) : null}
                           {onDownloadPptx && onBuildFlowchart ? (
                             <ProcessArtifactToolbar
                               msg={msg}
@@ -1900,7 +1899,7 @@ function AssistantBlock({
                 {msg.meta?.synthesisPlan != null && typeof msg.meta.synthesisPlan === "object" ? (
                   <ExtractedDataPanel plan={msg.meta.synthesisPlan} />
                 ) : null}
-                {channelSupportsPaperChart(msg.meta?.channel) &&
+                {channelSupportsDataTable(msg.meta?.channel) &&
                 !msg.error &&
                 n > 0 &&
                 onGenerateDataTable ? (
@@ -3167,7 +3166,7 @@ export default function App({
   }, [applyReceipt, patchMessageMeta, pointBalance?.balance, pointsEnabled]);
 
   const handleGenerateDataTable = useCallback(async (msg: ChatMessage, tableType: DataTablePresetId) => {
-    if (!msg.papers?.length || msg.error || !channelSupportsPaperChart(msg.meta?.channel)) return;
+    if (!msg.papers?.length || msg.error || !channelSupportsDataTable(msg.meta?.channel)) return;
     setDataTableBusyMessageId(msg.id);
     const patchMeta = (patch: Record<string, unknown>) => ({
       ...msg,
@@ -3462,6 +3461,11 @@ export default function App({
       let pdfCrawlStatusReceived: "running" | "completed" | "failed" | undefined;
       let pdfCrawlOperationId = "";
       let synthesisSoFar = "";
+      let streamCompleted = false;
+      let streamFailed = false;
+      let completedParentOperationId = "";
+      let completedBillingReceipt: BillingReceipt | null = null;
+      let completedPointsExhausted = false;
 
       const mergePdfSources = (incoming: Paper[]) => {
         const byId = new Map<string, Paper>();
@@ -3600,6 +3604,11 @@ export default function App({
             },
           });
         } else if (event.type === "done") {
+          streamCompleted = true;
+          synthesisSoFar = event.synthesis ?? synthesisSoFar;
+          completedParentOperationId = event.parentOperationId ?? "";
+          completedBillingReceipt = event.billingReceipt ?? null;
+          completedPointsExhausted = event.pointsExhausted ?? false;
           pdfCrawlOperationId = event.parentOperationId ?? pdfCrawlOperationId;
           if (event.pdfSources?.length) mergePdfSources(event.pdfSources);
           pdfCrawlStatusReceived = event.pdfCrawlStatus ?? pdfCrawlStatusReceived;
@@ -3631,6 +3640,7 @@ export default function App({
             },
           });
         } else if (event.type === "error") {
+          streamFailed = true;
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
       }
@@ -3665,19 +3675,42 @@ export default function App({
 
       setAttachments([]);
 
-      // 自动作图（复用非流式逻辑）
+      // 回答已经完成；图表在独立后台任务中生成，不阻塞主回答展示。
       const assistantIdForChart = assistantId;
       const papersForAutoChart = papersReceived;
-      // parentOperationId 由 done 事件携带，已写入 meta；此处仅处理余额不足提示
-      if (
+      const autoChartEligible =
+        streamCompleted &&
+        !streamFailed &&
         papersForAutoChart.length > 0 &&
-        channelSupportsPaperChart(channelAtSend) &&
+        channelSupportsPaperChart(channelAtSend);
+      const balanceAfterSearch = completedBillingReceipt?.balance ?? pointBalance?.balance;
+
+      if (autoChartEligible && !completedParentOperationId) {
+        patchMessageMeta(assistantIdForChart, {
+          paperChartError: "搜索结算信息不完整，未自动生成图表；可点击下方按钮重试。",
+        });
+      } else if (
+        autoChartEligible &&
         pointsEnabled &&
-        (pointBalance?.balance ?? 0) <= 0
+        (completedPointsExhausted || (balanceAfterSearch != null && balanceAfterSearch <= 0))
       ) {
         patchMessageMeta(assistantIdForChart, {
           paperChartError: "搜索结算后余额不足，未自动生成图表。",
         });
+      } else if (autoChartEligible && completedParentOperationId) {
+        const autoChartMessage: ChatMessage = {
+          ...initialAssistant,
+          id: assistantIdForChart,
+          papers: papersForAutoChart,
+          meta: {
+            ...initialAssistant.meta,
+            channel: channelAtSend,
+            synthesis: synthesisSoFar || null,
+            parentOperationId: completedParentOperationId,
+            billing: completedBillingReceipt,
+          },
+        };
+        void handleMatplotlibChart(autoChartMessage);
       }
     } catch (e) {
       if (e instanceof ApiError && e.balance) setPointBalance(e.balance);

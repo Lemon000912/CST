@@ -954,7 +954,6 @@ app.post("/api/v1/user/info", async (req, res) => {
  * stored papers by paperIndices/paperIds, but cannot submit arbitrary sources.
  */
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
-  let activeOperation = null;
   try {
     const enterpriseEdition = isEnterpriseEdition(req);
     const idempotencyKey = requireIdempotencyKey(req);
@@ -976,23 +975,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
       synthesisMarkdown: String(req.body?.synthesisMarkdown ?? "").trim().slice(0, 8000),
       model: String(req.headers["x-openai-model"] ?? "").trim().slice(0, 96),
     };
-    const begun = await beginBillableOperation({
-      userId: req.auth.userId,
-      operationType: "chart",
-      idempotencyKey,
-      requestHash: stableRequestHash(requestDescriptor),
-      allowZeroBalance: enterpriseEdition,
-    });
-    if (begun.replayed) {
-      return res.json({
-        ...begun.operation.result,
-        parentOperationId,
-        operationId: begun.operation.id,
-        billingReceipt: begun.operation.receipt,
-        replayed: true,
-      });
-    }
-    activeOperation = begun.operation;
+    const requestHash = stableRequestHash(requestDescriptor);
     req.body = { ...req.body, papers: papersForChart };
     res.locals.chartParentOperationId = parentOperationId;
     const originalJson = res.json.bind(res);
@@ -1000,18 +983,21 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
       if (res.statusCode >= 200 && res.statusCode < 300 && body?.spec && (body?.mime || res.statusCode === 200)) {
         try {
           const fallbackGenerated = res.locals.chartBillingSource !== "llm";
-          const chartPointCount = fallbackGenerated ? 0 : Array.isArray(body.spec.points) ? body.spec.points.length : 0;
+          const renderedPointCount = Array.isArray(body.spec.points) ? body.spec.points.length : 0;
+          const chartPointCount = fallbackGenerated ? 0 : renderedPointCount;
           const billingDetails = {
             edition: enterpriseEdition ? "enterprise" : "school",
             parentOperationId,
             chartPointCount,
+            renderedPointCount,
             fallbackGenerated,
             chartPointUnits: calculateCostUnits({ chartPointCount }),
           };
-          const completed = await completeBillableOperation({
-            operationId: activeOperation.id,
+          const completed = await completeImmediateBillableOperation({
             userId: req.auth.userId,
-            leaseToken: activeOperation.leaseToken,
+            operationType: "chart",
+            idempotencyKey,
+            requestHash,
             costUnits: enterpriseEdition ? 0 : billingDetails.chartPointUnits,
             billingDetails,
             result: body,
@@ -1020,28 +1006,21 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
           return originalJson({
             ...body,
             parentOperationId,
-            operationId: activeOperation.id,
+            operationId: completed.operation.id,
             billingReceipt: completed.receipt,
-            replayed: false,
+            replayed: completed.replayed,
           });
         } catch (error) {
-          await failOperationBestEffort(activeOperation, req.auth.userId, error);
           res.json = originalJson;
           if (!res.headersSent) return sendStructuredError(res, error, { message: "Chart billing failed" });
           return res;
         }
       }
-      await failOperationBestEffort(
-        activeOperation,
-        req.auth.userId,
-        new ApiRouteError(res.statusCode || 500, "chart-generation-failed", "Chart generation failed"),
-      );
       return originalJson(body);
     };
     return next();
   } catch (error) {
-    await failOperationBestEffort(activeOperation, req.auth?.userId, error);
-    return sendStructuredError(res, error, { message: "Unable to begin chart generation" });
+    return sendStructuredError(res, error, { message: "Unable to prepare chart generation" });
   }
 });
 
@@ -1157,7 +1136,10 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
           title: spec.title,
           spec,
           matplotlibError: png.error,
-          note: "Python/matplotlib 不可用，已使用纯JS SVG渲染",
+          note:
+            res.locals.chartBillingSource === "fallback"
+              ? "LLM 未形成同指标可比点，已使用同单位规则后备图（不计费）；Python/matplotlib 不可用，已使用纯JS SVG渲染"
+              : "Python/matplotlib 不可用，已使用纯JS SVG渲染",
         };
         try {
           JSON.stringify(svgBody);
@@ -1188,6 +1170,10 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
       title: spec.title,
       spec,
       matplotlibStderr: png.stderr || undefined,
+      note:
+        res.locals.chartBillingSource === "fallback"
+          ? "LLM 未形成同指标可比点，已使用同单位规则后备图（不计费）"
+          : undefined,
     };
     try {
       JSON.stringify(pngBody);

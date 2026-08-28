@@ -74,3 +74,29 @@ test("a cached PDF can be charged while its parent search is still processing", 
   const ledger = await db.all("SELECT * FROM point_ledger WHERE operation_id = ?", [first.operation.id]);
   assert.equal(ledger.length, 1);
 });
+
+test("a new search reaps a legacy background chart lease", async () => {
+  await initDatabase();
+  const userId = "legacy-chart-lease-user";
+  await createUserRecord(userId, "legacy_chart_lease_user", "not-used-in-this-test");
+
+  const chart = await beginBillableOperation({
+    userId,
+    operationType: "chart",
+    idempotencyKey: "legacy-auto-chart",
+    requestHash: stableRequestHash({ parentOperationId: "old-search" }),
+  });
+  assert.equal(chart.operation.status, "processing");
+
+  const search = await beginBillableOperation({
+    userId,
+    operationType: "search",
+    idempotencyKey: "new-search-after-chart",
+    requestHash: stableRequestHash({ query: "solid state battery" }),
+  });
+
+  assert.equal(search.operation.status, "processing");
+  const previousChart = await getBillableOperation({ operationId: chart.operation.id, userId });
+  assert.equal(previousChart.status, "failed");
+  assert.equal(previousChart.errorCode, "superseded-legacy-chart");
+});

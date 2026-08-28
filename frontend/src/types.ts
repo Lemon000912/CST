@@ -71,6 +71,8 @@ export type BillingReceipt = {
     pointCount?: number;
     validPointCount?: number;
     chartPointCount?: number;
+    renderedPointCount?: number;
+    fallbackGenerated?: boolean;
     pdfCount?: number;
     deepPaperCount?: number;
     [key: string]: unknown;
