@@ -7,6 +7,8 @@ APACHE_TEMPLATE="$ROOT/deploy/apache-ailunwen.conf"
 APACHE_TARGET="/etc/apache2/sites-available/ailunwen.conf"
 API_UNIT_TEMPLATE="$ROOT/deploy/ailunwen-api.service"
 API_UNIT_TARGET="/etc/systemd/system/ailunwen-api.service"
+PDF_SYNC_UNIT_TEMPLATE="$ROOT/deploy/ailunwen-pdf-sync.service"
+PDF_SYNC_UNIT_TARGET="/etc/systemd/system/ailunwen-pdf-sync.service"
 
 NODE_BIN="$(command -v node)"
 NODE_DIR="$(dirname "$NODE_BIN")"
@@ -39,9 +41,17 @@ sudo sed \
   -e "s|%USER%|$USER|g" \
   "$API_UNIT_TEMPLATE" | sudo tee "$API_UNIT_TARGET" >/dev/null
 
+sudo sed \
+  -e "s|%WORKDIR%|$ROOT|g" \
+  -e "s|%NODE_BIN%|$NODE_DIR|g" \
+  -e "s|%USER%|$USER|g" \
+  "$PDF_SYNC_UNIT_TEMPLATE" | sudo tee "$PDF_SYNC_UNIT_TARGET" >/dev/null
+
 sudo systemctl daemon-reload
 sudo systemctl enable ailunwen-api.service
 sudo systemctl restart ailunwen-api.service
+sudo systemctl enable ailunwen-pdf-sync.service
+sudo systemctl restart ailunwen-pdf-sync.service
 
 echo ""
 echo "=========================================="
@@ -63,9 +73,10 @@ echo "   2. 路由器端口转发: 外网 80 → $LAN_IP:80"
 echo "   3. 确认运营商给了公网 IP（见部署教程）"
 echo ""
 echo " 常用命令:"
-echo "   sudo systemctl status ailunwen-api apache2"
-echo "   sudo systemctl restart ailunwen-api"
+echo "   sudo systemctl status ailunwen-api ailunwen-pdf-sync apache2"
+echo "   sudo systemctl restart ailunwen-api ailunwen-pdf-sync"
 echo "   sudo systemctl reload apache2"
 echo "   sudo journalctl -u ailunwen-api -f"
+echo "   sudo journalctl -u ailunwen-pdf-sync -f"
 echo "   sudo tail -f /var/log/apache2/ailunwen-error.log"
 echo "=========================================="

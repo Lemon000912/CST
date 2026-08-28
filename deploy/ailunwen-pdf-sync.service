@@ -1,5 +1,5 @@
 [Unit]
-Description=犀材探索 API (Node backend :8787)
+Description=Ailunwen server PDF library incremental sync
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -10,9 +10,11 @@ WorkingDirectory=%WORKDIR%
 Environment=PATH=%NODE_BIN%:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
 EnvironmentFile=-/home/ubuntu/ailunwen-secrets/ailunwen.env
-ExecStart=%NODE_BIN%/node backend/index.js
+ExecStart=%NODE_BIN%/node scripts/sync-server-pdfs.mjs --watch
 Restart=on-failure
-RestartSec=8
+RestartSec=10
+Nice=10
+IOSchedulingClass=idle
 KillMode=mixed
 TimeoutStopSec=30
 

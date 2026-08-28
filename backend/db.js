@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import * as fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureServerPdfSchema } from "./serverPdfSchema.js";
 
 dotenv.config();
 
@@ -494,18 +495,7 @@ export async function initDatabase() {
           created_at BIGINT NOT NULL
         )
       `);
-      await pgPool.query(`
-        CREATE TABLE IF NOT EXISTS paper_pdf_files (
-          paper_id TEXT PRIMARY KEY,
-          filename TEXT NOT NULL,
-          content_type TEXT NOT NULL DEFAULT 'application/pdf',
-          byte_length BIGINT NOT NULL,
-          sha256 TEXT NOT NULL,
-          pdf_data BYTEA NOT NULL,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `);
+      await ensureServerPdfSchema(pgPool);
       billingClient = await pgPool.connect();
       await billingClient.query("BEGIN");
       await billingClient.query(`
@@ -1520,7 +1510,8 @@ export async function searchFullPapers(q, limit = 50) {
 export async function getPaperPdfFile(paperId) {
   if (!pgPool) return null;
   const result = await pgPool.query(
-    `SELECT paper_id, filename, content_type, byte_length, sha256, pdf_data
+    `SELECT paper_id, filename, content_type, byte_length, sha256, pdf_data,
+            relative_path, storage_kind, file_mtime_ms, file_status, parse_status
        FROM paper_pdf_files WHERE paper_id = $1 LIMIT 1`,
     [String(paperId ?? "").trim()],
   );
