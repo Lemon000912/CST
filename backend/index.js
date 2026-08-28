@@ -127,6 +127,8 @@ import {
   getSearchHistory,
   getUserChatSessions,
   saveUserChatSessions,
+  getStudentVerification,
+  grantStudentVerification,
 } from "./db.js";
 import {
   extractChartSpecWithLlm,
@@ -144,6 +146,7 @@ import {
   listAdminPointLedger,
   listAdminPointUsers,
 } from "./adminPoints.js";
+import { recognizeStudentCard, STUDENT_CARD_MAX_BYTES, studentCardUploadMiddleware } from "./studentVerification.js";
 
 const PORT = (() => {
   const n = Number.parseInt(String(process.env.PORT ?? "").trim(), 10);
@@ -161,6 +164,7 @@ const regLimiter  = createScopedLimiter({ max: 3,  windowMs: 60 * 60 * 1000, max
 const smsIpLimiter = createScopedLimiter({ max: 10, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
 const smsPhoneLimiter = createScopedLimiter({ max: 3, windowMs: 10 * 60 * 1000, maxBuckets: 5000 });
 const rechargeLimiter = createScopedLimiter({ max: 20, windowMs: 10 * 60 * 1000, maxBuckets: 2000 });
+const studentVerificationLimiter = createScopedLimiter({ max: 5, windowMs: 60 * 60 * 1000, maxBuckets: 2000 });
 
 // 启动时清除缓存（避免旧缓存数据污染）
 searchCache.clear();
@@ -573,6 +577,74 @@ app.post("/api/v1/auth/login", async (req, res) => {
 
 app.get("/api/v1/auth/me", async (req, res) => {
   await handleMe(req, res);
+});
+
+app.get("/api/v1/student-verification/status", requireAuthenticatedUser, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const verification = await getStudentVerification(req.auth.userId);
+    return res.json({ verification });
+  } catch (error) {
+    console.error("[student-verification/status]", error);
+    return res.status(503).json({ error: "学生认证状态暂不可用", code: "student-verification-unavailable" });
+  }
+});
+
+app.post("/api/v1/student-verification", requireAuthenticatedUser, (req, res, next) => {
+  if (isEnterpriseEdition(req)) {
+    return res.status(403).json({ error: "学生认证仅在校园版开放", code: "school-edition-required" });
+  }
+  next();
+}, (req, res, next) => {
+  studentCardUploadMiddleware.single("file")(req, res, (err) => {
+    if (err?.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ error: `图片过大，单张学生证图片上限 ${Math.round(STUDENT_CARD_MAX_BYTES / 1024 / 1024)}MB`, code: "student-image-too-large" });
+    }
+    if (err) return res.status(400).json({ error: err.message || "学生证上传失败", code: "student-image-upload-failed" });
+    next();
+  });
+}, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const current = await getStudentVerification(req.auth.userId);
+    if (current.verified) {
+      const billing = await getPointBalance(req.auth.userId);
+      return res.json({ ok: true, verification: current, rewarded: false, billing });
+    }
+    if (!studentVerificationLimiter(`user:${req.auth.userId}`)) {
+      return res.status(429).set("Retry-After", "3600").json({ error: "认证尝试次数过多，请稍后再试", code: "rate-limit-exceeded" });
+    }
+    const result = await recognizeStudentCard(req.file);
+    if (!result.accepted) {
+      return res.status(422).json({
+        error: result.decision.reason || "未能确认这是清晰有效的学生证",
+        code: "student-card-not-recognized",
+        verification: { verified: false, confidence: result.decision.confidence },
+      });
+    }
+    const details = {
+      school: result.decision.school,
+    };
+    const granted = await grantStudentVerification({
+      userId: req.auth.userId,
+      confidence: result.decision.confidence,
+      model: result.model,
+      documentHash: result.sha256,
+      details,
+    });
+    const billing = await getPointBalance(req.auth.userId);
+    return res.json({
+      ok: true,
+      verification: granted,
+      rewarded: granted.rewarded === true,
+      rewardPoints: granted.rewarded === true ? 1000 : 0,
+      billing,
+    });
+  } catch (error) {
+    console.error("[student-verification]", error?.code || error);
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({ error: error?.message || "学生证认证失败，请稍后重试", code: error?.code || "student-verification-failed" });
+  }
 });
 
 app.get("/api/v1/billing/balance", requireAuthenticatedUser, async (req, res) => {

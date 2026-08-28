@@ -436,6 +436,21 @@ export async function initDatabase() {
         )
       `);
       await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS user_student_verifications (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+          status TEXT NOT NULL CHECK (status IN ('verified', 'rejected')),
+          confidence DOUBLE PRECISION,
+          model TEXT,
+          document_hash TEXT,
+          details_json TEXT,
+          verified_at BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await pgPool.query(`ALTER TABLE user_student_verifications ADD COLUMN IF NOT EXISTS document_hash TEXT`);
+      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_student_verifications_document_hash_unique ON user_student_verifications(document_hash) WHERE document_hash IS NOT NULL`);
+      await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_chat_sessions (
           user_id TEXT PRIMARY KEY,
           sessions_json TEXT NOT NULL,
@@ -696,6 +711,23 @@ export async function initDatabase() {
       )
     `);
     await db.exec(`
+      CREATE TABLE IF NOT EXISTS user_student_verifications (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+        status TEXT NOT NULL CHECK (status IN ('verified', 'rejected')),
+        confidence REAL,
+        model TEXT,
+        document_hash TEXT,
+        details_json TEXT,
+        verified_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    try {
+      await db.exec(`ALTER TABLE user_student_verifications ADD COLUMN document_hash TEXT`);
+    } catch (_) { /* column already exists */ }
+    await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS user_student_verifications_document_hash_unique ON user_student_verifications(document_hash) WHERE document_hash IS NOT NULL`);
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS user_chat_sessions (
         user_id TEXT PRIMARY KEY,
         sessions_json TEXT NOT NULL,
@@ -933,6 +965,124 @@ export async function createUserRecord(id, username, passwordHash, email = null,
     }
     return { id, username, balanceUnits: INITIAL_POINT_GRANT_UNITS };
   });
+}
+
+function parseStudentVerificationDetails(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function publicStudentVerification(row) {
+  if (!row) return { verified: false, status: null };
+  return {
+    verified: String(row.status) === "verified",
+    status: String(row.status),
+    confidence: row.confidence == null ? null : Number(row.confidence),
+    model: row.model ? String(row.model) : null,
+    details: parseStudentVerificationDetails(row.details_json),
+    verifiedAt: row.verified_at == null ? null : Number(row.verified_at),
+  };
+}
+
+export async function getStudentVerification(userId) {
+  const id = String(userId ?? "").trim();
+  if (!id) return { verified: false, status: null };
+  if (pgPool) {
+    const row = await pgPool.query(
+      `SELECT status, confidence, model, details_json, verified_at
+         FROM user_student_verifications WHERE user_id = $1`,
+      [id],
+    );
+    return publicStudentVerification(row.rows[0]);
+  }
+  const db = await getSqliteDb();
+  const row = await db.get(
+    `SELECT status, confidence, model, details_json, verified_at
+       FROM user_student_verifications WHERE user_id = ?`,
+    [id],
+  );
+  return publicStudentVerification(row);
+}
+
+/** Mark a user verified and atomically grant the one-time 1,000 point bonus. */
+export async function grantStudentVerification({ userId, confidence, model, documentHash, details = {} }) {
+  const id = String(userId ?? "").trim();
+  if (!id) throw new Error("userId is required");
+  const confidenceValue = Number(confidence);
+  const normalizedConfidence = Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : null;
+  const detailsJson = JSON.stringify(details ?? {});
+  const normalizedDocumentHash = String(documentHash ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalizedDocumentHash)) throw new Error("Valid documentHash is required");
+  const ts = Date.now();
+  const rewardUnits = 20_000;
+  try {
+    return await withDatabaseTransaction(async (tx) => {
+      const wallet = tx.dialect === "postgres"
+        ? await tx.get("SELECT balance_units FROM point_wallets WHERE user_id = $1 FOR UPDATE", [id])
+        : await tx.get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [id]);
+      if (!wallet) throw new Error("Point wallet was not found");
+      const existing = tx.dialect === "postgres"
+        ? await tx.get("SELECT status, confidence, model, details_json, verified_at FROM user_student_verifications WHERE user_id = $1 FOR UPDATE", [id])
+        : await tx.get("SELECT status, confidence, model, details_json, verified_at FROM user_student_verifications WHERE user_id = ?", [id]);
+      if (existing?.status === "verified") {
+        return { ...publicStudentVerification(existing), rewarded: false, balanceUnits: Number(wallet.balance_units) };
+      }
+      const reused = tx.dialect === "postgres"
+        ? await tx.get("SELECT user_id FROM user_student_verifications WHERE document_hash = $1 FOR UPDATE", [normalizedDocumentHash])
+        : await tx.get("SELECT user_id FROM user_student_verifications WHERE document_hash = ?", [normalizedDocumentHash]);
+      if (reused && String(reused.user_id) !== id) {
+        const error = new Error("该学生证图片已被其他账号用于认证");
+        error.code = "student-card-already-used";
+        error.status = 409;
+        throw error;
+      }
+      const balanceUnits = Number(wallet.balance_units) + rewardUnits;
+      if (!Number.isSafeInteger(balanceUnits)) throw new Error("Point balance exceeds safe integer range");
+      if (tx.dialect === "postgres") {
+        await tx.run(
+          `INSERT INTO user_student_verifications (user_id,status,confidence,model,document_hash,details_json,verified_at,created_at,updated_at)
+           VALUES ($1,'verified',$2,$3,$4,$5,$6,$6,$6)
+           ON CONFLICT (user_id) DO UPDATE SET status='verified', confidence=EXCLUDED.confidence,
+             model=EXCLUDED.model, document_hash=EXCLUDED.document_hash, details_json=EXCLUDED.details_json,
+             verified_at=EXCLUDED.verified_at, updated_at=EXCLUDED.updated_at`,
+          [id, normalizedConfidence, String(model ?? "").slice(0, 128) || null, normalizedDocumentHash, detailsJson, ts],
+        );
+        await tx.run("UPDATE point_wallets SET balance_units = $1, updated_at = $2 WHERE user_id = $3", [balanceUnits, ts, id]);
+        await tx.run(
+          `INSERT INTO point_ledger (id,user_id,operation_id,entry_type,idempotency_key,delta_units,balance_after_units,metadata_json,created_at)
+           VALUES ($1,$2,NULL,'student_verification_grant',$3,$4,$5,$6,$7)
+           ON CONFLICT (user_id,idempotency_key) DO NOTHING`,
+          [crypto.randomUUID(), id, "student_verification_grant", rewardUnits, balanceUnits, detailsJson, ts],
+        );
+      } else {
+        await tx.run(
+          `INSERT INTO user_student_verifications (user_id,status,confidence,model,document_hash,details_json,verified_at,created_at,updated_at)
+           VALUES (?,'verified',?,?,?,?,?,?,?)
+           ON CONFLICT(user_id) DO UPDATE SET status='verified', confidence=excluded.confidence, model=excluded.model,
+             document_hash=excluded.document_hash, details_json=excluded.details_json,
+             verified_at=excluded.verified_at, updated_at=excluded.updated_at`,
+          [id, normalizedConfidence, String(model ?? "").slice(0, 128) || null, normalizedDocumentHash, detailsJson, ts, ts, ts],
+        );
+        await tx.run("UPDATE point_wallets SET balance_units = ?, updated_at = ? WHERE user_id = ?", [balanceUnits, ts, id]);
+        await tx.run(
+          `INSERT OR IGNORE INTO point_ledger (id,user_id,operation_id,entry_type,idempotency_key,delta_units,balance_after_units,metadata_json,created_at)
+           VALUES (?, ?, NULL, 'student_verification_grant', ?, ?, ?, ?, ?)`,
+          [crypto.randomUUID(), id, "student_verification_grant", rewardUnits, balanceUnits, detailsJson, ts],
+        );
+      }
+      return { verified: true, status: "verified", confidence: normalizedConfidence, model: String(model ?? "") || null,
+        details, verifiedAt: ts, rewarded: true, balanceUnits };
+    });
+  } catch (error) {
+    if (error?.code === "23505" && /document_hash/i.test(String(error?.constraint ?? error?.message))) {
+      const conflict = new Error("该学生证图片已被其他账号用于认证");
+      conflict.code = "student-card-already-used";
+      conflict.status = 409;
+      throw conflict;
+    }
+    throw error;
+  }
 }
 
 export class WechatIdentityLinkError extends Error {

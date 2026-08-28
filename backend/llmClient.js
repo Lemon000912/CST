@@ -113,19 +113,38 @@ function messageText(content) {
     .join("\n");
 }
 
+function geminiMessageParts(content) {
+  if (!Array.isArray(content)) return [{ text: messageText(content) || " " }];
+  const parts = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      if (part) parts.push({ text: part });
+      continue;
+    }
+    if (part?.type === "text" && part.text) {
+      parts.push({ text: String(part.text) });
+      continue;
+    }
+    const url = String(part?.image_url?.url ?? part?.imageUrl ?? "");
+    const match = url.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (match) parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+  }
+  return parts.length ? parts : [{ text: " " }];
+}
+
 function geminiBody(request) {
   const systemParts = [];
   const contents = [];
   if (request.system) systemParts.push({ text: String(request.system) });
   for (const message of request.messages || []) {
     const role = String(message?.role ?? "user");
-    const text = messageText(message?.content);
-    if (!text) continue;
     if (role === "system") {
+      const text = messageText(message?.content);
+      if (!text) continue;
       systemParts.push({ text });
       continue;
     }
-    contents.push({ role: role === "assistant" ? "model" : "user", parts: [{ text }] });
+    contents.push({ role: role === "assistant" ? "model" : "user", parts: geminiMessageParts(message?.content) });
   }
   const generationConfig = {};
   if (Number.isFinite(request.temperature)) generationConfig.temperature = request.temperature;

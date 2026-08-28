@@ -38,6 +38,7 @@ import {
   fetchPointBalance,
   fetchRechargeCatalog,
   fetchRechargeOrder,
+  fetchStudentVerificationStatus,
   getCachedPdfSources,
   fulfillPdf,
   searchPapersV1,
@@ -49,7 +50,7 @@ import {
   downloadPptxArtifact,
   requestFlowchartArtifact,
 } from "./api";
-import type { StreamSearchEvent } from "./api";
+import type { StreamSearchEvent, StudentVerification } from "./api";
 import { saveAs } from "file-saver";
 import { ProcessArtifactToolbar } from "./ProcessFlowchartPanel";
 import { DataTableGeneratorPanel } from "./DataTableGeneratorPanel";
@@ -70,6 +71,7 @@ import {
 } from "./openaiKey";
 import { useTheme } from "./theme";
 import { ExportChatModal } from "./ExportChatModal";
+import { StudentVerificationModal } from "./StudentVerificationModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
 import { clearAuthSession, getAuthProfile } from "./authSession";
 import { clearUserSessions, getSessionKey, loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
@@ -2535,6 +2537,8 @@ export default function App({
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [studentVerificationOpen, setStudentVerificationOpen] = useState(false);
+  const [studentVerification, setStudentVerification] = useState<StudentVerification>({ verified: false, status: null });
   const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
 
   const active = useMemo(
@@ -2599,6 +2603,22 @@ export default function App({
       cancelled = true;
     };
   }, [onLogout, pointsEnabled]);
+
+  useEffect(() => {
+    if (!pointsEnabled) {
+      setStudentVerificationOpen(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchStudentVerificationStatus()
+      .then((status) => {
+        if (!cancelled) setStudentVerification(status);
+      })
+      .catch(() => {
+        // 认证状态不影响主功能；用户打开认证窗口后仍可重试。
+      });
+    return () => { cancelled = true; };
+  }, [pointsEnabled]);
 
   const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
     if (!pointsEnabled || !receipt) return;
@@ -3714,12 +3734,23 @@ export default function App({
   return (
     <>
       {pointsEnabled ? (
-        <RechargeModal
-          open={rechargeOpen}
-          balance={pointBalance}
-          onClose={() => setRechargeOpen(false)}
-          onPaid={applyRechargeBalance}
-        />
+        <>
+          <RechargeModal
+            open={rechargeOpen}
+            balance={pointBalance}
+            onClose={() => setRechargeOpen(false)}
+            onPaid={applyRechargeBalance}
+          />
+          <StudentVerificationModal
+            open={studentVerificationOpen}
+            verification={studentVerification}
+            onClose={() => setStudentVerificationOpen(false)}
+            onVerified={(verification, billing) => {
+              setStudentVerification(verification);
+              applyRechargeBalance(billing);
+            }}
+          />
+        </>
       ) : null}
       {deepMineToast ? (
         <div
@@ -3886,6 +3917,20 @@ export default function App({
             )}
           </div>
           <div className="flex shrink-0 flex-col gap-1">
+            {pointsEnabled ? (
+              <button
+                type="button"
+                onClick={() => setStudentVerificationOpen(true)}
+                className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                  studentVerification.verified
+                    ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
+                    : "border-violet-500/35 bg-violet-500/10 text-violet-500 hover:border-violet-500/60 hover:bg-violet-500/15"
+                }`}
+                title={studentVerification.verified ? "学生身份已认证" : "上传学生证认证，成功赠送 1000 积分"}
+              >
+                {studentVerification.verified ? "已认证" : "学生认证"}
+              </button>
+            ) : null}
             {pointsEnabled ? (
               <button
                 type="button"

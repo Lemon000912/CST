@@ -133,6 +133,35 @@ test("Gemini requests use native generateContent shape and API key header", asyn
   assert.equal(JSON.stringify(result).includes("secret-c"), false);
 });
 
+test("Gemini multimodal requests preserve inline image data", async (t) => {
+  let body;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    body = JSON.parse(options.body);
+    return response({ candidates: [{ content: { parts: [{ text: "ok" }] } }] });
+  });
+  const provider = Object.freeze({
+    slot: "A",
+    protocol: LLM_PROTOCOLS.GEMINI,
+    apiKey: "secret-a",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    model: "gemini-2.5-flash",
+  });
+  const result = await generateText(provider, {
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: "inspect" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+      ],
+    }],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(body.contents[0].parts, [
+    { text: "inspect" },
+    { inline_data: { mime_type: "image/png", data: "aGVsbG8=" } },
+  ]);
+});
+
 test("provider HTTP failures are bounded and do not expose keys", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response("x".repeat(800), { status: 503 }));
   const provider = {

@@ -62,6 +62,59 @@ export function createIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
+export type StudentVerification = {
+  verified: boolean;
+  status: "verified" | "rejected" | null;
+  confidence?: number | null;
+  model?: string | null;
+  details?: { school?: string } | null;
+  verifiedAt?: number | null;
+};
+
+export async function fetchStudentVerificationStatus(): Promise<StudentVerification> {
+  const res = await fetch("/api/v1/student-verification/status", { headers: headersJson() });
+  const text = await res.text();
+  let data: { verification?: StudentVerification; error?: string } = {};
+  try { data = JSON.parse(text) as typeof data; } catch {}
+  if (!res.ok) throw new Error(data.error || `学生认证状态加载失败（HTTP ${res.status}）`);
+  return data.verification ?? { verified: false, status: null };
+}
+
+export async function submitStudentVerification(file: File): Promise<{
+  verification: StudentVerification;
+  rewarded: boolean;
+  rewardPoints: number;
+  billing?: PointBalance;
+}> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const token = getAuthToken();
+  const res = await fetch("/api/v1/student-verification", {
+    method: "POST",
+    headers: {
+      ...appEditionHeader(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: fd,
+  });
+  const text = await res.text();
+  let data: {
+    verification?: StudentVerification;
+    rewarded?: boolean;
+    rewardPoints?: number;
+    billing?: unknown;
+    error?: string;
+  } = {};
+  try { data = JSON.parse(text) as typeof data; } catch {}
+  if (!res.ok) throw new Error(data.error || `学生证认证失败（HTTP ${res.status}）`);
+  return {
+    verification: data.verification ?? { verified: true, status: "verified" },
+    rewarded: data.rewarded === true,
+    rewardPoints: finiteNumber(data.rewardPoints),
+    billing: parsePointBalance(data.billing),
+  };
+}
+
 function finiteNumber(value: unknown, fallback = 0): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
