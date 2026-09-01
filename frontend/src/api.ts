@@ -1225,6 +1225,58 @@ export async function downloadPptxArtifact(opts: {
   return res.blob();
 }
 
+async function downloadDocumentArtifact(
+  format: "docx" | "pdf",
+  opts: {
+    synthesisMarkdown?: string | null;
+    synthesisPlan?: Record<string, unknown> | null;
+    title?: string;
+    query?: string;
+  },
+): Promise<Blob> {
+  const res = await fetch(`/api/v1/artifacts/${format}`, {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      synthesisMarkdown: opts.synthesisMarkdown?.trim().slice(0, 80_000) || undefined,
+      synthesisPlan: opts.synthesisPlan ?? undefined,
+      title: opts.title?.trim().slice(0, 200) || undefined,
+      query: opts.query?.trim().slice(0, 2000) || undefined,
+    }),
+  });
+  if (!res.ok) {
+    let err = `${format.toUpperCase()} 生成失败（${res.status}）`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) err = j.error;
+    } catch {
+      /* binary or empty */
+    }
+    throw new Error(err);
+  }
+  return res.blob();
+}
+
+/** 下载 Word（含要点、配方、工序、数据表与流程结构） */
+export function downloadDocxArtifact(opts: {
+  synthesisMarkdown?: string | null;
+  synthesisPlan?: Record<string, unknown> | null;
+  title?: string;
+  query?: string;
+}): Promise<Blob> {
+  return downloadDocumentArtifact("docx", opts);
+}
+
+/** 下载 PDF（含要点、配方、工序、数据表与流程示意） */
+export function downloadPdfArtifact(opts: {
+  synthesisMarkdown?: string | null;
+  synthesisPlan?: Record<string, unknown> | null;
+  title?: string;
+  query?: string;
+}): Promise<Blob> {
+  return downloadDocumentArtifact("pdf", opts);
+}
+
 /** 数据库渠道：按预设类型生成结构化数据表 */
 export async function requestGenerateDataTable(
   papers: Paper[],

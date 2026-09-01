@@ -48,6 +48,8 @@ import {
   requestGenerateDataTable,
   fetchUnpaywallOaByDoi,
   downloadPptxArtifact,
+  downloadDocxArtifact,
+  downloadPdfArtifact,
   requestFlowchartArtifact,
 } from "./api";
 import type { StreamSearchEvent, StudentVerification } from "./api";
@@ -1380,8 +1382,12 @@ function AssistantBlock({
   dataTableBusy,
   onGenerateDataTable,
   pptxBusy,
+  docxBusy,
+  pdfBusy,
   flowBusy,
   onDownloadPptx,
+  onDownloadDocx,
+  onDownloadPdf,
   onBuildFlowchart,
 }: {
   msg: ChatMessage;
@@ -1397,8 +1403,12 @@ function AssistantBlock({
   dataTableBusy?: boolean;
   onGenerateDataTable?: (msg: ChatMessage, tableType: DataTablePresetId) => void | Promise<void>;
   pptxBusy?: boolean;
+  docxBusy?: boolean;
+  pdfBusy?: boolean;
   flowBusy?: boolean;
   onDownloadPptx?: (msg: ChatMessage) => void | Promise<void>;
+  onDownloadDocx?: (msg: ChatMessage) => void | Promise<void>;
+  onDownloadPdf?: (msg: ChatMessage) => void | Promise<void>;
   onBuildFlowchart?: (msg: ChatMessage) => void | Promise<void>;
 }) {
   const { theme } = useTheme();
@@ -1737,12 +1747,16 @@ function AssistantBlock({
                               ))}
                             </div>
                           ) : null}
-                          {onDownloadPptx && onBuildFlowchart ? (
+                          {onDownloadPptx && onDownloadDocx && onDownloadPdf && onBuildFlowchart ? (
                             <ProcessArtifactToolbar
                               msg={msg}
                               pptxBusy={pptxBusy}
+                              docxBusy={docxBusy}
+                              pdfBusy={pdfBusy}
                               flowBusy={flowBusy}
                               onDownloadPptx={onDownloadPptx}
+                              onDownloadDocx={onDownloadDocx!}
+                              onDownloadPdf={onDownloadPdf!}
                               onBuildFlowchart={onBuildFlowchart}
                             />
                           ) : null}
@@ -2522,7 +2536,10 @@ export default function App({
   const [chartBusyMessageId, setChartBusyMessageId] = useState<string | null>(null);
   const [dataTableBusyMessageId, setDataTableBusyMessageId] = useState<string | null>(null);
   const [pptxBusyMessageId, setPptxBusyMessageId] = useState<string | null>(null);
+  const [docxBusyMessageId, setDocxBusyMessageId] = useState<string | null>(null);
+  const [pdfBusyMessageId, setPdfBusyMessageId] = useState<string | null>(null);
   const [flowBusyMessageId, setFlowBusyMessageId] = useState<string | null>(null);
+  const artifactDownloadLocks = useRef<Set<string>>(new Set());
   const [urlDraft, setUrlDraft] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState("");
@@ -3272,6 +3289,9 @@ export default function App({
   const handleDownloadPptx = useCallback(
     async (msg: ChatMessage) => {
       if (!msg.meta?.synthesis?.trim() && !msg.meta?.synthesisPlan) return;
+      const lockKey = `${msg.id}:pptx`;
+      if (artifactDownloadLocks.current.has(lockKey)) return;
+      artifactDownloadLocks.current.add(lockKey);
       setPptxBusyMessageId(msg.id);
       patchMessageMeta(msg.id, { artifactError: null });
       try {
@@ -3289,9 +3309,51 @@ export default function App({
         });
       } finally {
         setPptxBusyMessageId(null);
+        artifactDownloadLocks.current.delete(lockKey);
       }
     },
     [patchMessageMeta],
+  );
+
+  const handleDownloadDocument = useCallback(
+    async (msg: ChatMessage, format: "docx" | "pdf") => {
+      if (!msg.meta?.synthesis?.trim() && !msg.meta?.synthesisPlan) return;
+      const lockKey = `${msg.id}:${format}`;
+      if (artifactDownloadLocks.current.has(lockKey)) return;
+      artifactDownloadLocks.current.add(lockKey);
+      const setBusyMessageId = format === "docx" ? setDocxBusyMessageId : setPdfBusyMessageId;
+      setBusyMessageId(msg.id);
+      patchMessageMeta(msg.id, { artifactError: null });
+      try {
+        const title = (msg.meta?.effectiveQuery ?? "方案汇报").replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 48);
+        const opts = {
+          synthesisMarkdown: msg.meta?.synthesis ?? undefined,
+          synthesisPlan: msg.meta?.synthesisPlan ?? undefined,
+          title: msg.meta?.effectiveQuery ?? undefined,
+          query: msg.meta?.effectiveQuery ?? undefined,
+        };
+        const blob = format === "docx" ? await downloadDocxArtifact(opts) : await downloadPdfArtifact(opts);
+        saveAs(blob, `${title || "report"}.${format}`);
+      } catch (e) {
+        patchMessageMeta(msg.id, {
+          artifactError: e instanceof Error ? e.message : `${format.toUpperCase()} 生成失败`,
+        });
+      } finally {
+        setBusyMessageId(null);
+        artifactDownloadLocks.current.delete(lockKey);
+      }
+    },
+    [patchMessageMeta],
+  );
+
+  const handleDownloadDocx = useCallback(
+    (msg: ChatMessage) => handleDownloadDocument(msg, "docx"),
+    [handleDownloadDocument],
+  );
+
+  const handleDownloadPdf = useCallback(
+    (msg: ChatMessage) => handleDownloadDocument(msg, "pdf"),
+    [handleDownloadDocument],
   );
 
   const handlePdfFulfill = useCallback(async (msg: ChatMessage, p: Paper, mode: "open" | "save") => {
@@ -4215,8 +4277,12 @@ export default function App({
                         dataTableBusy={dataTableBusyMessageId === m.id}
                         onGenerateDataTable={handleGenerateDataTable}
                         pptxBusy={pptxBusyMessageId === m.id}
+                        docxBusy={docxBusyMessageId === m.id}
+                        pdfBusy={pdfBusyMessageId === m.id}
                         flowBusy={flowBusyMessageId === m.id}
                         onDownloadPptx={handleDownloadPptx}
+                        onDownloadDocx={handleDownloadDocx}
+                        onDownloadPdf={handleDownloadPdf}
                         onBuildFlowchart={handleBuildFlowchart}
                       />
                     )}

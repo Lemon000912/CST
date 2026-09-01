@@ -71,6 +71,8 @@ import { rateLimitHit, createScopedLimiter } from "./rateLimit.js";
 import { uploadMiddleware, extractDocumentText, MAX_UPLOAD_MB } from "./extract.js";
 import { buildProcessArtifacts } from "./processArtifacts.js";
 import { buildPptxBuffer } from "./buildPptx.js";
+import { buildDocxBuffer } from "./buildDocx.js";
+import { buildPdfBuffer } from "./buildPdf.js";
 import { extractBookTitles, isBookIntentQuery } from "./bookWebClues.js";
 import {
   shouldUseBookClueSynthesis,
@@ -1298,7 +1300,8 @@ app.post("/api/v1/artifacts/flowchart", async (req, res) => {
 
 app.post("/api/v1/artifacts/pptx", async (req, res) => {
   const ip = clientIp(req);
-  if (!rateLimitHit(ip, { max: 20, windowMs: 60_000 })) {
+  if (!rateLimitHit(ip, { max: 20, windowMs: 60_000, scope: "artifact:pptx" })) {
+    res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "请求过于频繁，请稍后再试" });
   }
   try {
@@ -1331,6 +1334,58 @@ app.post("/api/v1/artifacts/pptx", async (req, res) => {
   } catch (e) {
     console.error("[artifacts/pptx]", e);
     return res.status(500).json({ error: e?.message || "生成 PPT 失败" });
+  }
+});
+
+app.post("/api/v1/artifacts/docx", async (req, res) => {
+  const ip = clientIp(req);
+  if (!rateLimitHit(ip, { max: 20, windowMs: 60_000, scope: "artifact:docx" })) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "请求过于频繁，请稍后再试" });
+  }
+  try {
+    const synthesisMarkdown = String(req.body?.synthesisMarkdown ?? req.body?.markdown ?? "").trim().slice(0, 80_000);
+    const plan = req.body?.synthesisPlan && typeof req.body.synthesisPlan === "object" ? req.body.synthesisPlan : null;
+    const title = String(req.body?.title ?? req.body?.query ?? "方案汇报").trim().slice(0, 200);
+    if (!synthesisMarkdown && !plan) {
+      return res.status(400).json({ error: "请提供 synthesisMarkdown 或 synthesisPlan" });
+    }
+    const buf = await buildDocxBuffer({
+      title,
+      synthesisMarkdown,
+      synthesisPlan: plan,
+    });
+    const safeName = title.replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 60) || "report";
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(safeName)}.docx"`);
+    return res.send(buf);
+  } catch (e) {
+    console.error("[artifacts/docx]", e);
+    return res.status(500).json({ error: e?.message || "生成 Word 失败" });
+  }
+});
+
+app.post("/api/v1/artifacts/pdf", async (req, res) => {
+  const ip = clientIp(req);
+  if (!rateLimitHit(ip, { max: 20, windowMs: 60_000, scope: "artifact:pdf" })) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "请求过于频繁，请稍后再试" });
+  }
+  try {
+    const synthesisMarkdown = String(req.body?.synthesisMarkdown ?? req.body?.markdown ?? "").trim().slice(0, 80_000);
+    const plan = req.body?.synthesisPlan && typeof req.body.synthesisPlan === "object" ? req.body.synthesisPlan : null;
+    const title = String(req.body?.title ?? req.body?.query ?? "方案汇报").trim().slice(0, 200);
+    if (!synthesisMarkdown && !plan) {
+      return res.status(400).json({ error: "请提供 synthesisMarkdown 或 synthesisPlan" });
+    }
+    const buf = await buildPdfBuffer({ title, synthesisMarkdown, synthesisPlan: plan });
+    const safeName = title.replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 60) || "report";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(safeName)}.pdf"`);
+    return res.send(buf);
+  } catch (e) {
+    console.error("[artifacts/pdf]", e);
+    return res.status(500).json({ error: e?.message || "生成 PDF 失败" });
   }
 });
 

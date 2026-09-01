@@ -26,14 +26,22 @@ type Props = {
 export function ProcessArtifactToolbar({
   msg,
   pptxBusy,
+  docxBusy,
+  pdfBusy,
   flowBusy,
   onDownloadPptx,
+  onDownloadDocx,
+  onDownloadPdf,
   onBuildFlowchart,
 }: {
   msg: ChatMessage;
   pptxBusy?: boolean;
+  docxBusy?: boolean;
+  pdfBusy?: boolean;
   flowBusy?: boolean;
   onDownloadPptx: (msg: ChatMessage) => void | Promise<void>;
+  onDownloadDocx: (msg: ChatMessage) => void | Promise<void>;
+  onDownloadPdf: (msg: ChatMessage) => void | Promise<void>;
   onBuildFlowchart: (msg: ChatMessage) => void | Promise<void>;
 }) {
   const hasSynth = Boolean(msg.meta?.synthesis?.trim());
@@ -43,9 +51,9 @@ export function ProcessArtifactToolbar({
 
   return (
     <div className="mt-3 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-3">
-      <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">工艺流程图与汇报 PPT</p>
+      <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">工艺流程图与多格式汇报</p>
       <p className="mb-2 text-[10px] leading-relaxed text-[var(--t-text-dim)]">
-        综述含<strong>配方、工序、制备流程</strong>时，检索完成后会自动生成流程图；也可手动重新生成。PPT 含方案要点、配方摘录、工序列表、关键数据表，并嵌入流程图。
+        综述含<strong>配方、工序、制备流程</strong>时，检索完成后会自动生成流程图；也可手动重新生成。PPT、Word、PDF 共用同一套方案要点、配方摘录、工序列表和关键数据表。
       </p>
       {msg.meta?.artifactError ? (
         <p className="mb-2 rounded-lg border border-[color:var(--t-error)]/35 bg-[color:var(--t-error)]/08 px-2 py-1.5 text-[10px] text-[var(--t-error)]">
@@ -68,6 +76,22 @@ export function ProcessArtifactToolbar({
           className="rounded-lg bg-gradient-to-b from-[#7c3aed] to-[#6d28d9] px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:from-[#8b5cf6] hover:to-[#7c3aed] disabled:opacity-50"
         >
           {pptxBusy ? "打包中…" : "下载 PPT"}
+        </button>
+        <button
+          type="button"
+          disabled={!!docxBusy}
+          onClick={() => void onDownloadDocx(msg)}
+          className="rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-surface)] px-3 py-1.5 text-[11px] font-semibold text-[var(--t-text)] shadow-sm hover:bg-[var(--t-elevated)] disabled:opacity-50"
+        >
+          {docxBusy ? "打包中…" : "下载 Word"}
+        </button>
+        <button
+          type="button"
+          disabled={!!pdfBusy}
+          onClick={() => void onDownloadPdf(msg)}
+          className="rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-surface)] px-3 py-1.5 text-[11px] font-semibold text-[var(--t-text)] shadow-sm hover:bg-[var(--t-elevated)] disabled:opacity-50"
+        >
+          {pdfBusy ? "生成中…" : "下载 PDF"}
         </button>
       </div>
       {hasFlow && msg.meta?.artifacts?.flowchart ? (
