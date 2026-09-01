@@ -8,7 +8,7 @@ import dotenv from "dotenv";
 import * as fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureServerPdfSchema } from "./serverPdfSchema.js";
+import { ensureServerPdfSchema, ensureSearchTrgmIndexes } from "./serverPdfSchema.js";
 
 dotenv.config();
 
@@ -496,6 +496,7 @@ export async function initDatabase() {
         )
       `);
       await ensureServerPdfSchema(pgPool);
+      await ensureSearchTrgmIndexes(pgPool);
       billingClient = await pgPool.connect();
       await billingClient.query("BEGIN");
       await billingClient.query(`
@@ -1485,7 +1486,7 @@ export async function searchFullPapers(q, limit = 50) {
   const keywords = [...new Set([...words.filter((word) => !stopWords.has(word)), ...bilingualTerms])].slice(0, 12);
   if (!keywords.length) return [];
 
-  const fields = ["title", "abstract", "material_name", "properties", "applications"];
+  const fields = ["material_name", "symmetry_phase", "synthesis_method", "structure_descriptor"];
   const params = [];
   const conditions = keywords.map((keyword) => {
     const fieldConditions = fields.map((field) => {

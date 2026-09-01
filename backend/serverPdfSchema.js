@@ -126,3 +126,35 @@ export async function ensureServerPdfSchema(pool) {
   await pool.query("CREATE INDEX IF NOT EXISTS paper_pdf_files_sha256_idx ON paper_pdf_files(sha256)");
   await pool.query("CREATE INDEX IF NOT EXISTS paper_pdf_files_parse_queue_idx ON paper_pdf_files(parse_status, updated_at)");
 }
+
+/**
+ * 为数据库渠道的模糊检索字段建立 pg_trgm 索引，避免 `ILIKE '%关键词%'` 全表顺序扫描。
+ * doi_records 为预置表，缺失时跳过；papers 表由 ensureServerPdfSchema 保证存在。
+ */
+export async function ensureSearchTrgmIndexes(pool) {
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS papers_search_trgm_idx
+    ON papers USING GIN (
+      material_name gin_trgm_ops,
+      symmetry_phase gin_trgm_ops,
+      synthesis_method gin_trgm_ops,
+      structure_descriptor gin_trgm_ops
+    )
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('public.doi_records') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS doi_records_search_trgm_idx
+          ON doi_records USING GIN (
+            title gin_trgm_ops,
+            authors gin_trgm_ops,
+            journal gin_trgm_ops
+          );
+      END IF;
+    END $$;
+  `);
+}
