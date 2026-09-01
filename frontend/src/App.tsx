@@ -12,7 +12,6 @@ import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
-import { EditionSwitcher } from "./EditionSwitcher";
 import type { AppEdition } from "./edition";
 import { LoadingIndicator, LoadingSpinner, RhinoAnimation } from "./LoadingIndicator";
 import {
@@ -76,7 +75,7 @@ import { ExportChatModal } from "./ExportChatModal";
 import { StudentVerificationModal } from "./StudentVerificationModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
 import { clearAuthSession, getAuthProfile } from "./authSession";
-import { clearUserSessions, getSessionKey, loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
+import { loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
 import { fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
 import { getAuthToken } from "./authSession";
 import { DEFAULT_PERSONA_LIST, fetchPersonaList, getPersonaId, setPersonaId } from "./persona";
@@ -2482,17 +2481,15 @@ function LlmRewriteSettingsModal({
 
 export default function App({
   edition,
-  onEditionChange,
   onLogout,
 }: {
   edition: AppEdition;
-  onEditionChange: (edition: AppEdition) => void;
   onLogout?: () => void;
 }) {
   const { theme, setTheme } = useTheme();
   const pointsEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId));
+    const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
     return removeEmptySessions(loaded);
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
@@ -2699,7 +2696,7 @@ export default function App({
         if (!cancelled) setSessionsHydrated(true);
         return;
       }
-      const local = loadSessions(getAuthProfile()?.userId);
+      const local = loadSessions(getAuthProfile()?.userId, edition);
       const remote = await fetchChatSessionsFromServer();
       if (cancelled) return;
       if (remote) {
@@ -2724,13 +2721,13 @@ export default function App({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [edition]);
 
   useEffect(() => {
     if (!sessionsHydrated) return;
     const persistedSessions = removeEmptySessions(sessions);
     try {
-      saveSessions(persistedSessions, getAuthProfile()?.userId);
+      saveSessions(persistedSessions, getAuthProfile()?.userId, edition);
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }
@@ -2759,7 +2756,7 @@ export default function App({
           const merged = mergeChatSessions(serverSessions, sessions);
           const persistedMerged = removeEmptySessions(merged);
           setSessions(persistedMerged);
-          saveSessions(persistedMerged, getAuthProfile()?.userId);
+          saveSessions(persistedMerged, getAuthProfile()?.userId, edition);
           // Retry once with the server's revision
           const retryRevision = result.revision ?? 0;
           const retryResult = await saveChatSessionsToServer(
@@ -2783,7 +2780,7 @@ export default function App({
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     };
-  }, [sessions, sessionsHydrated, sessionSyncState]);
+  }, [edition, sessions, sessionsHydrated, sessionSyncState]);
 
   useLayoutEffect(() => {
     setActiveId((id) => {
@@ -3993,9 +3990,6 @@ export default function App({
               ×
             </span>
           </button>
-        </div>
-        <div className="border-b border-[color:var(--t-br06)] px-2.5 py-2">
-          <EditionSwitcher edition={edition} onChange={onEditionChange} compact />
         </div>
         <div className="flex items-center gap-2 border-b border-[color:var(--t-br06)] px-2.5 py-2">
           <div className="min-w-0 flex-1">

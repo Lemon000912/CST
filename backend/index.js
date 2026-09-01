@@ -6,12 +6,16 @@ import { validateHeaderValue as httpValidateHeaderValue } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import QRCode from "qrcode";
+import { getConfiguredAppEdition, isEnterpriseAppEdition } from "./appEdition.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV_PATH = path.resolve(__dirname, "..", ".env");
 /** 无论从哪里启动 node，都先读项目根目录 .env，再读 cwd 下的 .env（可覆盖） */
 dotenv.config({ path: ROOT_ENV_PATH });
 dotenv.config();
+
+const APP_EDITION = getConfiguredAppEdition();
+console.log("[env] APP_EDITION:", APP_EDITION);
 
 const llmConfigured = Boolean(
   String(process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? "").trim(),
@@ -44,6 +48,7 @@ import {
 } from "./db.js";
 import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
+import { seedEnterpriseAdminIfEnabled } from "./seedEnterpriseAdmin.js";
 import { runPaperSearch } from "./searchService.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
@@ -242,8 +247,8 @@ function requireIdempotencyKey(req) {
   return value;
 }
 
-function isEnterpriseEdition(req) {
-  return String(req.headers["x-app-edition"] ?? "").trim().toLowerCase() === "enterprise";
+function isEnterpriseEdition() {
+  return isEnterpriseAppEdition(APP_EDITION);
 }
 
 async function failOperationBestEffort(operation, userId, error) {
@@ -494,6 +499,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "quantum-pinnacle",
     version: "1",
+    edition: APP_EDITION,
     /** 前端可据此判断当前 8787 是否为带图表路由的新版 API */
     features: {
       chartFromPapers: true,
@@ -602,7 +608,7 @@ app.get("/api/v1/student-verification/status", requireAuthenticatedUser, async (
 });
 
 app.post("/api/v1/student-verification", requireAuthenticatedUser, (req, res, next) => {
-  if (isEnterpriseEdition(req)) {
+  if (isEnterpriseEdition()) {
     return res.status(403).json({ error: "学生认证仅在校园版开放", code: "school-edition-required" });
   }
   next();
@@ -747,7 +753,7 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
-    const row = await getUserChatSessions(userId);
+    const row = await getUserChatSessions(userId, APP_EDITION);
     if (!row?.sessionsJson) {
       return res.json({ sessions: [], updatedAt: 0, revision: 0, schema_version: 1 });
     }
@@ -790,7 +796,7 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
     if (json.length > 6_000_000) {
       return res.status(413).json({ error: "会话数据过大，请导出后清理部分旧对话" });
     }
-    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision);
+    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision, APP_EDITION);
     if (result.conflict) {
       let parsedSessions = [];
       try {
@@ -957,7 +963,7 @@ app.post("/api/v1/user/info", async (req, res) => {
  */
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1500,7 +1506,7 @@ app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, asy
 app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1737,7 +1743,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let activeOperation = null;
   let begun;
   let startingBalanceUnits = 0;
-  const enterpriseEdition = isEnterpriseEdition(req);
+  const enterpriseEdition = isEnterpriseEdition();
   const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
   const endPapersReady = requestTrace.start("milestone.papers_ready");
   const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
@@ -2243,7 +2249,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
       edition: enterpriseEdition ? "enterprise" : "school",
@@ -3621,6 +3627,7 @@ await initDatabase().catch((e) => {
 });
 
 await seedDevAdminIfEnabled();
+await seedEnterpriseAdminIfEnabled();
 
 if (String(process.env.SIMPLE_SEED ?? "").trim() === "1") {
   await seedSimplePapersFromJson();

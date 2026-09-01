@@ -1,6 +1,8 @@
 node_modules
 .run/
 dist
+dist-school
+dist-enterprise
 *.db
 *.db-wal
 *.db-shm

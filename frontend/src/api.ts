@@ -17,7 +17,6 @@ import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openai
 import { getPersonaId } from "./persona";
 import { getAuthToken, getEffectiveUserId } from "./authSession";
 import { getOutputAvoidanceForRequest } from "./outputPreferences";
-import { appEditionHeader } from "./edition";
 
 /** 带超时的 fetch（检索/综述等长请求） */
 async function fetchWithTimeout(
@@ -92,7 +91,6 @@ export async function submitStudentVerification(file: File): Promise<{
   const res = await fetch("/api/v1/student-verification", {
     method: "POST",
     headers: {
-      ...appEditionHeader(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: fd,
@@ -364,7 +362,6 @@ function headersJson(extra?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = {
     "Content-Type": "application/json",
     "X-User-Id": getEffectiveUserId(),
-    ...appEditionHeader(),
     ...extra,
   };
   const t = getAuthToken();
