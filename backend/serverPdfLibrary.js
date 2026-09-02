@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import path from "node:path";
 
+import { extractDoiCandidate, normalizeDoiString } from "./doi.js";
+
 export const SERVER_PDF_CATEGORIES = Object.freeze([
   Object.freeze({ folderName: "\u5149\u5b66\u4e0e\u5149\u7535\u5b50\u6750\u6599", code: "optical_optoelectronic" }),
   Object.freeze({ folderName: "\u5176\u4ed6\u7c7b", code: "other" }),
@@ -23,6 +25,21 @@ export function cleanServerPdfTitle(filename) {
     .replace(/[_\s]+/g, " ")
     .trim()
     .slice(0, 500);
+}
+
+/**
+ * 服务器 PDF 库的文件名即 DOI：`10.<数字>_<后缀>.pdf`（下划线代替斜杠）解码为
+ * `10.<数字>/<后缀>`；若文件名里直接带标准 DOI（含斜杠）也支持。无法解析时返回 null。
+ */
+export function serverPdfDoiFromFilename(filename) {
+  const raw = String(filename ?? "").replace(/\.pdf$/i, "");
+  const encoded = raw.match(/\b10\.(\d{4,9})_(.+)$/i);
+  if (encoded) {
+    const candidate = `10.${encoded[1]}/${encoded[2]}`;
+    const normalized = normalizeDoiString(candidate);
+    if (/^10\.\d{4,9}\//.test(normalized)) return normalized;
+  }
+  return extractDoiCandidate(raw);
 }
 
 export function normalizeServerPdfRelativePath(root, filePath) {

@@ -6,6 +6,7 @@ import {
   SERVER_PDF_CATEGORIES,
   normalizeServerPdfRelativePath,
   resolveServerPdfPath,
+  serverPdfDoiFromFilename,
   serverPdfPaperId,
 } from "../serverPdfLibrary.js";
 
@@ -26,4 +27,15 @@ test("server PDF paths stay inside the configured root", () => {
 test("server PDF paper IDs are stable across path separator and case differences", () => {
   assert.equal(serverPdfPaperId("Category/Paper.PDF"), serverPdfPaperId("category\\paper.pdf"));
   assert.match(serverPdfPaperId("category/paper.pdf"), /^server-pdf:[a-f0-9]{32}$/);
+});
+
+test("server PDF DOI is decoded from the file name when the name is the DOI", () => {
+  assert.equal(serverPdfDoiFromFilename("10.1002_adfm.202111470.pdf"), "10.1002/adfm.202111470");
+  assert.equal(serverPdfDoiFromFilename("10.1002_1873-3468.70036.pdf"), "10.1002/1873-3468.70036");
+  assert.equal(serverPdfDoiFromFilename("10.1002_pat.6258.pdf"), "10.1002/pat.6258");
+  assert.equal(serverPdfDoiFromFilename("10.1002_ADFM.202111470.PDF"), "10.1002/adfm.202111470");
+  assert.equal(serverPdfDoiFromFilename("10.1000_foo_bar.pdf"), "10.1000/foo_bar");
+  assert.equal(serverPdfDoiFromFilename("10.1002/adfm.202111470.pdf"), "10.1002/adfm.202111470");
+  assert.equal(serverPdfDoiFromFilename("A-12.Issue Editorial Masthead.pdf"), null);
+  assert.equal(serverPdfDoiFromFilename("paper.pdf"), null);
 });

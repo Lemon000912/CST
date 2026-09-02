@@ -14,6 +14,7 @@ import {
   cleanServerPdfTitle,
   normalizeServerPdfRelativePath,
   resolveServerPdfPath,
+  serverPdfDoiFromFilename,
   serverPdfPaperId,
 } from "../backend/serverPdfLibrary.js";
 import { ensureServerPdfSchema } from "../backend/serverPdfSchema.js";
@@ -75,7 +76,7 @@ function fallbackAbstract(folderName, filename) {
   return `${folderName} PDF document. File: ${filename}`;
 }
 
-async function indexPdf(client, root, category, filePath, stat, sha256, now) {
+async function indexPdf(client, root, category, filePath, stat, sha256, now, doi) {
   const relativePath = normalizeServerPdfRelativePath(root, filePath);
   const paperId = serverPdfPaperId(relativePath);
   const filename = path.basename(filePath);
@@ -91,10 +92,11 @@ async function indexPdf(client, root, category, filePath, stat, sha256, now) {
          created_at, updated_at, authors_json, pdf_url, category, material_name,
          citation_count, download_count, relevance_score, credibility_score, language, summary
        ) VALUES (
-         $1, NULL, $2, $3, $4, $5, $6, 'local', 'server_pdf_library',
-         $7, $8, '[]', $9, $10, $11, 0, 0, 100, 100, 'unknown', $12
+         $1, $2, $3, $4, $5, $6, $7, 'local', 'server_pdf_library',
+         $8, $9, '[]', $10, $11, $12, 0, 0, 100, 100, 'unknown', $13
        )
        ON CONFLICT (paper_id) DO UPDATE SET
+         doi = COALESCE(EXCLUDED.doi, papers.doi),
          title = EXCLUDED.title,
          year = EXCLUDED.year,
          venue = EXCLUDED.venue,
@@ -107,6 +109,7 @@ async function indexPdf(client, root, category, filePath, stat, sha256, now) {
          material_name = EXCLUDED.material_name`,
       [
         paperId,
+        doi,
         title,
         abstract,
         yearMatch ? Number(yearMatch[0]) : null,
@@ -290,7 +293,8 @@ async function runScan(pool, root, settings) {
             report.duplicates += 1;
             continue;
           }
-          const indexed = await indexPdf(client, root, category, filePath, stat, sha256, now);
+          const doi = serverPdfDoiFromFilename(path.basename(filePath));
+          const indexed = await indexPdf(client, root, category, filePath, stat, sha256, now, doi);
           const record = {
             paper_id: indexed.paperId,
             relative_path: indexed.relativePath,
