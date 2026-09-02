@@ -18,6 +18,8 @@ import {
   serverPdfPaperId,
 } from "../backend/serverPdfLibrary.js";
 import { ensureServerPdfSchema } from "../backend/serverPdfSchema.js";
+import { resolvePrimaryProvider, resolveProviderSlot } from "../backend/llmProviders.js";
+import { extractServerPdfMeta } from "../backend/serverPdfMetaExtract.js";
 
 dotenv.config();
 
@@ -127,10 +129,12 @@ async function indexPdf(client, root, category, filePath, stat, sha256, now, doi
       `INSERT INTO paper_pdf_files (
          paper_id, filename, content_type, byte_length, sha256, pdf_data,
          relative_path, storage_kind, file_mtime_ms, file_status, parse_status,
-         parse_error, parse_attempts, last_seen_at, created_at, updated_at
+         parse_error, parse_attempts, last_seen_at, created_at, updated_at,
+         meta_extract_status
        ) VALUES (
          $1, $2, 'application/pdf', $3, $4, NULL,
-         $5, 'filesystem', $6, 'active', 'queued', NULL, 0, $7, $7, $7
+         $5, 'filesystem', $6, 'active', 'queued', NULL, 0, $7, $7, $7,
+         'queued'
        )
        ON CONFLICT (paper_id) DO UPDATE SET
          filename = EXCLUDED.filename,
@@ -220,6 +224,119 @@ async function parseQueuedPdfs(client, root, settings) {
     }
   }
   return { ready, failed };
+}
+
+/** 元数据提取所用 LLM：默认 A，可用 PDF_META_PROVIDER=B/C 切换到其他槽位。 */
+function resolveMetaProvider() {
+  const slot = String(process.env.PDF_META_PROVIDER ?? "").trim().toUpperCase();
+  if (!slot || slot === "A") return resolvePrimaryProvider();
+  return resolveProviderSlot(slot);
+}
+
+/**
+ * 元数据提取阶段：复用 papers.abstract 中已抽取的正文，
+ * 调用 LLM 提取 symmetry_phase / synthesis_method / structure_descriptor / properties。
+ * 默认只处理「新入库文件」（indexPdf 插入时标记 meta_extract_status='queued' 的行），
+ * 历史数据（meta_extract_status 为 NULL）不触碰；--meta-refresh 显式强制重跑可覆盖。
+ */
+async function extractPaperMetadata(client, settings) {
+  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
+  if (settings.metaBatch === 0) return counts;
+
+  const provider = resolveMetaProvider();
+  if (!provider) {
+    await client.query(
+      `UPDATE paper_pdf_files
+          SET meta_extract_status = 'skipped', meta_extract_error = 'no-llm-key', updated_at = $1
+        WHERE storage_kind = 'filesystem'
+          AND file_status = 'active'
+          AND parse_status = 'ready'
+          AND text_extracted_at IS NOT NULL
+          AND meta_extract_status = 'queued'`,
+      [Date.now()],
+    );
+    counts.noProvider = 1;
+    console.warn("[pdf-sync] no LLM provider configured; pending metadata rows marked as skipped");
+    return counts;
+  }
+
+  const statusCondition = settings.metaRefresh
+    ? "AND COALESCE(f.meta_extract_status, '') NOT IN ('failed', 'skipped')"
+    : "AND f.meta_extract_status = 'queued'";
+  const result = await client.query(
+    `SELECT f.paper_id, p.title, p.doi, p.abstract AS text
+       FROM paper_pdf_files f
+       JOIN papers p ON p.paper_id = f.paper_id
+      WHERE f.storage_kind = 'filesystem'
+        AND f.file_status = 'active'
+        AND f.parse_status = 'ready'
+        AND f.text_extracted_at IS NOT NULL
+        AND f.meta_extract_attempts < $1
+        ${statusCondition}
+      ORDER BY f.updated_at ASC
+      LIMIT $2`,
+    [settings.metaRetries, settings.metaBatch],
+  );
+
+  for (const row of result.rows) {
+    try {
+      const outcome = await extractServerPdfMeta({
+        provider,
+        title: row.title,
+        doi: row.doi,
+        text: row.text,
+      });
+      if (!outcome.ok) throw new Error(outcome.error ?? "meta_extract_failed");
+      const now = Date.now();
+      await client.query("BEGIN");
+      try {
+        const fieldSet = settings.metaRefresh
+          ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5"
+          : "symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $2),"
+            + " synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $3),"
+            + " structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $4),"
+            + " properties = COALESCE(NULLIF(btrim(properties), ''), $5)";
+        await client.query(
+          `UPDATE papers SET ${fieldSet}, updated_at = $6 WHERE paper_id = $1`,
+          [
+            row.paper_id,
+            outcome.data.symmetry_phase,
+            outcome.data.synthesis_method,
+            outcome.data.structure_descriptor,
+            outcome.data.properties,
+            now,
+          ],
+        );
+        await client.query(
+          `UPDATE paper_pdf_files
+              SET meta_extract_status = 'ready', meta_extract_error = NULL,
+                  meta_extracted_at = $2, updated_at = $2
+            WHERE paper_id = $1`,
+          [row.paper_id, now],
+        );
+        await client.query("COMMIT");
+        counts.ready += 1;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    } catch (error) {
+      counts.failed += 1;
+      await client.query(
+        `UPDATE paper_pdf_files
+            SET meta_extract_attempts = meta_extract_attempts + 1,
+                meta_extract_error = $2,
+                meta_extract_status = CASE
+                  WHEN meta_extract_attempts + 1 >= $3 THEN 'failed'
+                  ELSE 'queued'
+                END,
+                updated_at = $4
+          WHERE paper_id = $1`,
+        [row.paper_id, String(error?.message ?? error).slice(0, 1000), settings.metaRetries, Date.now()],
+      );
+    }
+  }
+  return counts;
 }
 
 async function runScan(pool, root, settings) {
@@ -312,6 +429,7 @@ async function runScan(pool, root, settings) {
       }
     }
     report.parsing = await parseQueuedPdfs(client, root, settings);
+    report.metadata = await extractPaperMetadata(client, settings);
     return report;
   } finally {
     if (locked) await client.query("SELECT pg_advisory_unlock(hashtext('ailunwen-server-pdf-sync'))").catch(() => {});
@@ -336,6 +454,9 @@ async function main() {
     parseRetries: integerOption("parse-retries", 3, 1, 20),
     parseTimeoutSeconds: integerOption("parse-timeout-seconds", 120, 10, 3600),
     parseMemoryMb: integerOption("parse-memory-mb", 384, 128, 4096),
+    metaBatch: integerOption("meta-batch", 1, 0, 100),
+    metaRetries: integerOption("meta-retries", 2, 1, 20),
+    metaRefresh: process.argv.includes("--meta-refresh"),
   };
   const watch = process.argv.includes("--watch");
   const pool = new pg.Pool({ connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL });

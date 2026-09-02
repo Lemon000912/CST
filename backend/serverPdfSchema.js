@@ -42,6 +42,10 @@ const PDF_COLUMNS = [
   "parse_attempts INTEGER DEFAULT 0",
   "last_seen_at BIGINT",
   "text_extracted_at BIGINT",
+  "meta_extract_status TEXT",
+  "meta_extract_attempts INTEGER NOT NULL DEFAULT 0",
+  "meta_extract_error TEXT",
+  "meta_extracted_at BIGINT",
 ];
 
 export async function ensureServerPdfSchema(pool) {
@@ -103,6 +107,10 @@ export async function ensureServerPdfSchema(pool) {
       parse_attempts INTEGER NOT NULL DEFAULT 0,
       last_seen_at BIGINT,
       text_extracted_at BIGINT,
+      meta_extract_status TEXT,
+      meta_extract_attempts INTEGER NOT NULL DEFAULT 0,
+      meta_extract_error TEXT,
+      meta_extracted_at BIGINT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     )
