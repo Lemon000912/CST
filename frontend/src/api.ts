@@ -616,9 +616,11 @@ export async function* searchPapersV1Stream(
         }
       }
     }
+    if (externalSignal?.aborted) return;
     yield { type: "error", error: "与后端的连接已中断，回答未完成，请确认服务已启动后重新发送。" };
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
+      if (externalSignal?.aborted) return;
       yield { type: "error", error: "请求已取消或超时" };
     } else {
       yield { type: "error", error: e instanceof Error ? e.message : "网络错误" };

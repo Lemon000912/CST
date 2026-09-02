@@ -1754,6 +1754,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       endFirstSynthesisToken({ ok: true });
     }
     stream.push(delta);
+    partialSynthesis = stream.getVisibleText();
   };
   const endBillingBegin = requestTrace.start("request.billing_begin");
   try {
@@ -1849,16 +1850,15 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 
   activeOperation = begun.operation;
   let clientDisconnected = false;
+  let partialPapers = [];
+  let partialSynthesis = "";
+  let partialChannel = "database";
+  let partialSort = "relevance";
   const synthesisAbortController = new AbortController();
   res.once("close", () => {
     if (res.writableEnded) return;
     clientDisconnected = true;
     synthesisAbortController.abort();
-    void failOperationBestEffort(
-      activeOperation,
-      req.auth?.userId,
-      new ApiRouteError(499, "client-disconnected", "Search client disconnected"),
-    );
   });
 
   try {
@@ -1884,11 +1884,13 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }
 
     const channel = req.body?.channel === "web" ? "web" : "database";
+    partialChannel = channel;
     const field = req.body?.field === "ti" || req.body?.field === "abs" ? req.body.field : "all";
     const sortRaw = String(req.body?.sort ?? "relevance");
     const sort =
       sortRaw === "submittedDate" || sortRaw === "lastUpdatedDate" || sortRaw === "citations"
         ? sortRaw : "relevance";
+    partialSort = sort;
     const maxCap = channel === "database" ? 200 : Math.min(360, Math.max(80, Number(process.env.WEB_SEARCH_MAX_CAP) || 320));
     const defaultMax = channel === "database" ? 80 : Math.min(maxCap, Math.max(48, Number(process.env.WEB_SEARCH_DEFAULT_MAX) || 128));
     const max = Math.min(maxCap, Math.max(1, Number(req.body?.max) || defaultMax));
@@ -1942,6 +1944,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }
 
     // 立即推送文献结果，前端可先渲染
+    partialPapers = result.papers;
     cacheSearchPapers(activeOperation.id, result.papers);
     send("papers", {
       papers: result.papers,
@@ -2070,6 +2073,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }),
         );
         fullSynthesis = syn.markdown || "";
+        partialSynthesis = synthesisStream.getVisibleText();
         synthesisNote = syn.note ?? null;
         plan = syn.plan ?? null;
         planNote = syn.planNote ?? null;
@@ -2081,6 +2085,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       // 流中隐藏结构化 JSON；最终仍以原有解析、校验后的正文为准。
       synthesisStream.finish(fullSynthesis);
       fullSynthesis = synthesisStream.getVisibleText();
+      partialSynthesis = fullSynthesis;
       if (pointsExhausted) {
         plan = null;
         planNote = "synth_plan:skipped_points_exhausted";
@@ -2091,6 +2096,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         firstSynthesisTokenRecorded = true;
         endFirstSynthesisToken({ ok: true, streamed: false });
       }
+    }
+
+    if (clientDisconnected) {
+      throw new ApiRouteError(499, "client-disconnected", "Search client disconnected");
     }
 
     // ── 阶段 3：Deep Mine（可选，与非流式路由一致） ──
@@ -2238,7 +2247,52 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   } catch (e) {
     console.error("[v1/search/stream]", e?.message);
     if (activeOperation?.id) searchPapersCache.delete(activeOperation.id);
-    await failOperationBestEffort(activeOperation, req.auth?.userId, e);
+    if (clientDisconnected && activeOperation?.id) {
+      // A user pause closes SSE intentionally. Settle the operation using only
+      // the content that was visible before disconnect (school edition bills
+      // characters; enterprise edition remains free).
+      try {
+        const rawPartialPayload = {
+          papers: partialPapers,
+          synthesis: partialSynthesis || null,
+          // Deep mine is not displayed while it runs; do not charge hidden
+          // work when the user pauses the visible answer.
+          deepMine: null,
+          deepSynthesis: null,
+        };
+        const budgeted = limitSearchPayloadToBalance(rawPartialPayload, startingBalanceUnits);
+        const billingPayload = budgeted.payload;
+        const billingDetails = {
+          ...searchBillingDetails(billingPayload),
+          edition: enterpriseEdition ? "enterprise" : "school",
+          paused: true,
+        };
+        const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
+          characterCount: billingDetails.characterCount,
+          pdfCount: billingDetails.deepPaperCount,
+        });
+        await completeBillableOperation({
+          operationId: activeOperation.id,
+          userId: req.auth?.userId,
+          leaseToken: activeOperation.leaseToken,
+          costUnits,
+          billingDetails,
+          result: {
+            ...billingPayload,
+            channel: partialChannel,
+            sort: partialSort,
+            synthesisNote: "synth:paused",
+            paused: true,
+            pointsExhausted: budgeted.pointsExhausted,
+          },
+        });
+      } catch (billingError) {
+        console.error("[billing/pause-complete]", billingError?.message || billingError);
+        await failOperationBestEffort(activeOperation, req.auth?.userId, billingError);
+      }
+    } else {
+      await failOperationBestEffort(activeOperation, req.auth?.userId, e);
+    }
     if (!res.writableEnded && !res.destroyed) {
       send("error", { error: e?.message || "检索失败" });
       res.end();

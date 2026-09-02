@@ -2042,6 +2042,11 @@ function AssistantBlock({
             {msg.meta.billingMessage || "积分已用完，本次回答已停止。请充值后继续回答。"}
           </div>
         ) : null}
+        {!msg.error && msg.meta?.paused ? (
+          <div className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2 text-[11px] text-[var(--t-text-dim)]">
+            回答已暂停，已保留当前内容{pointsEnabled ? "；校园版将按已输出字符结算积分。" : "。"}
+          </div>
+        ) : null}
         {!msg.error && pointsEnabled ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
         {!msg.error &&
         msg.papers &&
@@ -2060,7 +2065,8 @@ function AssistantBlock({
         !msg.meta?.synthesis?.trim() &&
         msg.meta?.synthesisNote &&
         !webSynthesisPending &&
-        msg.meta.synthesisNote !== "synth:no-llm-key" ? (
+        msg.meta.synthesisNote !== "synth:no-llm-key" &&
+        msg.meta.synthesisNote !== "synth:paused" ? (
           <p className="mt-3 text-[12px] text-[var(--t-text-dim)]">
             {isWebChannel
               ? `本次未生成联网综合回答（${msg.meta.synthesisNote}）。下方仍为检索到的网页来源。`
@@ -2516,6 +2522,8 @@ export default function App({
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const pauseRequestedRef = useRef(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -3479,6 +3487,7 @@ export default function App({
     setActiveId(sessionId);
     setInput("");
     setBusy(true);
+    pauseRequestedRef.current = false;
     if (deepMineEnabled && !patentsOnlyEnabled) {
       setDeepMineToast("已启用深度解析：将逐篇下载 PDF 并解析，可能需较长时间");
     }
@@ -3502,6 +3511,7 @@ export default function App({
 
       // ── 流式模式：papers 立即到达，synthesis token 逐字追加 ──
       const abortController = new AbortController();
+      activeAbortControllerRef.current = abortController;
       const streamOpts = {
         idempotencyKey: searchIdempotencyKey,
         field: fieldAtSend,
@@ -3699,9 +3709,37 @@ export default function App({
             },
           });
         } else if (event.type === "error") {
+          if (pauseRequestedRef.current) continue;
           streamFailed = true;
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
+      }
+
+      if (pauseRequestedRef.current && !streamCompleted) {
+        setSessions((prev) => prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) => m.id === assistantId
+              ? { ...m, content: "", error: undefined, meta: { ...m.meta, synthesis: m.meta?.synthesis ?? null, synthesisNote: "synth:paused", paused: true } }
+              : m),
+            updatedAt: Date.now(),
+          };
+        }));
+        if (pointsEnabled) {
+          void (async () => {
+            for (const delay of [250, 750, 1500]) {
+              await new Promise((resolve) => window.setTimeout(resolve, delay));
+              try {
+                const latest = await fetchPointBalance();
+                setPointBalance(latest.billing);
+                setBalanceError(null);
+                return;
+              } catch { /* retry while the server finishes partial settlement */ }
+            }
+          })();
+        }
+        return;
       }
 
       // 回答 SSE 正常结束后，PDF 旁路可能仍在按原序处理后续来源。
@@ -3772,6 +3810,19 @@ export default function App({
         void handleMatplotlibChart(autoChartMessage);
       }
     } catch (e) {
+      if (pauseRequestedRef.current) {
+        setSessions((prev) => prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) => m.id === assistantId
+              ? { ...m, content: "", error: undefined, meta: { ...m.meta, synthesis: m.meta?.synthesis ?? null, synthesisNote: "synth:paused", paused: true } }
+              : m),
+            updatedAt: Date.now(),
+          };
+        }));
+        return;
+      }
       if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
       const err = e instanceof Error ? e.message : "未知错误";
       // 流式模式下，若之前已经推送了占位消息，直接更新为错误；否则新增错误消息
@@ -3802,9 +3853,16 @@ export default function App({
         }),
       );
     } finally {
+      activeAbortControllerRef.current = null;
       setBusy(false);
     }
   };
+
+  const pause = useCallback(() => {
+    if (!busy || !activeAbortControllerRef.current) return;
+    pauseRequestedRef.current = true;
+    activeAbortControllerRef.current.abort();
+  }, [busy]);
 
   const willAttachConvoContext = (active?.messages.length ?? 0) > 0;
 
@@ -4457,16 +4515,25 @@ export default function App({
                 </button>
                 <button
                   type="button"
-                  disabled={!canSend}
-                  onClick={() => void send(input)}
+                  disabled={busy ? false : !canSend}
+                  onClick={() => (busy ? pause() : void send(input))}
                   className={`absolute bottom-1.5 right-1.5 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
-                    canSend ? "qp-btn-send-active" : "bg-[var(--t-muted)] text-[var(--t-text-muted)]"
+                    busy
+                      ? "bg-[var(--t-accent-muted)] text-[var(--t-text)] ring-1 ring-[color:var(--t-accent-ring)]"
+                      : canSend ? "qp-btn-send-active" : "bg-[var(--t-muted)] text-[var(--t-text-muted)]"
                   }`}
-                  aria-label="发送"
+                  aria-label={busy ? "暂停回答" : "发送"}
+                  title={busy ? "暂停回答" : "发送"}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M3 11.5v1l18 8.5v-19L3 11.5zm2.2 1L18 5.5v13L5.2 12.5H5v-1h.2z" />
-                  </svg>
+                  {busy ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M3 11.5v1l18 8.5v-19L3 11.5zm2.2 1L18 5.5v13L5.2 12.5H5v-1h.2z" />
+                    </svg>
+                  )}
                 </button>
               </div>
             </div>
