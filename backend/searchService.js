@@ -978,12 +978,15 @@ export async function runPaperSearch(opts) {
       }
     }
 
-    // 2. 查询应用本地 papers 表（SQLite）
-    const localRows = await searchLocalPapers(effectiveQuery, Math.min(60, max + 20));
-    if (localRows.length) {
-      const localPapers = localRows.map(rowToApiPaper);
-      sourcesUsed.push("local_sqlite");
-      buckets.push(localPapers);
+    // 2. 仅在未配置 PostgreSQL 时查询本地 SQLite。
+    // sql.js 不能由校园版和企业版两个服务进程同时打开同一个文件。
+    if (!isPostgres()) {
+      const localRows = await searchLocalPapers(effectiveQuery, Math.min(60, max + 20));
+      if (localRows.length) {
+        const localPapers = localRows.map(rowToApiPaper);
+        sourcesUsed.push("local_sqlite");
+        buckets.push(localPapers);
+      }
     }
 
     // PostgreSQL/SQLite 结果已经足够先展示时，立即通知调用方；后续
@@ -1026,11 +1029,13 @@ export async function runPaperSearch(opts) {
      * 第3层（补充源）：Patents, Europe PMC, MCP - 18秒超时，始终执行以获取专利和网页
      */
     
-    // 第0层：本地数据库保底（始终执行，确保有结果返回）
-    const localRows = await searchLocalPapers(effectiveQuery, Math.min(60, max + 20));
-    if (localRows.length) {
-      sourcesUsed.push("local_sqlite");
-      buckets.push(localRows.map(rowToApiPaper));
+    // 第0层：SQLite 部署使用本地数据库保底；PostgreSQL 部署不得再打开 sql.js。
+    if (!isPostgres()) {
+      const localRows = await searchLocalPapers(effectiveQuery, Math.min(60, max + 20));
+      if (localRows.length) {
+        sourcesUsed.push("local_sqlite");
+        buckets.push(localRows.map(rowToApiPaper));
+      }
     }
     
     // 第1层：快速核心源（通常响应快）
@@ -1169,7 +1174,7 @@ export async function runPaperSearch(opts) {
     let interim = mergeDedupe(buckets);
     
     // 如果外部源结果不足，再补充本地数据库（第0层已查询过，这里只在仍不足时追加）
-    if (interim.length < max) {
+    if (!isPostgres() && interim.length < max) {
       const localRows = await searchLocalPapers(effectiveQuery, max - interim.length + 15);
       if (localRows.length) {
         sourcesUsed.push("local_sqlite_supplement");

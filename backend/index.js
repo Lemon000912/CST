@@ -2966,11 +2966,62 @@ app.post("/api/v1/auth/login", async (req, res) => {
 /** 仪表盘统计 */
 app.get("/api/v1/admin/dashboard", async (_req, res) => {
   try {
-    const db = await getSqliteDb();
+    let totalUsers = 0;
+    let todaySearches = 0;
+    const weeklyTrend = [];
 
-    // 用户统计
-    const usersResult = await db.all("SELECT COUNT(*) as total FROM users");
-    const totalUsers = usersResult[0]?.total || 0;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    if (pgPool) {
+      const [usersResult, searchesResult] = await Promise.all([
+        pgPool.query("SELECT COUNT(*) AS total FROM users"),
+        pgPool.query("SELECT COUNT(*) AS total FROM query_log WHERE ts >= $1", [todayStart.getTime()]),
+      ]);
+      totalUsers = parseInt(usersResult.rows[0]?.total ?? "0") || 0;
+      todaySearches = parseInt(searchesResult.rows[0]?.total ?? "0") || 0;
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const dayResult = await pgPool.query(
+          "SELECT COUNT(*) AS count FROM query_log WHERE ts >= $1 AND ts < $2",
+          [date.getTime(), nextDate.getTime()],
+        );
+        weeklyTrend.push({
+          date: date.toISOString().slice(0, 10),
+          count: parseInt(dayResult.rows[0]?.count ?? "0") || 0,
+        });
+      }
+    } else {
+      const db = await getSqliteDb();
+      const usersResult = await db.all("SELECT COUNT(*) as total FROM users");
+      totalUsers = usersResult[0]?.total || 0;
+      const searchesResult = await db.all(
+        "SELECT COUNT(*) as total FROM query_log WHERE ts >= ?",
+        [todayStart.getTime()],
+      );
+      todaySearches = searchesResult[0]?.total || 0;
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const dayResult = await db.all(
+          "SELECT COUNT(*) as count FROM query_log WHERE ts >= ? AND ts < ?",
+          [date.getTime(), nextDate.getTime()],
+        );
+        weeklyTrend.push({
+          date: date.toISOString().slice(0, 10),
+          count: dayResult[0]?.count || 0,
+        });
+      }
+    }
 
     // 论文统计 - 使用PostgreSQL数据
     let doiCount = 0;
@@ -2989,34 +3040,6 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
 
     // 论文总数 = DOI数量 + 15万
     const totalPapers = doiCount + 150000;
-
-    // 今日搜索
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const searchesResult = await db.all(
-      "SELECT COUNT(*) as total FROM query_log WHERE ts >= ?",
-      [todayStart.getTime()]
-    );
-    const todaySearches = searchesResult[0]?.total || 0;
-
-    // 最近7天搜索趋势
-    const weeklyTrend = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayResult = await db.all(
-        "SELECT COUNT(*) as count FROM query_log WHERE ts >= ? AND ts < ?",
-        [date.getTime(), nextDate.getTime()]
-      );
-      weeklyTrend.push({
-        date: date.toISOString().slice(0, 10),
-        count: dayResult[0]?.count || 0,
-      });
-    }
 
     res.json({
       success: true,
@@ -3633,13 +3656,16 @@ app.get("/api/v1/admin/config", async (_req, res) => {
       }
     }
     
-    // 检查SQLite
-    try {
-      const sqliteDb = await getSqliteDb();
-      await sqliteDb.get("SELECT 1");
-      sqliteConnected = true;
-    } catch (e) {
-      console.error("[admin/config] SQLite check failed:", e.message);
+    // PostgreSQL 与 SQLite 是互斥的运行模式。双版本部署启用 PostgreSQL 时
+    // 不得为了状态探测再打开共享的 sql.js 文件。
+    if (!pgPool) {
+      try {
+        const sqliteDb = await getSqliteDb();
+        await sqliteDb.get("SELECT 1");
+        sqliteConnected = true;
+      } catch (e) {
+        console.error("[admin/config] SQLite check failed:", e.message);
+      }
     }
     
     res.json({
