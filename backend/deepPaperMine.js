@@ -77,7 +77,7 @@ function walkMdFiles(dir, out = []) {
 }
 
 /** @param {string} outDir @param {number} maxLen */
-function readMarkdownDigest(outDir, maxLen = 28_000) {
+export function readMarkdownDigest(outDir, maxLen = 28_000) {
   const mds = walkMdFiles(outDir);
   if (!mds.length) return "";
   mds.sort((a, b) => (fs.statSync(b).size || 0) - (fs.statSync(a).size || 0));

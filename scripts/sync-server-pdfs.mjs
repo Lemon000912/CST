@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import { createReadStream, existsSync } from "node:fs";
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -20,12 +21,19 @@ import {
 import { ensureServerPdfSchema } from "../backend/serverPdfSchema.js";
 import { resolvePrimaryProvider, resolveProviderSlot } from "../backend/llmProviders.js";
 import { extractServerPdfMeta } from "../backend/serverPdfMetaExtract.js";
+import {
+  readMarkdownDigest,
+  resolveMineruExecutable,
+  runMineruPdf,
+} from "../backend/deepPaperMine.js";
 
 dotenv.config();
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const extractorScript = path.join(scriptDirectory, "extract-server-pdf-text.mjs");
+const MAX_ABSTRACT_CHARS = 120_000;
+const MAX_PARSE_ERROR_CHARS = 1_000;
 
 function option(name, fallback) {
   const prefix = `--${name}=`;
@@ -39,6 +47,33 @@ function integerOption(name, fallback, minimum, maximum) {
     throw new Error(`--${name} must be an integer from ${minimum} to ${maximum}`);
   }
   return value;
+}
+
+function parseEngineOption() {
+  const value = option(
+    "parse-engine",
+    String(process.env.PDF_PARSE_ENGINE ?? "mineru").trim().toLowerCase(),
+  );
+  if (value !== "mineru" && value !== "text") {
+    throw new Error("--parse-engine must be 'mineru' or 'text'");
+  }
+  return value;
+}
+
+/** 定位 MinerU 可执行文件：MINERU_EXE → 项目内 .venv-mineru → PATH；找不到返回 null。 */
+function locateMineruExecutable() {
+  const preferred = resolveMineruExecutable();
+  if (preferred && preferred !== "mineru" && existsSync(preferred)) return preferred;
+  const win = process.platform === "win32";
+  const names = win ? ["mineru.exe", "mineru.cmd", "mineru.bat"] : ["mineru"];
+  const dirs = String(process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
 }
 
 async function listPdfs(root) {
@@ -189,13 +224,7 @@ async function parseQueuedPdfs(client, root, settings) {
     );
     try {
       const filePath = resolveServerPdfPath(root, row.relative_path);
-      const { stdout } = await execFileAsync(
-        process.execPath,
-        [`--max-old-space-size=${settings.parseMemoryMb}`, extractorScript, filePath],
-        { timeout: settings.parseTimeoutSeconds * 1000, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
-      );
-      const text = String(stdout ?? "").replace(/\s+/g, " ").trim().slice(0, 120_000);
-      if (!text) throw new Error("No readable PDF text was extracted");
+      const text = await extractPdfText(filePath, settings);
       const now = Date.now();
       await client.query("BEGIN");
       try {
@@ -219,11 +248,98 @@ async function parseQueuedPdfs(client, root, settings) {
       failed += 1;
       await client.query(
         `UPDATE paper_pdf_files SET parse_status = 'failed', parse_error = $2, updated_at = $3 WHERE paper_id = $1`,
-        [row.paper_id, String(error?.message ?? error).slice(0, 1000), Date.now()],
+        [row.paper_id, String(error?.message ?? error).slice(0, MAX_PARSE_ERROR_CHARS), Date.now()],
       );
     }
   }
   return { ready, failed };
+}
+
+/**
+ * 按引擎抽取 PDF 正文。
+ * mineru：先调用 MinerU(pipeline) 输出 Markdown；失败或未产出正文时自动回退到
+ *         原 pdf-parse 文本抽取（控制台告警），text 也失败才抛错（由调用方统一记 failed/重试）。
+ * text：原 pdf-parse 子进程抽取，行为与改前一致。
+ */
+async function extractPdfText(filePath, settings) {
+  if (settings.parseEngine !== "mineru") return extractPdfTextLegacy(filePath, settings);
+  try {
+    return await extractPdfTextWithMineru(filePath, settings);
+  } catch (error) {
+    const mineruMessage = String(error?.message ?? error ?? "unknown").slice(0, 300);
+    console.warn(
+      `[pdf-sync] MinerU failed for ${path.basename(filePath)}, falling back to legacy text extraction: ${mineruMessage}`,
+    );
+    try {
+      return await extractPdfTextLegacy(filePath, settings);
+    } catch (legacyError) {
+      const textMessage = String(legacyError?.message ?? legacyError ?? "unknown").slice(0, 300);
+      throw new Error(`mineru:${mineruMessage} | text:${textMessage}`);
+    }
+  }
+}
+
+/** 原 pdf-parse 子进程抽取，行为与改前一致。 */
+async function extractPdfTextLegacy(filePath, settings) {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [`--max-old-space-size=${settings.parseMemoryMb}`, extractorScript, filePath],
+    { timeout: settings.parseTimeoutSeconds * 1000, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
+  );
+  const text = String(stdout ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_ABSTRACT_CHARS);
+  if (!text) throw new Error("No readable PDF text was extracted");
+  return text;
+}
+
+async function extractPdfTextWithMineru(filePath, settings) {
+  const mineruOut = await fs.mkdtemp(path.join(os.tmpdir(), "pdf-sync-mineru-"));
+  try {
+    await runMineruPdf(settings.mineruExe, filePath, mineruOut, settings.parseTimeoutSeconds * 1000);
+    const digest = readMarkdownDigest(mineruOut, MAX_ABSTRACT_CHARS);
+    const text = digest.trim();
+    if (!text) throw new Error("MinerU produced no readable markdown");
+    const fullText = await collectMarkdownText(mineruOut);
+    const mdPath = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}.md`);
+    try {
+      await fs.writeFile(mdPath, fullText || text, "utf8");
+    } catch (error) {
+      console.error(
+        `[pdf-sync] failed to write MinerU markdown ${mdPath}: ${String(error?.message ?? error).slice(0, 300)}`,
+      );
+    }
+    return text;
+  } finally {
+    await fs.rm(mineruOut, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** 数字感知比较（1 < 2 < 10），用于按页/文件名顺序合并 MinerU 输出的 md。 */
+function compareNatural(left, right) {
+  return String(left).localeCompare(String(right), "en", { numeric: true, sensitivity: "base" });
+}
+
+/** 递归读取目录下全部 .md，按路径自然排序合并为完整文本（不截断，超长也保留）。 */
+async function collectMarkdownText(dir) {
+  const found = [];
+  const pending = [dir];
+  while (pending.length) {
+    const current = pending.pop();
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(full);
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) found.push(full);
+    }
+  }
+  found.sort(compareNatural);
+  const parts = [];
+  for (const file of found) parts.push(await fs.readFile(file, "utf8"));
+  return parts.join("\n\n");
 }
 
 /** 元数据提取所用 LLM：默认 A，可用 PDF_META_PROVIDER=B/C 切换到其他槽位。 */
@@ -447,12 +563,21 @@ async function main() {
   if (!process.env.DATABASE_URL && !process.env.POSTGRES_URL) {
     throw new Error("Set DATABASE_URL or POSTGRES_URL for the server PostgreSQL database");
   }
+  const parseEngine = parseEngineOption();
+  const mineruExe = parseEngine === "mineru" ? locateMineruExecutable() : null;
+  if (parseEngine === "mineru" && !mineruExe) {
+    console.warn(
+      "[pdf-sync] PDF_PARSE_ENGINE=mineru but MinerU executable was not found (MINERU_EXE / .venv-mineru / PATH); falling back to legacy text extraction for this run",
+    );
+  }
   const settings = {
     stableSeconds: integerOption("stable-seconds", 30, 0, 3600),
     intervalSeconds: integerOption("interval-seconds", 60, 5, 86400),
+    parseEngine: mineruExe ? "mineru" : "text",
+    mineruExe,
     parseBatch: integerOption("parse-batch", 2, 0, 100),
     parseRetries: integerOption("parse-retries", 3, 1, 20),
-    parseTimeoutSeconds: integerOption("parse-timeout-seconds", 120, 10, 3600),
+    parseTimeoutSeconds: integerOption("parse-timeout-seconds", mineruExe ? 600 : 120, 10, 3600),
     parseMemoryMb: integerOption("parse-memory-mb", 384, 128, 4096),
     metaBatch: integerOption("meta-batch", 1, 0, 100),
     metaRetries: integerOption("meta-retries", 2, 1, 20),
