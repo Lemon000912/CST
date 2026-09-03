@@ -754,6 +754,7 @@ async function runWebIntelSearch(opts) {
  * @param {string} [opts.llmChatCompletionsUrl] 兼容接口完整 URL（…/chat/completions）
  * @param {string} [opts.personaSkill] 用户身份 Skill 全文，先于默认策略参与检索式改写
  * @param {boolean} [opts.patentsOnly] 为 true 时仅外呼专利源（OpenAlex 专利 + DDG/MCP 专利），结果只含专利条目并补全 patentNumber
+ * @param {(value: object) => void|Promise<void>} [opts.onPapersReady] 数据库基础结果可用时的增量通知
  */
 export async function runPaperSearch(opts) {
   const started = Date.now();
@@ -983,6 +984,27 @@ export async function runPaperSearch(opts) {
       const localPapers = localRows.map(rowToApiPaper);
       sourcesUsed.push("local_sqlite");
       buckets.push(localPapers);
+    }
+
+    // PostgreSQL/SQLite 结果已经足够先展示时，立即通知调用方；后续
+    // arXiv、Scopus、专利和网页来源仍继续并行补充到最终结果中。
+    const initialPapers = applySort(mergeDedupe(buckets), sort).slice(0, max);
+    if (initialPapers.length && typeof opts.onPapersReady === "function") {
+      try {
+        await opts.onPapersReady({
+          papers: initialPapers,
+          effectiveQuery,
+          rewriteNote: rw.note,
+          sourcesUsed: [...sourcesUsed],
+          channel,
+          sort,
+          field,
+          partial: true,
+        });
+      } catch (e) {
+        // A client disconnect must not abort the underlying search pipeline.
+        console.warn("[search] incremental papers notification failed:", e?.message || e);
+      }
     }
   }
 

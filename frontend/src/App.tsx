@@ -101,6 +101,25 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Decode a base64-encoded UTF-8 SVG without treating bytes as Latin-1. */
+function decodeBase64Utf8(value: string): string {
+  if (typeof atob !== "function") return value;
+  try {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    // Keep a best-effort fallback for older browsers or malformed payloads.
+    try {
+      const binary = atob(value);
+      const encoded = Array.from(binary, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, "0")}`).join("");
+      return decodeURIComponent(encoded);
+    } catch {
+      return atob(value);
+    }
+  }
+}
+
 /** 将 full 逐步露出：前段大步「一下跳出」，接近末尾时逐字，整体比固定单字更快 */
 function useTypewriterSlice(full: string, runKey: string, enabled: boolean) {
   const [len, setLen] = useState(0);
@@ -1713,16 +1732,18 @@ function AssistantBlock({
                               回答生成过程中连接已中断，以下内容可能不完整，请重新发送以获取完整结果。
                             </p>
                           ) : null}
-                          <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
-                            {webSynthesisStreaming ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <LoadingSpinner className="h-3 w-3 shrink-0 border-[var(--t-accent)] border-t-transparent" />
-                                预览回答 · 双模型作答与第三模型仲裁中…
-                              </span>
-                            ) : webArbitrationSucceeded
-                              ? `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
-                              : "联网综合回答（部分模型失败时可能为降级结果）"}
-                          </p>
+                          {webSynthesisStreaming || webArbitrationSucceeded ? (
+                            <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
+                              {webSynthesisStreaming ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <LoadingSpinner className="h-3 w-3 shrink-0 border-[var(--t-accent)] border-t-transparent" />
+                                  预览回答 · 双模型作答与第三模型仲裁中…
+                                </span>
+                              ) : (
+                                `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
+                              )}
+                            </p>
+                          ) : null}
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
                             <ReactMarkdown components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthesisShown : synthesisMd}
@@ -2013,16 +2034,12 @@ function AssistantBlock({
             <div className="mt-2 space-y-3 text-[11px] leading-relaxed text-[var(--t-text-muted)]">
               {(
                 [
-                  ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA, msg.meta?.synthesisModels?.modelA],
-                  ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB, msg.meta?.synthesisModels?.modelB],
+                  ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA],
+                  ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB],
                 ] as const
-              ).map(([slot, md, note, modelName]) => (
+              ).map(([slot, md, note]) => (
                 <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
-                  <p className="mb-1 font-semibold text-[var(--t-text)]">
-                    模型 {slot}
-                    {modelName ? ` · ${modelName}` : ""}
-                    {note ? ` · ${note}` : ""}
-                  </p>
+                  <p className="mb-1 font-semibold text-[var(--t-text)]">模型 {slot}</p>
                   {md?.trim() ? (
                     <ReactMarkdown components={mdLinkComponents}>
                       {linkifySynthesisCitations(md, msg.papers)}
@@ -2227,7 +2244,7 @@ function AssistantBlock({
                   <p className="mb-1 mt-2 text-[10px] text-[var(--t-text-dim)]">静态预览（SVG 散点图，纯JS渲染）</p>
                   <div
                     className="max-h-[min(72vh,720px)] w-full max-w-full overflow-auto rounded-lg border border-[color:var(--t-br08)] bg-white"
-                    dangerouslySetInnerHTML={{ __html: (typeof atob === "function" ? atob : (s: string) => s)(msg.meta.paperChart.svgBase64) }}
+                    dangerouslySetInnerHTML={{ __html: decodeBase64Utf8(msg.meta.paperChart.svgBase64) }}
                   />
                   <div className="mt-2 flex flex-wrap gap-2">
                     <a
@@ -4062,13 +4079,11 @@ export default function App({
             ) : (
               <div className="mt-0.5 text-[10px] font-medium text-[var(--t-text-muted)]">企业版 · 无积分限制</div>
             )}
-          </div>
-          <div className="flex shrink-0 flex-col gap-1">
             {pointsEnabled ? (
               <button
                 type="button"
                 onClick={() => setStudentVerificationOpen(true)}
-                className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                className={`mt-1 rounded-md border px-2 py-1 text-[10px] font-medium transition ${
                   studentVerification.verified
                     ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
                     : "border-violet-500/35 bg-violet-500/10 text-violet-500 hover:border-violet-500/60 hover:bg-violet-500/15"
@@ -4078,6 +4093,8 @@ export default function App({
                 {studentVerification.verified ? "已认证" : "学生认证"}
               </button>
             ) : null}
+          </div>
+          <div className="flex shrink-0 flex-col gap-1">
             {pointsEnabled ? (
               <button
                 type="button"

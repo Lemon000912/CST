@@ -1794,6 +1794,24 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  // Proxies commonly terminate an otherwise healthy SSE request when no
+  // bytes have crossed the connection for ~60-70 seconds. Emit an SSE comment
+  // every 15 seconds so long database searches remain active while preserving
+  // the public event protocol (the browser parser safely ignores comments).
+  const heartbeatTimer = setInterval(() => {
+    if (res.writableEnded || res.destroyed) return;
+    try {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    } catch {
+      // The close handler below owns cancellation; avoid turning a socket race
+      // into an unhandled timer exception.
+    }
+  }, 15_000);
+  heartbeatTimer.unref?.();
+  const clearHeartbeat = () => clearInterval(heartbeatTimer);
+  res.once("finish", clearHeartbeat);
+  res.once("close", clearHeartbeat);
+
   /** 推送一帧 SSE */
   const send = (event, data) => {
     if (res.writableEnded || res.destroyed) return;
@@ -1854,6 +1872,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let partialSynthesis = "";
   let partialChannel = "database";
   let partialSort = "relevance";
+  let papersReadySent = false;
   const synthesisAbortController = new AbortController();
   res.once("close", () => {
     if (res.writableEnded) return;
@@ -1936,6 +1955,27 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         personaSkill,
         preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
         performanceTrace: requestTrace,
+        onPapersReady: (partial) => {
+          if (clientDisconnected || !partial?.papers?.length) return;
+          partialPapers = partial.papers;
+          papersReadySent = true;
+          send("papers", {
+            papers: partial.papers,
+            effectiveQuery: partial.effectiveQuery,
+            rewriteNote: partial.rewriteNote,
+            sourcesUsed: partial.sourcesUsed,
+            channel: partial.channel ?? channel,
+            sort: partial.sort ?? sort,
+            field,
+            patentsOnly,
+            latencySearch: Date.now() - t0,
+            persona: personaId,
+            personaLabel,
+            parentOperationId: activeOperation.id,
+            partial: true,
+          });
+          endPapersReady({ results: partial.papers.length, partial: true });
+        },
       }),
       (value) => ({ results: value?.papers?.length ?? 0, fromCache: Boolean(value?.fromCache) }),
     );
@@ -1961,7 +2001,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       personaLabel,
       parentOperationId: activeOperation.id,
     });
-    endPapersReady({ results: result.papers.length });
+    if (!papersReadySent) endPapersReady({ results: result.papers.length });
 
     // PDF 旁路只读取原始引用来源并顺序运行；不修改 result.papers，亦不参与或阻塞回答合成。
     if (channel === "web" && result.papers.length > 0) {

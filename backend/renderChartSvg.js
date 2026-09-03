@@ -73,12 +73,15 @@ export function renderScatterChartSvg(spec) {
     "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c",
     "#0891b2", "#be123c", "#4f46e5", "#a21caf", "#0d9488",
   ];
+  // Prefer CJK-capable fonts so Chinese labels remain legible on systems where
+  // the generic sans-serif family only contains Latin glyphs.
+  const fontFamily = "Microsoft YaHei, SimHei, PingFang SC, Noto Sans CJK SC, Arial, sans-serif";
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
   svg += `<rect width="${width}" height="${height}" fill="#ffffff" rx="8"/>`;
 
   // Title
-  svg += `<text x="${width / 2}" y="32" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1e293b">${title}</text>`;
+  svg += `<text x="${width / 2}" y="32" text-anchor="middle" font-family="${fontFamily}" font-size="16" font-weight="bold" fill="#1e293b">${title}</text>`;
 
   // Grid lines
   for (const tx of xTicks) {
@@ -98,7 +101,7 @@ export function renderScatterChartSvg(spec) {
   for (const tx of xTicks) {
     const x = scaleX(tx);
     const label = Number.isInteger(tx) ? String(tx) : tx.toFixed(1);
-    svg += `<text x="${x}" y="${margin.top + plotH + 20}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">${label}</text>`;
+    svg += `<text x="${x}" y="${margin.top + plotH + 20}" text-anchor="middle" font-family="${fontFamily}" font-size="11" fill="#475569">${label}</text>`;
     svg += `<line x1="${x}" y1="${margin.top + plotH}" x2="${x}" y2="${margin.top + plotH + 5}" stroke="#334155" stroke-width="1"/>`;
   }
 
@@ -106,13 +109,13 @@ export function renderScatterChartSvg(spec) {
   for (const ty of yTicks) {
     const y = scaleY(ty);
     const label = Number.isFinite(ty) ? (Math.abs(ty) < 0.01 ? ty.toExponential(2) : Math.abs(ty) >= 1000 ? ty.toFixed(0) : ty.toFixed(1)) : String(ty);
-    svg += `<text x="${margin.left - 8}" y="${y + 4}" text-anchor="end" font-family="sans-serif" font-size="11" fill="#475569">${label}</text>`;
+    svg += `<text x="${margin.left - 8}" y="${y + 4}" text-anchor="end" font-family="${fontFamily}" font-size="11" fill="#475569">${label}</text>`;
     svg += `<line x1="${margin.left - 5}" y1="${y}" x2="${margin.left}" y2="${y}" stroke="#334155" stroke-width="1"/>`;
   }
 
   // Axis labels
-  svg += `<text x="${width / 2}" y="${height - 12}" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#1e293b">${xLabel}</text>`;
-  svg += `<text x="16" y="${height / 2}" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#1e293b" transform="rotate(-90, 16, ${height / 2})">${yLabel}</text>`;
+  svg += `<text x="${width / 2}" y="${height - 12}" text-anchor="middle" font-family="${fontFamily}" font-size="13" font-weight="600" fill="#1e293b">${xLabel}</text>`;
+  svg += `<text x="16" y="${height / 2}" text-anchor="middle" font-family="${fontFamily}" font-size="13" font-weight="600" fill="#1e293b" transform="rotate(-90, 16, ${height / 2})">${yLabel}</text>`;
 
   // Scatter points
   for (let i = 0; i < points.length; i++) {
