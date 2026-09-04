@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -32,6 +32,7 @@ dotenv.config();
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const extractorScript = path.join(scriptDirectory, "extract-server-pdf-text.mjs");
+const metaNerScript = path.join(scriptDirectory, "..", "backend", "scripts", "matsci_pdf_meta_extract.py");
 const MAX_ABSTRACT_CHARS = 120_000;
 const MAX_PARSE_ERROR_CHARS = 1_000;
 
@@ -56,6 +57,17 @@ function parseEngineOption() {
   );
   if (value !== "mineru" && value !== "text") {
     throw new Error("--parse-engine must be 'mineru' or 'text'");
+  }
+  return value;
+}
+
+function parseMetaEngineOption() {
+  const value = option(
+    "meta-engine",
+    String(process.env.PDF_META_ENGINE ?? "ner").trim().toLowerCase(),
+  );
+  if (value !== "ner" && value !== "llm") {
+    throw new Error("--meta-engine must be 'ner' or 'llm'");
   }
   return value;
 }
@@ -349,37 +361,138 @@ function resolveMetaProvider() {
   return resolveProviderSlot(slot);
 }
 
-/**
- * 元数据提取阶段：复用 papers.abstract 中已抽取的正文，
- * 调用 LLM 提取 symmetry_phase / synthesis_method / structure_descriptor / properties。
- * 默认只处理「新入库文件」（indexPdf 插入时标记 meta_extract_status='queued' 的行），
- * 历史数据（meta_extract_status 为 NULL）不触碰；--meta-refresh 显式强制重跑可覆盖。
- */
-async function extractPaperMetadata(client, settings) {
-  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
-  if (settings.metaBatch === 0) return counts;
-
-  const provider = resolveMetaProvider();
-  if (!provider) {
-    await client.query(
-      `UPDATE paper_pdf_files
-          SET meta_extract_status = 'skipped', meta_extract_error = 'no-llm-key', updated_at = $1
-        WHERE storage_kind = 'filesystem'
-          AND file_status = 'active'
-          AND parse_status = 'ready'
-          AND text_extracted_at IS NOT NULL
-          AND meta_extract_status = 'queued'`,
-      [Date.now()],
-    );
-    counts.noProvider = 1;
-    console.warn("[pdf-sync] no LLM provider configured; pending metadata rows marked as skipped");
-    return counts;
+/** 定位 MatSciBERT NER 抽取运行环境；任一环节缺失返回 null（由调用方决定是否回退 LLM）。 */
+function locateMetaNerSetup() {
+  if (!existsSync(metaNerScript)) return null;
+  const python =
+    String(process.env.MATSCI_META_PYTHON ?? process.env.MATSCI_PYTHON ?? "").trim() ||
+    (process.platform === "win32"
+      ? (existsSync("E:\\python.exe") ? "E:\\python.exe" : "python")
+      : "python3");
+  let demoDir = String(process.env.MATSCI_META_DEMO_DIR ?? "").trim();
+  if (!demoDir && process.platform === "win32") {
+    const candidate = "D:\\workTrace\\end\\MatSciBERT\\matscibert-demo";
+    if (existsSync(candidate)) demoDir = candidate;
   }
+  if (!demoDir) return null;
+  const modelDir =
+    String(process.env.MATSCI_META_MODEL_DIR ?? "").trim() || path.join(demoDir, "model", "ner_matscholar");
+  if (!existsSync(demoDir) || !existsSync(modelDir)) return null;
+  return { script: metaNerScript, python, demoDir, modelDir };
+}
 
+/**
+ * 批量调用 MatSciBERT NER worker：先等 stdout 的 {"ready":true}，再写入全部行并读取逐行结果。
+ * 启动失败/超时/退出码非 0 抛错（由调用方整轮回退）；逐行 ok:false 只代表单篇失败，不抛错。
+ *
+ * @returns {Promise<Array<{id?: string; ok: boolean; fields?: object; error?: string}>>}
+ */
+function runNerBatch(setup, rows, settings) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(setup.python, [setup.script], {
+      env: {
+        ...process.env,
+        MATSCI_META_DEMO_DIR: setup.demoDir,
+        MATSCI_META_MODEL_DIR: setup.modelDir,
+        PYTHONUNBUFFERED: "1",
+        PYTHONIOENCODING: "utf-8",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let settled = false;
+    let ready = false;
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    const results = [];
+    const timeoutMs = settings.metaTimeoutSeconds * 1000;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill();
+      } catch {}
+      reject(new Error(`MatSciBERT NER worker timed out after ${settings.metaTimeoutSeconds}s`));
+    }, timeoutMs);
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(results);
+    };
+    child.stderr?.on("data", (chunk) => {
+      stderrBuf += String(chunk);
+    });
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuf += String(chunk);
+      const lines = stdoutBuf.split("\n");
+      stdoutBuf = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = String(line).trim();
+        if (!trimmed) continue;
+        let job;
+        try {
+          job = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        if (!ready) {
+          if (job?.ready === true) {
+            ready = true;
+            const payload = rows
+              .map((row) => JSON.stringify({ id: row.paper_id, text: String(row.text ?? "") }))
+              .join("\n");
+            child.stdin.write(`${payload}\n`, () => {
+              try {
+                child.stdin.end();
+              } catch {}
+            });
+          } else {
+            finish(new Error(String(job?.error || "MatSciBERT NER worker startup failed")));
+            try {
+              child.stdin.end();
+              child.kill();
+            } catch {}
+            return;
+          }
+        } else {
+          results.push(job);
+        }
+      }
+    });
+    child.on("error", (error) => {
+      finish(new Error(`failed to start MatSciBERT NER worker: ${error?.message ?? error}`));
+    });
+    child.on("exit", (code) => {
+      if (settled) return;
+      if (!ready) {
+        finish(
+          new Error(
+            `MatSciBERT NER worker exited before ready (code ${code}): ${stderrBuf.trim().slice(-1500) || "no stderr"}`,
+          ),
+        );
+        return;
+      }
+      if (code !== 0) {
+        finish(
+          new Error(
+            `MatSciBERT NER worker exited with code ${code}: ${stderrBuf.trim().slice(-1500) || "no stderr"}`,
+          ),
+        );
+        return;
+      }
+      finish(null);
+    });
+  });
+}
+
+/** 选取待做元数据提取的行（needs：parse ready + attempts < retries + queued；--meta-refresh 放开 queued 限制）。 */
+async function selectMetaRows(client, settings) {
   const statusCondition = settings.metaRefresh
     ? "AND COALESCE(f.meta_extract_status, '') NOT IN ('failed', 'skipped')"
     : "AND f.meta_extract_status = 'queued'";
-  const result = await client.query(
+  return client.query(
     `SELECT f.paper_id, p.title, p.doi, p.abstract AS text
        FROM paper_pdf_files f
        JOIN papers p ON p.paper_id = f.paper_id
@@ -393,7 +506,78 @@ async function extractPaperMetadata(client, settings) {
       LIMIT $2`,
     [settings.metaRetries, settings.metaBatch],
   );
+}
 
+/** 无可用引擎时把本轮 queued 行标记 skipped（沿用原有 no-llm-key 语义）。 */
+async function skipQueuedMetaRows(client, errorText) {
+  await client.query(
+    `UPDATE paper_pdf_files
+        SET meta_extract_status = 'skipped', meta_extract_error = $2, updated_at = $1
+      WHERE storage_kind = 'filesystem'
+        AND file_status = 'active'
+        AND parse_status = 'ready'
+        AND text_extracted_at IS NOT NULL
+        AND meta_extract_status = 'queued'`,
+    [Date.now(), errorText],
+  );
+}
+
+/** 单篇抽取成功：写四个字段 + 置 ready（--meta-refresh 直接覆盖，否则保留已有非空值）。 */
+async function applyMetaSuccess(client, row, data, settings) {
+  const now = Date.now();
+  await client.query("BEGIN");
+  try {
+    const fieldSet = settings.metaRefresh
+      ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5"
+      : "symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $2),"
+        + " synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $3),"
+        + " structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $4),"
+        + " properties = COALESCE(NULLIF(btrim(properties), ''), $5)";
+    await client.query(
+      `UPDATE papers SET ${fieldSet}, updated_at = $6 WHERE paper_id = $1`,
+      [
+        row.paper_id,
+        data.symmetry_phase ?? null,
+        data.synthesis_method ?? null,
+        data.structure_descriptor ?? null,
+        data.properties ?? null,
+        now,
+      ],
+    );
+    await client.query(
+      `UPDATE paper_pdf_files
+          SET meta_extract_status = 'ready', meta_extract_error = NULL,
+              meta_extracted_at = $2, updated_at = $2
+        WHERE paper_id = $1`,
+      [row.paper_id, now],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
+
+/** 单篇抽取失败：attempts +1；达到上限置 failed，否则保留 queued 供下次重试。 */
+async function applyMetaFailure(client, row, error, settings) {
+  await client.query(
+    `UPDATE paper_pdf_files
+        SET meta_extract_attempts = meta_extract_attempts + 1,
+            meta_extract_error = $2,
+            meta_extract_status = CASE
+              WHEN meta_extract_attempts + 1 >= $3 THEN 'failed'
+              ELSE 'queued'
+            END,
+            updated_at = $4
+      WHERE paper_id = $1`,
+    [row.paper_id, String(error?.message ?? error).slice(0, 1000), settings.metaRetries, Date.now()],
+  );
+}
+
+/** LLM 引擎：逐篇调用在线大模型，行为与改前完全一致。 */
+async function extractPaperMetadataWithLlm(client, settings, provider) {
+  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
+  const result = await selectMetaRows(client, settings);
   for (const row of result.rows) {
     try {
       const outcome = await extractServerPdfMeta({
@@ -403,56 +587,110 @@ async function extractPaperMetadata(client, settings) {
         text: row.text,
       });
       if (!outcome.ok) throw new Error(outcome.error ?? "meta_extract_failed");
-      const now = Date.now();
-      await client.query("BEGIN");
-      try {
-        const fieldSet = settings.metaRefresh
-          ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5"
-          : "symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $2),"
-            + " synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $3),"
-            + " structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $4),"
-            + " properties = COALESCE(NULLIF(btrim(properties), ''), $5)";
-        await client.query(
-          `UPDATE papers SET ${fieldSet}, updated_at = $6 WHERE paper_id = $1`,
-          [
-            row.paper_id,
-            outcome.data.symmetry_phase,
-            outcome.data.synthesis_method,
-            outcome.data.structure_descriptor,
-            outcome.data.properties,
-            now,
-          ],
-        );
-        await client.query(
-          `UPDATE paper_pdf_files
-              SET meta_extract_status = 'ready', meta_extract_error = NULL,
-                  meta_extracted_at = $2, updated_at = $2
-            WHERE paper_id = $1`,
-          [row.paper_id, now],
-        );
-        await client.query("COMMIT");
-        counts.ready += 1;
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      }
+      await applyMetaSuccess(client, row, outcome.data, settings);
+      counts.ready += 1;
     } catch (error) {
       counts.failed += 1;
-      await client.query(
-        `UPDATE paper_pdf_files
-            SET meta_extract_attempts = meta_extract_attempts + 1,
-                meta_extract_error = $2,
-                meta_extract_status = CASE
-                  WHEN meta_extract_attempts + 1 >= $3 THEN 'failed'
-                  ELSE 'queued'
-                END,
-                updated_at = $4
-          WHERE paper_id = $1`,
-        [row.paper_id, String(error?.message ?? error).slice(0, 1000), settings.metaRetries, Date.now()],
-      );
+      await applyMetaFailure(client, row, error, settings);
     }
   }
   return counts;
+}
+
+/** NER 引擎：整批交给本地 MatSciBERT worker；worker 启动失败整轮回退，单篇失败按重试语义记录。 */
+async function extractPaperMetadataWithNer(client, settings, setup) {
+  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
+  const result = await selectMetaRows(client, settings);
+  if (!result.rows.length) return counts;
+  const startedAt = Date.now();
+  let outputs;
+  try {
+    outputs = await runNerBatch(setup, result.rows, settings);
+  } catch (error) {
+    return {
+      fallbackToLlm: true,
+      message: String(error?.message ?? error).slice(0, 500),
+      counts,
+    };
+  }
+  const byId = new Map(
+    (Array.isArray(outputs) ? outputs : [])
+      .filter((item) => item && item.id !== undefined && item.id !== null)
+      .map((item) => [String(item.id), item]),
+  );
+  for (const row of result.rows) {
+    const output = byId.get(String(row.paper_id));
+    try {
+      if (!output) throw new Error("ner:no-output");
+      if (!output.ok) throw new Error(String(output.error || "ner_extract_failed"));
+      await applyMetaSuccess(client, row, output.fields ?? {}, settings);
+      counts.ready += 1;
+    } catch (error) {
+      counts.failed += 1;
+      await applyMetaFailure(client, row, error, settings);
+    }
+  }
+  counts.nerElapsedMs = Date.now() - startedAt;
+  return counts;
+}
+
+/**
+ * 元数据提取阶段：复用 papers.abstract 中已抽取的正文，提取
+ * symmetry_phase / synthesis_method / structure_descriptor / properties。
+ * PDF_META_ENGINE / --meta-engine：ner（默认，本地 MatSciBERT NER）或 llm（在线大模型，原逻辑）。
+ * ner 引擎启动环境缺失或整批失败时告警后整轮回退 llm（镜像 MinerU 缺失时降级 text）；无 LLM key 则标记 skipped。
+ * 只处理「新入库文件」（indexPdf 插入时 meta_extract_status='queued' 的行），
+ * 历史数据（meta_extract_status 为 NULL）不触碰；--meta-refresh 显式强制重跑可覆盖。
+ */
+async function extractPaperMetadata(client, settings) {
+  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0, engine: settings.metaEngine };
+  if (settings.metaBatch === 0) return counts;
+
+  const setup = settings.metaEngine === "ner" ? locateMetaNerSetup() : null;
+  if (settings.metaEngine === "ner" && !setup) {
+    counts.engine = "llm";
+    console.warn(
+      "[pdf-sync] PDF_META_ENGINE=ner but MatSciBERT NER setup was not found " +
+        "(MATSCI_META_PYTHON / MATSCI_META_DEMO_DIR / MATSCI_META_MODEL_DIR / backend/scripts/matsci_pdf_meta_extract.py); " +
+        "falling back to LLM engine for this run",
+    );
+  }
+
+  if (!setup) {
+    const provider = resolveMetaProvider();
+    if (!provider) {
+      await skipQueuedMetaRows(client, "no-llm-key");
+      counts.noProvider = 1;
+      console.warn("[pdf-sync] no LLM provider configured; pending metadata rows marked as skipped");
+      return counts;
+    }
+    return extractPaperMetadataWithLlm(client, settings, provider);
+  }
+
+  const outcome = await extractPaperMetadataWithNer(client, settings, setup);
+  if (!outcome.fallbackToLlm) {
+    return {
+      ...counts,
+      ready: outcome.ready,
+      failed: outcome.failed,
+      skipped: outcome.skipped,
+      nerElapsedMs: outcome.nerElapsedMs,
+    };
+  }
+
+  console.warn(
+    `[pdf-sync] MatSciBERT NER batch failed, falling back to LLM engine for this run: ${outcome.message ?? "unknown"}`,
+  );
+  const provider = resolveMetaProvider();
+  if (!provider) {
+    await skipQueuedMetaRows(client, "ner-unavailable-no-llm-key");
+    counts.noProvider = 1;
+    counts.engine = "ner->skipped";
+    return counts;
+  }
+  const llmCounts = await extractPaperMetadataWithLlm(client, settings, provider);
+  counts.engine = "ner->llm";
+  return { ...counts, ...llmCounts };
 }
 
 async function runScan(pool, root, settings) {
@@ -581,6 +819,8 @@ async function main() {
     parseMemoryMb: integerOption("parse-memory-mb", 384, 128, 4096),
     metaBatch: integerOption("meta-batch", 1, 0, 100),
     metaRetries: integerOption("meta-retries", 2, 1, 20),
+    metaEngine: parseMetaEngineOption(),
+    metaTimeoutSeconds: integerOption("meta-timeout-seconds", 1800, 30, 7200),
     metaRefresh: process.argv.includes("--meta-refresh"),
   };
   const watch = process.argv.includes("--watch");
