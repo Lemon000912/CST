@@ -1793,11 +1793,11 @@ export async function updateUserInfo(userId, userInfo) {
 
 export async function findUserByPhone(phone) {
   if (pgPool) {
-    const r = await pgPool.query('SELECT id, username, email, phone, created_at FROM users WHERE phone = $1', [phone]);
+    const r = await pgPool.query('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = $1', [phone]);
     return r.rows[0] || null;
   } else {
     const db = await getSqliteDb();
-    return await db.get('SELECT id, username, email, phone, created_at FROM users WHERE phone = ?', [phone]);
+    return await db.get('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = ?', [phone]);
   }
 }
 

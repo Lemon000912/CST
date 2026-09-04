@@ -29,6 +29,7 @@ import {
   getWechatTicket,
   updateWechatTicket,
 } from "./wechatOAuth.js";
+import { getConfiguredAppEdition } from "./appEdition.js";
 
 const JWT_ISS = "paper-query";
 const WECHAT_COOKIE_PATH = "/api/v1/auth/wechat";
@@ -598,14 +599,27 @@ export async function handleRegister(req, res) {
  */
 export async function handleLogin(req, res) {
   try {
-    const u = validateUsernameForRegister(req.body?.username);
-    if (!u.ok) return res.status(400).json({ error: u.error });
+    const identifier = String(req.body?.username ?? "").toLowerCase().trim().slice(0, 64);
+    if (!identifier) return res.status(400).json({ error: "请输入手机号或管理员账号" });
     const password = String(req.body?.password ?? "");
     if (!password) return res.status(400).json({ error: "请输入密码" });
 
-    const row = await findUserByUsernameKey(u.username);
+    let row;
+    if (PHONE_RE.test(identifier)) {
+      row = await findUserByPhone(identifier);
+    } else {
+      const u = validateUsernameForRegister(identifier);
+      if (!u.ok) return res.status(400).json({ error: u.error });
+      if (getConfiguredAppEdition() === "school" && !isConfiguredAdminUsername(u.username)) {
+        return res.status(400).json({
+          error: "校园版普通用户请使用手机号登录",
+          code: "school-phone-login-required",
+        });
+      }
+      row = await findUserByUsernameKey(u.username);
+    }
     if (!row || !(await verifyUserPassword(password, row.password_hash))) {
-      return res.status(401).json({ error: "用户名或密码错误" });
+      return res.status(401).json({ error: "手机号或管理员账号、密码错误" });
     }
     const token = await signAuthToken(row.id, row.username);
     const billing = await getPointBalance(row.id);

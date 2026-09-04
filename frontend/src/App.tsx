@@ -4554,11 +4554,15 @@ export default function App({
                 </button>
               </div>
             </div>
+            {pointsEnabled ? (
+              <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
+                校园版
+              </p>
+            ) : null}
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
               {pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
                 : "企业版 · 搜索、图表与 PDF 不使用积分"}
-              {pointsEnabled && pricing ? ` · 1 积分=${pricing.unitsPerPoint} units` : ""}
               {willAttachConvoContext ? " · 含本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>

@@ -143,6 +143,7 @@ export default function LoginScreen({
   const [wechatQrBusy, setWechatQrBusy] = useState(false);
   const [wechatQrError, setWechatQrError] = useState<string | null>(null);
   const wechatCallbackHandled = useRef(false);
+  const isSchool = edition === "school";
 
   useEffect(() => {
     if (smsCountdown <= 0) return;
@@ -234,8 +235,8 @@ export default function LoginScreen({
 
   const submit = async () => {
     setErr(null);
-    if (mode !== "login" && !phone.trim()) {
-      setErr("请输入手机号");
+    if ((mode !== "login" || isSchool) && !phone.trim()) {
+      setErr(mode === "login" ? "请输入手机号或管理员账号" : "请输入手机号");
       return;
     }
     if (
@@ -245,8 +246,12 @@ export default function LoginScreen({
       setErr("请输入短信验证码");
       return;
     }
-    if (mode === "wechat" && wechatNeedsAccountDetails && (!username.trim() || password.length < 8)) {
-      setErr("请设置新账号用户名和至少 8 位密码");
+    if (
+      mode === "wechat"
+      && wechatNeedsAccountDetails
+      && ((isSchool ? !phone.trim() : !username.trim()) || password.length < 8)
+    ) {
+      setErr(isSchool ? "请设置至少 8 位登录密码" : "请设置新账号用户名和至少 8 位密码");
       return;
     }
     if (isWechatPreview && mode === "wechat") {
@@ -260,15 +265,24 @@ export default function LoginScreen({
     }
     setBusy(true);
     try {
+      const accountName = isSchool ? phone.trim() : username;
       if (mode === "login") {
-        await apiLogin(username, password);
+        await apiLogin(accountName, password);
       } else if (mode === "register") {
-        await apiRegister(username, password, email, phone, smsCode);
+        await apiRegister(accountName, password, isSchool ? undefined : email, phone, smsCode);
       } else {
-        const result = await apiBindWechatPhone({ username, password, email, phone, smsCode });
+        const result = await apiBindWechatPhone({
+          username: accountName,
+          password,
+          email: isSchool ? undefined : email,
+          phone,
+          smsCode,
+        });
         if (result.kind === "account_details") {
           setWechatNeedsAccountDetails(true);
-          setSmsNotice("手机号验证成功。该号码尚未注册，请设置用户名和密码完成注册");
+          setSmsNotice(isSchool
+            ? "手机号验证成功。该号码尚未注册，请设置登录密码完成注册"
+            : "手机号验证成功。该号码尚未注册，请设置用户名和密码完成注册");
           return;
         }
       }
@@ -355,7 +369,7 @@ export default function LoginScreen({
         )}
 
         <div className="flex flex-col gap-3">
-          {(mode !== "wechat" || wechatNeedsAccountDetails) && (
+          {!isSchool && (mode !== "wechat" || wechatNeedsAccountDetails) && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">
                 {mode === "wechat" ? "设置新账号用户名" : "用户名"}
@@ -370,7 +384,7 @@ export default function LoginScreen({
               />
             </div>
           )}
-          {(mode === "register" || (mode === "wechat" && wechatNeedsAccountDetails)) && (
+          {!isSchool && (mode === "register" || (mode === "wechat" && wechatNeedsAccountDetails)) && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">邮箱（可选）</label>
               <input
@@ -383,20 +397,25 @@ export default function LoginScreen({
               />
             </div>
           )}
-          {mode !== "login" && (
+          {(mode !== "login" || isSchool) && (
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">手机号（必填）</label>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">
+                {isSchool && mode === "login" ? "手机号 / 管理员账号" : "手机号（必填）"}
+              </label>
               <input
-                type="tel"
-                autoComplete="tel"
-                inputMode="numeric"
+                type={isSchool && mode === "login" ? "text" : "tel"}
+                autoComplete={isSchool && mode === "login" ? "username" : "tel"}
+                inputMode={isSchool && mode === "login" ? "text" : "numeric"}
                 value={phone}
                 disabled={mode === "wechat" && wechatNeedsAccountDetails}
                 onChange={(e) => {
-                  setPhone(e.target.value.replace(/\D/g, "").slice(0, 11));
+                  const value = isSchool && mode === "login"
+                    ? e.target.value.slice(0, 64)
+                    : e.target.value.replace(/\D/g, "").slice(0, 11);
+                  setPhone(value);
                   setSmsNotice(null);
                 }}
-                placeholder="11位手机号"
+                placeholder={isSchool && mode === "login" ? "11位手机号，管理员可输入 admin" : "11位手机号"}
                 required
                 aria-required="true"
                 pattern="1[3-9][0-9]{9}"
@@ -407,7 +426,9 @@ export default function LoginScreen({
           )}
           {mode === "wechat" && wechatNeedsAccountDetails ? (
             <p className="rounded-lg bg-[#07c160]/10 px-3 py-2 text-[11px] text-[var(--t-text-muted)]">
-              手机号已验证且尚未注册，请设置账号信息；创建后将自动绑定微信并发放一次注册积分。
+              {isSchool
+                ? "手机号已验证且尚未注册，请设置登录密码；创建后将自动绑定微信并发放一次注册积分。"
+                : "手机号已验证且尚未注册，请设置账号信息；创建后将自动绑定微信并发放一次注册积分。"}
             </p>
           ) : null}
           {mode !== "login" && !(mode === "wechat" && wechatNeedsAccountDetails) && (

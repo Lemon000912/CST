@@ -621,7 +621,7 @@ html {
   }
 
   .qp-app-input-footer {
-    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(2.25rem, env(safe-area-inset-bottom, 0px));
   }
 
   .qp-app-header-safe {
