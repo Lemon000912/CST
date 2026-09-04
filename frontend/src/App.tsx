@@ -12,7 +12,6 @@ import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
-import { EditionSwitcher } from "./EditionSwitcher";
 import type { AppEdition } from "./edition";
 import { LoadingIndicator, LoadingSpinner, RhinoAnimation } from "./LoadingIndicator";
 import {
@@ -76,7 +75,7 @@ import { ExportChatModal } from "./ExportChatModal";
 import { StudentVerificationModal } from "./StudentVerificationModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
 import { clearAuthSession, getAuthProfile } from "./authSession";
-import { clearUserSessions, getSessionKey, loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
+import { loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
 import { fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
 import { getAuthToken } from "./authSession";
 import { DEFAULT_PERSONA_LIST, fetchPersonaList, getPersonaId, setPersonaId } from "./persona";
@@ -100,6 +99,25 @@ import type {
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Decode a base64-encoded UTF-8 SVG without treating bytes as Latin-1. */
+function decodeBase64Utf8(value: string): string {
+  if (typeof atob !== "function") return value;
+  try {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    // Keep a best-effort fallback for older browsers or malformed payloads.
+    try {
+      const binary = atob(value);
+      const encoded = Array.from(binary, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, "0")}`).join("");
+      return decodeURIComponent(encoded);
+    } catch {
+      return atob(value);
+    }
+  }
 }
 
 /** 将 full 逐步露出：前段大步「一下跳出」，接近末尾时逐字，整体比固定单字更快 */
@@ -1714,16 +1732,18 @@ function AssistantBlock({
                               回答生成过程中连接已中断，以下内容可能不完整，请重新发送以获取完整结果。
                             </p>
                           ) : null}
-                          <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
-                            {webSynthesisStreaming ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <LoadingSpinner className="h-3 w-3 shrink-0 border-[var(--t-accent)] border-t-transparent" />
-                                预览回答 · 双模型作答与第三模型仲裁中…
-                              </span>
-                            ) : webArbitrationSucceeded
-                              ? `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
-                              : "联网综合回答（部分模型失败时可能为降级结果）"}
-                          </p>
+                          {webSynthesisStreaming || webArbitrationSucceeded ? (
+                            <p className="mb-2 text-[11px] font-semibold text-[var(--t-text-muted)]">
+                              {webSynthesisStreaming ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <LoadingSpinner className="h-3 w-3 shrink-0 border-[var(--t-accent)] border-t-transparent" />
+                                  预览回答 · 双模型作答与第三模型仲裁中…
+                                </span>
+                              ) : (
+                                `模型 C 仲裁终稿${msg.meta?.synthesisModels?.modelC ? ` · ${msg.meta.synthesisModels.modelC}` : ""}`
+                              )}
+                            </p>
+                          ) : null}
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
                             <ReactMarkdown components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthesisShown : synthesisMd}
@@ -2014,16 +2034,12 @@ function AssistantBlock({
             <div className="mt-2 space-y-3 text-[11px] leading-relaxed text-[var(--t-text-muted)]">
               {(
                 [
-                  ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA, msg.meta?.synthesisModels?.modelA],
-                  ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB, msg.meta?.synthesisModels?.modelB],
+                  ["A", webAnswerDrafts.modelA, webAnswerDrafts.noteA],
+                  ["B", webAnswerDrafts.modelB, webAnswerDrafts.noteB],
                 ] as const
-              ).map(([slot, md, note, modelName]) => (
+              ).map(([slot, md, note]) => (
                 <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
-                  <p className="mb-1 font-semibold text-[var(--t-text)]">
-                    模型 {slot}
-                    {modelName ? ` · ${modelName}` : ""}
-                    {note ? ` · ${note}` : ""}
-                  </p>
+                  <p className="mb-1 font-semibold text-[var(--t-text)]">模型 {slot}</p>
                   {md?.trim() ? (
                     <ReactMarkdown components={mdLinkComponents}>
                       {linkifySynthesisCitations(md, msg.papers)}
@@ -2041,6 +2057,11 @@ function AssistantBlock({
         {!msg.error && pointsEnabled && msg.meta?.pointsExhausted ? (
           <div className="not-prose mt-3 rounded-lg border border-amber-500/45 bg-amber-500/10 px-3 py-2 text-[12px] font-medium leading-relaxed text-amber-800 dark:text-amber-200">
             {msg.meta.billingMessage || "积分已用完，本次回答已停止。请充值后继续回答。"}
+          </div>
+        ) : null}
+        {!msg.error && msg.meta?.paused ? (
+          <div className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2 text-[11px] text-[var(--t-text-dim)]">
+            回答已暂停，已保留当前内容{pointsEnabled ? "；校园版将按已输出字符结算积分。" : "。"}
           </div>
         ) : null}
         {!msg.error && pointsEnabled ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
@@ -2061,7 +2082,8 @@ function AssistantBlock({
         !msg.meta?.synthesis?.trim() &&
         msg.meta?.synthesisNote &&
         !webSynthesisPending &&
-        msg.meta.synthesisNote !== "synth:no-llm-key" ? (
+        msg.meta.synthesisNote !== "synth:no-llm-key" &&
+        msg.meta.synthesisNote !== "synth:paused" ? (
           <p className="mt-3 text-[12px] text-[var(--t-text-dim)]">
             {isWebChannel
               ? `本次未生成联网综合回答（${msg.meta.synthesisNote}）。下方仍为检索到的网页来源。`
@@ -2222,7 +2244,7 @@ function AssistantBlock({
                   <p className="mb-1 mt-2 text-[10px] text-[var(--t-text-dim)]">静态预览（SVG 散点图，纯JS渲染）</p>
                   <div
                     className="max-h-[min(72vh,720px)] w-full max-w-full overflow-auto rounded-lg border border-[color:var(--t-br08)] bg-white"
-                    dangerouslySetInnerHTML={{ __html: (typeof atob === "function" ? atob : (s: string) => s)(msg.meta.paperChart.svgBase64) }}
+                    dangerouslySetInnerHTML={{ __html: decodeBase64Utf8(msg.meta.paperChart.svgBase64) }}
                   />
                   <div className="mt-2 flex flex-wrap gap-2">
                     <a
@@ -2482,17 +2504,15 @@ function LlmRewriteSettingsModal({
 
 export default function App({
   edition,
-  onEditionChange,
   onLogout,
 }: {
   edition: AppEdition;
-  onEditionChange: (edition: AppEdition) => void;
   onLogout?: () => void;
 }) {
   const { theme, setTheme } = useTheme();
   const pointsEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId));
+    const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
     return removeEmptySessions(loaded);
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
@@ -2519,6 +2539,8 @@ export default function App({
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const pauseRequestedRef = useRef(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -2699,7 +2721,7 @@ export default function App({
         if (!cancelled) setSessionsHydrated(true);
         return;
       }
-      const local = loadSessions(getAuthProfile()?.userId);
+      const local = loadSessions(getAuthProfile()?.userId, edition);
       const remote = await fetchChatSessionsFromServer();
       if (cancelled) return;
       if (remote) {
@@ -2724,13 +2746,13 @@ export default function App({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [edition]);
 
   useEffect(() => {
     if (!sessionsHydrated) return;
     const persistedSessions = removeEmptySessions(sessions);
     try {
-      saveSessions(persistedSessions, getAuthProfile()?.userId);
+      saveSessions(persistedSessions, getAuthProfile()?.userId, edition);
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }
@@ -2759,7 +2781,7 @@ export default function App({
           const merged = mergeChatSessions(serverSessions, sessions);
           const persistedMerged = removeEmptySessions(merged);
           setSessions(persistedMerged);
-          saveSessions(persistedMerged, getAuthProfile()?.userId);
+          saveSessions(persistedMerged, getAuthProfile()?.userId, edition);
           // Retry once with the server's revision
           const retryRevision = result.revision ?? 0;
           const retryResult = await saveChatSessionsToServer(
@@ -2783,7 +2805,7 @@ export default function App({
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     };
-  }, [sessions, sessionsHydrated, sessionSyncState]);
+  }, [edition, sessions, sessionsHydrated, sessionSyncState]);
 
   useLayoutEffect(() => {
     setActiveId((id) => {
@@ -3482,6 +3504,7 @@ export default function App({
     setActiveId(sessionId);
     setInput("");
     setBusy(true);
+    pauseRequestedRef.current = false;
     if (deepMineEnabled && !patentsOnlyEnabled) {
       setDeepMineToast("已启用深度解析：将逐篇下载 PDF 并解析，可能需较长时间");
     }
@@ -3505,6 +3528,7 @@ export default function App({
 
       // ── 流式模式：papers 立即到达，synthesis token 逐字追加 ──
       const abortController = new AbortController();
+      activeAbortControllerRef.current = abortController;
       const streamOpts = {
         idempotencyKey: searchIdempotencyKey,
         field: fieldAtSend,
@@ -3702,9 +3726,37 @@ export default function App({
             },
           });
         } else if (event.type === "error") {
+          if (pauseRequestedRef.current) continue;
           streamFailed = true;
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
+      }
+
+      if (pauseRequestedRef.current && !streamCompleted) {
+        setSessions((prev) => prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) => m.id === assistantId
+              ? { ...m, content: "", error: undefined, meta: { ...m.meta, synthesis: m.meta?.synthesis ?? null, synthesisNote: "synth:paused", paused: true } }
+              : m),
+            updatedAt: Date.now(),
+          };
+        }));
+        if (pointsEnabled) {
+          void (async () => {
+            for (const delay of [250, 750, 1500]) {
+              await new Promise((resolve) => window.setTimeout(resolve, delay));
+              try {
+                const latest = await fetchPointBalance();
+                setPointBalance(latest.billing);
+                setBalanceError(null);
+                return;
+              } catch { /* retry while the server finishes partial settlement */ }
+            }
+          })();
+        }
+        return;
       }
 
       // 回答 SSE 正常结束后，PDF 旁路可能仍在按原序处理后续来源。
@@ -3775,6 +3827,19 @@ export default function App({
         void handleMatplotlibChart(autoChartMessage);
       }
     } catch (e) {
+      if (pauseRequestedRef.current) {
+        setSessions((prev) => prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) => m.id === assistantId
+              ? { ...m, content: "", error: undefined, meta: { ...m.meta, synthesis: m.meta?.synthesis ?? null, synthesisNote: "synth:paused", paused: true } }
+              : m),
+            updatedAt: Date.now(),
+          };
+        }));
+        return;
+      }
       if (e instanceof ApiError && e.balance) setPointBalance(e.balance);
       const err = e instanceof Error ? e.message : "未知错误";
       // 流式模式下，若之前已经推送了占位消息，直接更新为错误；否则新增错误消息
@@ -3805,9 +3870,16 @@ export default function App({
         }),
       );
     } finally {
+      activeAbortControllerRef.current = null;
       setBusy(false);
     }
   };
+
+  const pause = useCallback(() => {
+    if (!busy || !activeAbortControllerRef.current) return;
+    pauseRequestedRef.current = true;
+    activeAbortControllerRef.current.abort();
+  }, [busy]);
 
   const willAttachConvoContext = (active?.messages.length ?? 0) > 0;
 
@@ -3994,9 +4066,6 @@ export default function App({
             </span>
           </button>
         </div>
-        <div className="border-b border-[color:var(--t-br06)] px-2.5 py-2">
-          <EditionSwitcher edition={edition} onChange={onEditionChange} compact />
-        </div>
         <div className="flex items-center gap-2 border-b border-[color:var(--t-br06)] px-2.5 py-2">
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">账户</div>
@@ -4010,13 +4079,11 @@ export default function App({
             ) : (
               <div className="mt-0.5 text-[10px] font-medium text-[var(--t-text-muted)]">企业版 · 无积分限制</div>
             )}
-          </div>
-          <div className="flex shrink-0 flex-col gap-1">
             {pointsEnabled ? (
               <button
                 type="button"
                 onClick={() => setStudentVerificationOpen(true)}
-                className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                className={`mt-1 rounded-md border px-2 py-1 text-[10px] font-medium transition ${
                   studentVerification.verified
                     ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
                     : "border-violet-500/35 bg-violet-500/10 text-violet-500 hover:border-violet-500/60 hover:bg-violet-500/15"
@@ -4026,6 +4093,8 @@ export default function App({
                 {studentVerification.verified ? "已认证" : "学生认证"}
               </button>
             ) : null}
+          </div>
+          <div className="flex shrink-0 flex-col gap-1">
             {pointsEnabled ? (
               <button
                 type="button"
@@ -4463,16 +4532,25 @@ export default function App({
                 </button>
                 <button
                   type="button"
-                  disabled={!canSend}
-                  onClick={() => void send(input)}
+                  disabled={busy ? false : !canSend}
+                  onClick={() => (busy ? pause() : void send(input))}
                   className={`absolute bottom-1.5 right-1.5 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
-                    canSend ? "qp-btn-send-active" : "bg-[var(--t-muted)] text-[var(--t-text-muted)]"
+                    busy
+                      ? "bg-[var(--t-accent-muted)] text-[var(--t-text)] ring-1 ring-[color:var(--t-accent-ring)]"
+                      : canSend ? "qp-btn-send-active" : "bg-[var(--t-muted)] text-[var(--t-text-muted)]"
                   }`}
-                  aria-label="发送"
+                  aria-label={busy ? "暂停回答" : "发送"}
+                  title={busy ? "暂停回答" : "发送"}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M3 11.5v1l18 8.5v-19L3 11.5zm2.2 1L18 5.5v13L5.2 12.5H5v-1h.2z" />
-                  </svg>
+                  {busy ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M3 11.5v1l18 8.5v-19L3 11.5zm2.2 1L18 5.5v13L5.2 12.5H5v-1h.2z" />
+                    </svg>
+                  )}
                 </button>
               </div>
             </div>

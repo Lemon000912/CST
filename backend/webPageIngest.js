@@ -282,7 +282,11 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
     const prev = String(row.summary ?? row.abstract ?? "").trim();
     row.summary = prev.length > mergedText.length ? prev : mergedText;
     row.abstract = row.summary;
-    if (got.title && (!row.title || row.title === url || row.title.length < 12)) {
+    // `url` belongs to the worker-local fetch scope. Use the row's URL here
+    // instead of referencing that out-of-scope variable (which previously
+    // caused `url is not defined` after a successful page fetch).
+    const rowUrl = String(row.absUrl ?? row.url ?? "").trim();
+    if (got.title && (!row.title || row.title === rowUrl || row.title.length < 12)) {
       row.title = got.title.slice(0, 400);
     }
     row.webFetchNote = got.via === "dataify_unlocker" ? "fetched:dataify" : "fetched";

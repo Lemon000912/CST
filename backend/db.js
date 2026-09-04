@@ -463,6 +463,24 @@ export async function initDatabase() {
       await pgPool.query(`ALTER TABLE user_chat_sessions ADD COLUMN IF NOT EXISTS revision BIGINT DEFAULT 0`);
       await pgPool.query(`ALTER TABLE user_chat_sessions ADD COLUMN IF NOT EXISTS schema_version INTEGER DEFAULT 1`);
       await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS user_chat_sessions_by_edition (
+          user_id TEXT NOT NULL,
+          edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise')),
+          sessions_json TEXT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          revision BIGINT NOT NULL DEFAULT 0,
+          schema_version INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (user_id, edition)
+        )
+      `);
+      await pgPool.query(`
+        INSERT INTO user_chat_sessions_by_edition
+          (user_id, edition, sessions_json, updated_at, revision, schema_version)
+        SELECT user_id, 'school', sessions_json, updated_at, revision, schema_version
+        FROM user_chat_sessions
+        ON CONFLICT (user_id, edition) DO NOTHING
+      `);
+      await pgPool.query(`
         CREATE TABLE IF NOT EXISTS query_log (
           id BIGSERIAL PRIMARY KEY,
           user_id TEXT,
@@ -733,6 +751,23 @@ export async function initDatabase() {
     try {
       await db.exec(`ALTER TABLE user_chat_sessions ADD COLUMN schema_version INTEGER DEFAULT 1`);
     } catch (_) { /* column already exists */ }
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS user_chat_sessions_by_edition (
+        user_id TEXT NOT NULL,
+        edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise')),
+        sessions_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, edition)
+      )
+    `);
+    await db.exec(`
+      INSERT OR IGNORE INTO user_chat_sessions_by_edition
+        (user_id, edition, sessions_json, updated_at, revision, schema_version)
+      SELECT user_id, 'school', sessions_json, updated_at, revision, schema_version
+      FROM user_chat_sessions
+    `);
     await db.exec(`
       CREATE TABLE IF NOT EXISTS point_wallets (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
@@ -1788,7 +1823,7 @@ export function isDatabaseReady() {
   return databaseReady;
 }
 
-/** PostgreSQL material_kb.papers（与 searchFullPapers 字段对齐） */
+/** PostgreSQL papers（保留检索来源、落地页和 PDF 下载信息） */
 async function upsertPapersPostgres(rows, sourceBatch = "") {
   if (!pgPool || !Array.isArray(rows) || rows.length === 0) return { ok: 0, fail: 0 };
   let ok = 0;
@@ -1797,15 +1832,44 @@ async function upsertPapersPostgres(rows, sourceBatch = "") {
   for (const row of rows) {
     try {
       await pgPool.query(
-        `INSERT INTO papers (paper_id, doi, title, abstract, year, journal, authors_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO papers (
+           paper_id, doi, title, abstract, year, venue, journal, oa_status,
+           source_batch, created_at, updated_at, arxiv_id, authors_json,
+           abs_url, pdf_url, patent_number
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (paper_id) DO UPDATE SET
-           doi = EXCLUDED.doi,
-           title = EXCLUDED.title,
-           abstract = EXCLUDED.abstract,
-           year = EXCLUDED.year,
-           journal = EXCLUDED.journal,
-           authors_json = EXCLUDED.authors_json`,
+           doi = COALESCE(NULLIF(EXCLUDED.doi, ''), papers.doi),
+           title = CASE
+             WHEN NULLIF(BTRIM(EXCLUDED.title), '') IS NOT NULL THEN EXCLUDED.title
+             ELSE papers.title
+           END,
+           abstract = CASE
+             WHEN LENGTH(COALESCE(EXCLUDED.abstract, '')) >= LENGTH(COALESCE(papers.abstract, ''))
+               THEN EXCLUDED.abstract
+             ELSE papers.abstract
+           END,
+           year = COALESCE(EXCLUDED.year, papers.year),
+           venue = COALESCE(NULLIF(EXCLUDED.venue, ''), papers.venue),
+           journal = COALESCE(NULLIF(EXCLUDED.journal, ''), papers.journal),
+           oa_status = COALESCE(NULLIF(EXCLUDED.oa_status, ''), papers.oa_status),
+           source_batch = CASE
+             WHEN papers.pdf_url LIKE 'db-pdf:%' THEN papers.source_batch
+             ELSE COALESCE(NULLIF(EXCLUDED.source_batch, ''), papers.source_batch)
+           END,
+           updated_at = EXCLUDED.updated_at,
+           arxiv_id = COALESCE(NULLIF(EXCLUDED.arxiv_id, ''), papers.arxiv_id),
+           authors_json = CASE
+             WHEN EXCLUDED.authors_json IS NULL
+               OR BTRIM(EXCLUDED.authors_json) IN ('', '[]') THEN papers.authors_json
+             ELSE EXCLUDED.authors_json
+           END,
+           abs_url = COALESCE(NULLIF(EXCLUDED.abs_url, ''), papers.abs_url),
+           pdf_url = CASE
+             WHEN papers.pdf_url LIKE 'db-pdf:%' THEN papers.pdf_url
+             ELSE COALESCE(NULLIF(EXCLUDED.pdf_url, ''), papers.pdf_url)
+           END,
+           patent_number = COALESCE(NULLIF(EXCLUDED.patent_number, ''), papers.patent_number)`,
         [
           row.paper_id,
           row.doi || null,
@@ -1813,7 +1877,16 @@ async function upsertPapersPostgres(rows, sourceBatch = "") {
           row.abstract || "",
           row.year || null,
           row.venue || row.journal || "Web",
+          row.journal || row.venue || "Web",
+          row.oa_status || null,
+          row.source_batch || sourceBatch || null,
+          row.created_at || ts,
+          ts,
+          row.arxiv_id || null,
           row.authors_json || "[]",
+          row.abs_url || null,
+          row.pdf_url || null,
+          row.patentNumber || row.patent_number || null,
         ],
       );
       ok++;
@@ -1825,9 +1898,15 @@ async function upsertPapersPostgres(rows, sourceBatch = "") {
   return { ok, fail };
 }
 
-/** 批量插入或更新 papers 表（SQLite；若已配置 PostgreSQL 则同步写入 material_kb.papers） */
+/** 批量插入或更新 papers 表；PostgreSQL 与 SQLite 模式互斥，避免双进程争用 sql.js。 */
 export async function upsertPapers(rows, sourceBatch = "") {
   if (!Array.isArray(rows) || rows.length === 0) return;
+  if (pgPool) {
+    const pg = await upsertPapersPostgres(rows, sourceBatch);
+    if (pg.ok) console.log(`[upsertPapers] PostgreSQL synced ${pg.ok} row(s)`);
+    return;
+  }
+
   const db = await getSqliteDb();
   for (const row of rows) {
     try {
@@ -1869,10 +1948,6 @@ export async function upsertPapers(rows, sourceBatch = "") {
     } catch (e) {
       console.warn("[upsertPapers] skip row:", e.message, row.paper_id);
     }
-  }
-  if (pgPool) {
-    const pg = await upsertPapersPostgres(rows, sourceBatch);
-    if (pg.ok) console.log(`[upsertPapers] PostgreSQL synced ${pg.ok} row(s)`);
   }
 }
 
@@ -1944,13 +2019,15 @@ export async function countPdfDownloadsSince(userId, sinceMs) {
 }
 
 /** 读取用户聊天会话（后端持久化，重启不丢） */
-export async function getUserChatSessions(userId) {
+export async function getUserChatSessions(userId, edition = "school") {
   if (!userId || userId === "anonymous") return null;
+  const normalizedEdition = edition === "enterprise" ? "enterprise" : "school";
   try {
     if (pgPool) {
       const r = await pgPool.query(
-        `SELECT sessions_json, updated_at, revision, schema_version FROM user_chat_sessions WHERE user_id = $1`,
-        [userId],
+        `SELECT sessions_json, updated_at, revision, schema_version
+         FROM user_chat_sessions_by_edition WHERE user_id = $1 AND edition = $2`,
+        [userId, normalizedEdition],
       );
       if (!r.rows.length) return null;
       return {
@@ -1962,8 +2039,9 @@ export async function getUserChatSessions(userId) {
     }
     const db = await getSqliteDb();
     const row = await db.get(
-      `SELECT sessions_json, updated_at, revision, schema_version FROM user_chat_sessions WHERE user_id = ?`,
-      [userId],
+      `SELECT sessions_json, updated_at, revision, schema_version
+       FROM user_chat_sessions_by_edition WHERE user_id = ? AND edition = ?`,
+      [userId, normalizedEdition],
     );
     if (!row) return null;
     return {
@@ -1985,8 +2063,15 @@ export async function getUserChatSessions(userId) {
  * @param {number|null} [baseRevision] - if a non-negative integer, conditional update; null = legacy unconditional
  * @returns {{ ok: boolean, revision?: number, updatedAt?: number, conflict?: boolean, sessions_json?: string }}
  */
-export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Date.now(), baseRevision = null) {
+export async function saveUserChatSessions(
+  userId,
+  sessionsJson,
+  updatedAt = Date.now(),
+  baseRevision = null,
+  edition = "school",
+) {
   if (!userId || userId === "anonymous") return { ok: false };
+  const normalizedEdition = edition === "enterprise" ? "enterprise" : "school";
   const serverTs = Date.now();
   const isConditional = typeof baseRevision === "number" && Number.isFinite(baseRevision) && baseRevision >= 0;
   try {
@@ -1994,26 +2079,28 @@ export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Dat
       if (isConditional) {
         // Conditional update: only succeeds if revision matches
         const upd = await pgPool.query(
-          `UPDATE user_chat_sessions
+          `UPDATE user_chat_sessions_by_edition
            SET sessions_json = $1, updated_at = $2, revision = revision + 1, schema_version = 2
-           WHERE user_id = $3 AND revision = $4
+           WHERE user_id = $3 AND edition = $4 AND revision = $5
            RETURNING revision, updated_at`,
-          [sessionsJson, serverTs, userId, baseRevision],
+          [sessionsJson, serverTs, userId, normalizedEdition, baseRevision],
         );
         if (upd.rowCount > 0) {
           return { ok: true, revision: Number(upd.rows[0].revision), updatedAt: Number(upd.rows[0].updated_at) };
         }
         // Check if row exists at all
         const cur = await pgPool.query(
-          `SELECT revision, sessions_json, updated_at FROM user_chat_sessions WHERE user_id = $1`,
-          [userId],
+          `SELECT revision, sessions_json, updated_at
+           FROM user_chat_sessions_by_edition WHERE user_id = $1 AND edition = $2`,
+          [userId, normalizedEdition],
         );
         if (!cur.rows.length) {
           // No row yet — do first insert
           const ins = await pgPool.query(
-            `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
-             VALUES ($1, $2, $3, 1, 2) RETURNING revision, updated_at`,
-            [userId, sessionsJson, serverTs],
+            `INSERT INTO user_chat_sessions_by_edition
+               (user_id, edition, sessions_json, updated_at, revision, schema_version)
+             VALUES ($1, $2, $3, $4, 1, 2) RETURNING revision, updated_at`,
+            [userId, normalizedEdition, sessionsJson, serverTs],
           );
           return { ok: true, revision: Number(ins.rows[0].revision), updatedAt: Number(ins.rows[0].updated_at) };
         }
@@ -2028,15 +2115,16 @@ export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Dat
       }
       // Legacy unconditional upsert — still increments revision
       const res = await pgPool.query(
-        `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
-         VALUES ($1, $2, $3, 1, 2)
-         ON CONFLICT (user_id) DO UPDATE SET
+        `INSERT INTO user_chat_sessions_by_edition
+           (user_id, edition, sessions_json, updated_at, revision, schema_version)
+         VALUES ($1, $2, $3, $4, 1, 2)
+         ON CONFLICT (user_id, edition) DO UPDATE SET
            sessions_json = EXCLUDED.sessions_json,
-           updated_at = $3,
-           revision = user_chat_sessions.revision + 1,
+           updated_at = EXCLUDED.updated_at,
+           revision = user_chat_sessions_by_edition.revision + 1,
            schema_version = 2
          RETURNING revision, updated_at`,
-        [userId, sessionsJson, serverTs],
+        [userId, normalizedEdition, sessionsJson, serverTs],
       );
       return { ok: true, revision: Number(res.rows[0].revision), updatedAt: Number(res.rows[0].updated_at) };
     }
@@ -2045,29 +2133,32 @@ export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Dat
     const db = await getSqliteDb();
     if (isConditional) {
       const upd = await db.run(
-        `UPDATE user_chat_sessions
+        `UPDATE user_chat_sessions_by_edition
          SET sessions_json = ?, updated_at = ?, revision = revision + 1, schema_version = 2
-         WHERE user_id = ? AND revision = ?`,
-        [sessionsJson, serverTs, userId, baseRevision],
+         WHERE user_id = ? AND edition = ? AND revision = ?`,
+        [sessionsJson, serverTs, userId, normalizedEdition, baseRevision],
       );
       if ((upd?.changes ?? 0) > 0) {
         const row = await db.get(
-          `SELECT revision, updated_at FROM user_chat_sessions WHERE user_id = ?`,
-          [userId],
+          `SELECT revision, updated_at FROM user_chat_sessions_by_edition
+           WHERE user_id = ? AND edition = ?`,
+          [userId, normalizedEdition],
         );
         return { ok: true, revision: Number(row?.revision ?? 0), updatedAt: Number(row?.updated_at ?? serverTs) };
       }
       // Check if row exists
       const cur = await db.get(
-        `SELECT revision, sessions_json, updated_at FROM user_chat_sessions WHERE user_id = ?`,
-        [userId],
+        `SELECT revision, sessions_json, updated_at FROM user_chat_sessions_by_edition
+         WHERE user_id = ? AND edition = ?`,
+        [userId, normalizedEdition],
       );
       if (!cur) {
         // No row yet — first insert
         await db.run(
-          `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
-           VALUES (?, ?, ?, 1, 2)`,
-          [userId, sessionsJson, serverTs],
+          `INSERT INTO user_chat_sessions_by_edition
+             (user_id, edition, sessions_json, updated_at, revision, schema_version)
+           VALUES (?, ?, ?, ?, 1, 2)`,
+          [userId, normalizedEdition, sessionsJson, serverTs],
         );
         return { ok: true, revision: 1, updatedAt: serverTs };
       }
@@ -2081,18 +2172,20 @@ export async function saveUserChatSessions(userId, sessionsJson, updatedAt = Dat
     }
     // Legacy unconditional upsert for SQLite
     await db.run(
-      `INSERT INTO user_chat_sessions (user_id, sessions_json, updated_at, revision, schema_version)
-       VALUES (?, ?, ?, 1, 2)
-       ON CONFLICT(user_id) DO UPDATE SET
+      `INSERT INTO user_chat_sessions_by_edition
+         (user_id, edition, sessions_json, updated_at, revision, schema_version)
+       VALUES (?, ?, ?, ?, 1, 2)
+       ON CONFLICT(user_id, edition) DO UPDATE SET
          sessions_json = excluded.sessions_json,
          updated_at = excluded.updated_at,
-         revision = user_chat_sessions.revision + 1,
+         revision = user_chat_sessions_by_edition.revision + 1,
          schema_version = 2`,
-      [userId, sessionsJson, serverTs],
+      [userId, normalizedEdition, sessionsJson, serverTs],
     );
     const row = await db.get(
-      `SELECT revision, updated_at FROM user_chat_sessions WHERE user_id = ?`,
-      [userId],
+      `SELECT revision, updated_at FROM user_chat_sessions_by_edition
+       WHERE user_id = ? AND edition = ?`,
+      [userId, normalizedEdition],
     );
     return { ok: true, revision: Number(row?.revision ?? 1), updatedAt: Number(row?.updated_at ?? serverTs) };
   } catch (e) {

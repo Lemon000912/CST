@@ -14,7 +14,6 @@ import {
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
-import { EditionSwitcher } from "./EditionSwitcher";
 import type { AppEdition } from "./edition";
 
 function PreviewQrCode() {
@@ -118,11 +117,9 @@ function WechatQrEmbed({ authorizationUrl, onError }: { authorizationUrl: string
 
 export default function LoginScreen({
   edition,
-  onEditionChange,
   onLoggedIn,
 }: {
   edition: AppEdition;
-  onEditionChange: (edition: AppEdition) => void;
   onLoggedIn: () => void;
 }) {
   const isWechatPreview = import.meta.env.DEV
@@ -310,10 +307,6 @@ export default function LoginScreen({
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
             {mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : "企业版"}
           </p>
-        </div>
-
-        <div className="mb-4">
-          <EditionSwitcher edition={edition} onChange={onEditionChange} />
         </div>
 
         {mode === "wechat" ? (

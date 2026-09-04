@@ -205,6 +205,8 @@ export type SearchResultMeta = {
   synthesisNote?: string | null;
   /** 回答因积分耗尽而被服务端截断。 */
   pointsExhausted?: boolean;
+  /** 用户主动暂停了本次流式回答。 */
+  paused?: boolean;
   billingMessage?: string;
   /** 从模型输出解析出的可执行方案（JSON 对象），供其它程序直接读接口字段，无需解析 Markdown */
   synthesisPlan?: Record<string, unknown> | null;

@@ -8,7 +8,19 @@ const repoRoot = path.resolve(__dirname, "..");
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, repoRoot, "");
-  const apiPort = String(env.PORT ?? "8787").trim() || "8787";
+  const edition = mode === "enterprise" || env.VITE_APP_EDITION === "enterprise"
+    ? "enterprise"
+    : "school";
+  const apiPort = String(
+    edition === "enterprise"
+      ? env.ENTERPRISE_API_PORT ?? "8788"
+      : env.SCHOOL_API_PORT ?? env.PORT ?? "8787",
+  ).trim() || (edition === "enterprise" ? "8788" : "8787");
+  const devPort = Number(
+    edition === "enterprise"
+      ? env.ENTERPRISE_DEV_PORT ?? 5176
+      : env.SCHOOL_DEV_PORT ?? env.VITE_DEV_PORT ?? 5175,
+  ) || (edition === "enterprise" ? 5176 : 5175);
   const apiProxy = {
     "/api": {
       target: `http://127.0.0.1:${apiPort}`,
@@ -22,21 +34,23 @@ export default defineConfig(({ mode }) => {
   return {
     root: __dirname,
     plugins: [react()],
+    define: {
+      "import.meta.env.VITE_APP_EDITION": JSON.stringify(edition),
+    },
     build: {
-      // 生产 Apache 固定从仓库根目录 dist 提供静态文件。
-      outDir: path.resolve(repoRoot, "dist"),
+      outDir: path.resolve(repoRoot, `dist-${edition}`),
       emptyOutDir: true,
     },
     server: {
       /** 0.0.0.0：允许局域网/路由器端口转发（仅 127.0.0.1 时外网 19012→5175 会连不上） */
       host: true,
-      port: Number(env.VITE_DEV_PORT ?? 5175) || 5175,
+      port: devPort,
       strictPort: true,
       proxy: { ...apiProxy },
     },
     preview: {
       host: true,
-      port: Number(env.VITE_DEV_PORT ?? 5175) || 5175,
+      port: devPort,
       strictPort: true,
       proxy: { ...apiProxy },
     },

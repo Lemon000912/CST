@@ -6,12 +6,16 @@ import { validateHeaderValue as httpValidateHeaderValue } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import QRCode from "qrcode";
+import { getConfiguredAppEdition, isEnterpriseAppEdition } from "./appEdition.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV_PATH = path.resolve(__dirname, "..", ".env");
 /** 无论从哪里启动 node，都先读项目根目录 .env，再读 cwd 下的 .env（可覆盖） */
 dotenv.config({ path: ROOT_ENV_PATH });
 dotenv.config();
+
+const APP_EDITION = getConfiguredAppEdition();
+console.log("[env] APP_EDITION:", APP_EDITION);
 
 const llmConfigured = Boolean(
   String(process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? "").trim(),
@@ -44,6 +48,7 @@ import {
 } from "./db.js";
 import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
+import { seedEnterpriseAdminIfEnabled } from "./seedEnterpriseAdmin.js";
 import { runPaperSearch } from "./searchService.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
@@ -242,8 +247,8 @@ function requireIdempotencyKey(req) {
   return value;
 }
 
-function isEnterpriseEdition(req) {
-  return String(req.headers["x-app-edition"] ?? "").trim().toLowerCase() === "enterprise";
+function isEnterpriseEdition() {
+  return isEnterpriseAppEdition(APP_EDITION);
 }
 
 async function failOperationBestEffort(operation, userId, error) {
@@ -494,6 +499,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "quantum-pinnacle",
     version: "1",
+    edition: APP_EDITION,
     /** 前端可据此判断当前 8787 是否为带图表路由的新版 API */
     features: {
       chartFromPapers: true,
@@ -602,7 +608,7 @@ app.get("/api/v1/student-verification/status", requireAuthenticatedUser, async (
 });
 
 app.post("/api/v1/student-verification", requireAuthenticatedUser, (req, res, next) => {
-  if (isEnterpriseEdition(req)) {
+  if (isEnterpriseEdition()) {
     return res.status(403).json({ error: "学生认证仅在校园版开放", code: "school-edition-required" });
   }
   next();
@@ -747,7 +753,7 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
-    const row = await getUserChatSessions(userId);
+    const row = await getUserChatSessions(userId, APP_EDITION);
     if (!row?.sessionsJson) {
       return res.json({ sessions: [], updatedAt: 0, revision: 0, schema_version: 1 });
     }
@@ -790,7 +796,7 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
     if (json.length > 6_000_000) {
       return res.status(413).json({ error: "会话数据过大，请导出后清理部分旧对话" });
     }
-    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision);
+    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision, APP_EDITION);
     if (result.conflict) {
       let parsedSessions = [];
       try {
@@ -957,7 +963,7 @@ app.post("/api/v1/user/info", async (req, res) => {
  */
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1500,7 +1506,7 @@ app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, asy
 app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1737,7 +1743,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let activeOperation = null;
   let begun;
   let startingBalanceUnits = 0;
-  const enterpriseEdition = isEnterpriseEdition(req);
+  const enterpriseEdition = isEnterpriseEdition();
   const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
   const endPapersReady = requestTrace.start("milestone.papers_ready");
   const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
@@ -1748,6 +1754,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       endFirstSynthesisToken({ ok: true });
     }
     stream.push(delta);
+    partialSynthesis = stream.getVisibleText();
   };
   const endBillingBegin = requestTrace.start("request.billing_begin");
   try {
@@ -1786,6 +1793,24 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
+
+  // Proxies commonly terminate an otherwise healthy SSE request when no
+  // bytes have crossed the connection for ~60-70 seconds. Emit an SSE comment
+  // every 15 seconds so long database searches remain active while preserving
+  // the public event protocol (the browser parser safely ignores comments).
+  const heartbeatTimer = setInterval(() => {
+    if (res.writableEnded || res.destroyed) return;
+    try {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    } catch {
+      // The close handler below owns cancellation; avoid turning a socket race
+      // into an unhandled timer exception.
+    }
+  }, 15_000);
+  heartbeatTimer.unref?.();
+  const clearHeartbeat = () => clearInterval(heartbeatTimer);
+  res.once("finish", clearHeartbeat);
+  res.once("close", clearHeartbeat);
 
   /** 推送一帧 SSE */
   const send = (event, data) => {
@@ -1843,16 +1868,16 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 
   activeOperation = begun.operation;
   let clientDisconnected = false;
+  let partialPapers = [];
+  let partialSynthesis = "";
+  let partialChannel = "database";
+  let partialSort = "relevance";
+  let papersReadySent = false;
   const synthesisAbortController = new AbortController();
   res.once("close", () => {
     if (res.writableEnded) return;
     clientDisconnected = true;
     synthesisAbortController.abort();
-    void failOperationBestEffort(
-      activeOperation,
-      req.auth?.userId,
-      new ApiRouteError(499, "client-disconnected", "Search client disconnected"),
-    );
   });
 
   try {
@@ -1878,11 +1903,13 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }
 
     const channel = req.body?.channel === "web" ? "web" : "database";
+    partialChannel = channel;
     const field = req.body?.field === "ti" || req.body?.field === "abs" ? req.body.field : "all";
     const sortRaw = String(req.body?.sort ?? "relevance");
     const sort =
       sortRaw === "submittedDate" || sortRaw === "lastUpdatedDate" || sortRaw === "citations"
         ? sortRaw : "relevance";
+    partialSort = sort;
     const maxCap = channel === "database" ? 200 : Math.min(360, Math.max(80, Number(process.env.WEB_SEARCH_MAX_CAP) || 320));
     const defaultMax = channel === "database" ? 80 : Math.min(maxCap, Math.max(48, Number(process.env.WEB_SEARCH_DEFAULT_MAX) || 128));
     const max = Math.min(maxCap, Math.max(1, Number(req.body?.max) || defaultMax));
@@ -1928,6 +1955,27 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         personaSkill,
         preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
         performanceTrace: requestTrace,
+        onPapersReady: (partial) => {
+          if (clientDisconnected || !partial?.papers?.length) return;
+          partialPapers = partial.papers;
+          papersReadySent = true;
+          send("papers", {
+            papers: partial.papers,
+            effectiveQuery: partial.effectiveQuery,
+            rewriteNote: partial.rewriteNote,
+            sourcesUsed: partial.sourcesUsed,
+            channel: partial.channel ?? channel,
+            sort: partial.sort ?? sort,
+            field,
+            patentsOnly,
+            latencySearch: Date.now() - t0,
+            persona: personaId,
+            personaLabel,
+            parentOperationId: activeOperation.id,
+            partial: true,
+          });
+          endPapersReady({ results: partial.papers.length, partial: true });
+        },
       }),
       (value) => ({ results: value?.papers?.length ?? 0, fromCache: Boolean(value?.fromCache) }),
     );
@@ -1936,6 +1984,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     }
 
     // 立即推送文献结果，前端可先渲染
+    partialPapers = result.papers;
     cacheSearchPapers(activeOperation.id, result.papers);
     send("papers", {
       papers: result.papers,
@@ -1952,7 +2001,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       personaLabel,
       parentOperationId: activeOperation.id,
     });
-    endPapersReady({ results: result.papers.length });
+    if (!papersReadySent) endPapersReady({ results: result.papers.length });
 
     // PDF 旁路只读取原始引用来源并顺序运行；不修改 result.papers，亦不参与或阻塞回答合成。
     if (channel === "web" && result.papers.length > 0) {
@@ -2064,6 +2113,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           (value) => ({ outputChars: String(value?.markdown ?? "").length, note: value?.note }),
         );
         fullSynthesis = syn.markdown || "";
+        partialSynthesis = synthesisStream.getVisibleText();
         synthesisNote = syn.note ?? null;
         plan = syn.plan ?? null;
         planNote = syn.planNote ?? null;
@@ -2075,6 +2125,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       // 流中隐藏结构化 JSON；最终仍以原有解析、校验后的正文为准。
       synthesisStream.finish(fullSynthesis);
       fullSynthesis = synthesisStream.getVisibleText();
+      partialSynthesis = fullSynthesis;
       if (pointsExhausted) {
         plan = null;
         planNote = "synth_plan:skipped_points_exhausted";
@@ -2085,6 +2136,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         firstSynthesisTokenRecorded = true;
         endFirstSynthesisToken({ ok: true, streamed: false });
       }
+    }
+
+    if (clientDisconnected) {
+      throw new ApiRouteError(499, "client-disconnected", "Search client disconnected");
     }
 
     // ── 阶段 3：Deep Mine（可选，与非流式路由一致） ──
@@ -2232,7 +2287,52 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   } catch (e) {
     console.error("[v1/search/stream]", e?.message);
     if (activeOperation?.id) searchPapersCache.delete(activeOperation.id);
-    await failOperationBestEffort(activeOperation, req.auth?.userId, e);
+    if (clientDisconnected && activeOperation?.id) {
+      // A user pause closes SSE intentionally. Settle the operation using only
+      // the content that was visible before disconnect (school edition bills
+      // characters; enterprise edition remains free).
+      try {
+        const rawPartialPayload = {
+          papers: partialPapers,
+          synthesis: partialSynthesis || null,
+          // Deep mine is not displayed while it runs; do not charge hidden
+          // work when the user pauses the visible answer.
+          deepMine: null,
+          deepSynthesis: null,
+        };
+        const budgeted = limitSearchPayloadToBalance(rawPartialPayload, startingBalanceUnits);
+        const billingPayload = budgeted.payload;
+        const billingDetails = {
+          ...searchBillingDetails(billingPayload),
+          edition: enterpriseEdition ? "enterprise" : "school",
+          paused: true,
+        };
+        const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
+          characterCount: billingDetails.characterCount,
+          pdfCount: billingDetails.deepPaperCount,
+        });
+        await completeBillableOperation({
+          operationId: activeOperation.id,
+          userId: req.auth?.userId,
+          leaseToken: activeOperation.leaseToken,
+          costUnits,
+          billingDetails,
+          result: {
+            ...billingPayload,
+            channel: partialChannel,
+            sort: partialSort,
+            synthesisNote: "synth:paused",
+            paused: true,
+            pointsExhausted: budgeted.pointsExhausted,
+          },
+        });
+      } catch (billingError) {
+        console.error("[billing/pause-complete]", billingError?.message || billingError);
+        await failOperationBestEffort(activeOperation, req.auth?.userId, billingError);
+      }
+    } else {
+      await failOperationBestEffort(activeOperation, req.auth?.userId, e);
+    }
     if (!res.writableEnded && !res.destroyed) {
       send("error", { error: e?.message || "检索失败" });
       res.end();
@@ -2243,7 +2343,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
-    const enterpriseEdition = isEnterpriseEdition(req);
+    const enterpriseEdition = isEnterpriseEdition();
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
       edition: enterpriseEdition ? "enterprise" : "school",
@@ -2866,11 +2966,62 @@ app.post("/api/v1/auth/login", async (req, res) => {
 /** 仪表盘统计 */
 app.get("/api/v1/admin/dashboard", async (_req, res) => {
   try {
-    const db = await getSqliteDb();
+    let totalUsers = 0;
+    let todaySearches = 0;
+    const weeklyTrend = [];
 
-    // 用户统计
-    const usersResult = await db.all("SELECT COUNT(*) as total FROM users");
-    const totalUsers = usersResult[0]?.total || 0;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    if (pgPool) {
+      const [usersResult, searchesResult] = await Promise.all([
+        pgPool.query("SELECT COUNT(*) AS total FROM users"),
+        pgPool.query("SELECT COUNT(*) AS total FROM query_log WHERE ts >= $1", [todayStart.getTime()]),
+      ]);
+      totalUsers = parseInt(usersResult.rows[0]?.total ?? "0") || 0;
+      todaySearches = parseInt(searchesResult.rows[0]?.total ?? "0") || 0;
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const dayResult = await pgPool.query(
+          "SELECT COUNT(*) AS count FROM query_log WHERE ts >= $1 AND ts < $2",
+          [date.getTime(), nextDate.getTime()],
+        );
+        weeklyTrend.push({
+          date: date.toISOString().slice(0, 10),
+          count: parseInt(dayResult.rows[0]?.count ?? "0") || 0,
+        });
+      }
+    } else {
+      const db = await getSqliteDb();
+      const usersResult = await db.all("SELECT COUNT(*) as total FROM users");
+      totalUsers = usersResult[0]?.total || 0;
+      const searchesResult = await db.all(
+        "SELECT COUNT(*) as total FROM query_log WHERE ts >= ?",
+        [todayStart.getTime()],
+      );
+      todaySearches = searchesResult[0]?.total || 0;
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const dayResult = await db.all(
+          "SELECT COUNT(*) as count FROM query_log WHERE ts >= ? AND ts < ?",
+          [date.getTime(), nextDate.getTime()],
+        );
+        weeklyTrend.push({
+          date: date.toISOString().slice(0, 10),
+          count: dayResult[0]?.count || 0,
+        });
+      }
+    }
 
     // 论文统计 - 使用PostgreSQL数据
     let doiCount = 0;
@@ -2889,34 +3040,6 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
 
     // 论文总数 = DOI数量 + 15万
     const totalPapers = doiCount + 150000;
-
-    // 今日搜索
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const searchesResult = await db.all(
-      "SELECT COUNT(*) as total FROM query_log WHERE ts >= ?",
-      [todayStart.getTime()]
-    );
-    const todaySearches = searchesResult[0]?.total || 0;
-
-    // 最近7天搜索趋势
-    const weeklyTrend = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayResult = await db.all(
-        "SELECT COUNT(*) as count FROM query_log WHERE ts >= ? AND ts < ?",
-        [date.getTime(), nextDate.getTime()]
-      );
-      weeklyTrend.push({
-        date: date.toISOString().slice(0, 10),
-        count: dayResult[0]?.count || 0,
-      });
-    }
 
     res.json({
       success: true,
@@ -3533,13 +3656,16 @@ app.get("/api/v1/admin/config", async (_req, res) => {
       }
     }
     
-    // 检查SQLite
-    try {
-      const sqliteDb = await getSqliteDb();
-      await sqliteDb.get("SELECT 1");
-      sqliteConnected = true;
-    } catch (e) {
-      console.error("[admin/config] SQLite check failed:", e.message);
+    // PostgreSQL 与 SQLite 是互斥的运行模式。双版本部署启用 PostgreSQL 时
+    // 不得为了状态探测再打开共享的 sql.js 文件。
+    if (!pgPool) {
+      try {
+        const sqliteDb = await getSqliteDb();
+        await sqliteDb.get("SELECT 1");
+        sqliteConnected = true;
+      } catch (e) {
+        console.error("[admin/config] SQLite check failed:", e.message);
+      }
     }
     
     res.json({
@@ -3621,6 +3747,7 @@ await initDatabase().catch((e) => {
 });
 
 await seedDevAdminIfEnabled();
+await seedEnterpriseAdminIfEnabled();
 
 if (String(process.env.SIMPLE_SEED ?? "").trim() === "1") {
   await seedSimplePapersFromJson();

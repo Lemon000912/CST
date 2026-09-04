@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生产部署：编译前端 + 配置 Apache 虚拟主机 + 安装 API systemd 服务
+# 生产部署：校园版单实例兼容模式。双域名请使用 npm run install:editions。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

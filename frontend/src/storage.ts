@@ -1,4 +1,6 @@
 import type { ChatSession } from "./types";
+import type { AppEdition } from "./edition";
+import { getAppEdition } from "./edition";
 
 /** Legacy key used when no userId is available (anonymous / pre-auth). */
 const KEY = "paper-query-sessions-v1";
@@ -9,21 +11,21 @@ const MAX_SESSIONS = 30;
  * Authenticated users get an isolated v2 key; anonymous state falls back to
  * the legacy v1 key so existing anonymous sessions are not lost.
  */
-export function getSessionKey(userId?: string | null): string {
+export function getSessionKey(userId?: string | null, edition: AppEdition = getAppEdition()): string {
   if (userId && typeof userId === "string" && userId.trim().length > 0) {
-    return `paper-query-sessions-v2:${userId.trim()}`;
+    return `paper-query-sessions-v3:${edition}:${userId.trim()}`;
   }
-  return KEY;
+  return `paper-query-sessions-v3:${edition}:anonymous`;
 }
 
 /**
  * Remove the v2 sessions key for a specific user.
  * Does NOT touch other users' keys or the anonymous v1 key.
  */
-export function clearUserSessions(userId: string): void {
+export function clearUserSessions(userId: string, edition: AppEdition = getAppEdition()): void {
   if (!userId || typeof userId !== "string") return;
   try {
-    localStorage.removeItem(getSessionKey(userId));
+    localStorage.removeItem(getSessionKey(userId, edition));
   } catch {
     /* ignore */
   }
@@ -113,9 +115,16 @@ export function mergeChatSessions(local: ChatSession[], remote: ChatSession[]): 
   return [...map.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
-export function loadSessions(userId?: string | null): ChatSession[] {
+export function loadSessions(userId?: string | null, edition: AppEdition = getAppEdition()): ChatSession[] {
   try {
-    const raw = localStorage.getItem(getSessionKey(userId));
+    const currentKey = getSessionKey(userId, edition);
+    let raw = localStorage.getItem(currentKey);
+    if (!raw && edition === "school") {
+      const legacyKey = userId && userId.trim()
+        ? `paper-query-sessions-v2:${userId.trim()}`
+        : KEY;
+      raw = localStorage.getItem(legacyKey);
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ChatSession[];
     return Array.isArray(parsed) ? parsed : [];
@@ -124,8 +133,12 @@ export function loadSessions(userId?: string | null): ChatSession[] {
   }
 }
 
-export function saveSessions(sessions: ChatSession[], userId?: string | null) {
-  const storageKey = getSessionKey(userId);
+export function saveSessions(
+  sessions: ChatSession[],
+  userId?: string | null,
+  edition: AppEdition = getAppEdition(),
+) {
+  const storageKey = getSessionKey(userId, edition);
   try {
     const trimmed = progressiveTrim(sessions);
     localStorage.setItem(storageKey, JSON.stringify(trimmed));

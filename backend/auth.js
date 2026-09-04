@@ -128,6 +128,13 @@ function getConfiguredAdminUsernames() {
     .map((value) => String(value).toLowerCase().trim())
     .filter((value) => USERNAME_RE.test(value));
 
+  // The enterprise instance owns its built-in administrator account. This is
+  // intentionally scoped to the enterprise backend process; the school
+  // instance does not inherit enterprise admin access.
+  if (String(process.env.APP_EDITION ?? "").trim().toLowerCase() === "enterprise") {
+    values.push("admin");
+  }
+
   const isDevelopment = String(process.env.NODE_ENV ?? "").toLowerCase() !== "production";
   if (isDevelopment && String(process.env.SEED_DEV_ADMIN ?? "") === "1") {
     const devAdmin = String(process.env.DEV_ADMIN_USERNAME ?? "admin").toLowerCase().trim();

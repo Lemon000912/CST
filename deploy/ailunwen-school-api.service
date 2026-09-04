@@ -1,0 +1,23 @@
+[Unit]
+Description=犀材探索校园版 API (:8787)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%WORKDIR%
+Environment=PATH=%NODE_BIN%:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+EnvironmentFile=-%SECRETS_DIR%/ailunwen.env
+EnvironmentFile=-%SECRETS_DIR%/ailunwen-school.env
+Environment=APP_EDITION=school
+Environment=PORT=8787
+ExecStart=%NODE_BIN%/node backend/index.js
+Restart=on-failure
+RestartSec=8
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
