@@ -1,7 +1,8 @@
 /**
  * 服务器 PDF 库元数据提取：复用正文解析阶段已抽取的全文，
  * 调用项目已有的 LLM 基础设施（resolvePrimaryProvider + generateText），
- * 提取 symmetry_phase / synthesis_method / structure_descriptor / properties 四个字段。
+ * 提取 symmetry_phase / synthesis_method / structure_descriptor / properties /
+ * applications / material_name / characterization_method 七个字段。
  */
 import { resolvePrimaryProvider } from "./llmProviders.js";
 import { generateText } from "./llmClient.js";
@@ -11,6 +12,9 @@ export const SERVER_PDF_META_FIELDS = Object.freeze([
   "synthesis_method",
   "structure_descriptor",
   "properties",
+  "applications",
+  "material_name",
+  "characterization_method",
 ]);
 
 const DEFAULT_HEAD_CHARS = 16_000;
@@ -44,6 +48,9 @@ function emptyMetaData() {
     synthesis_method: null,
     structure_descriptor: null,
     properties: null,
+    applications: null,
+    material_name: null,
+    characterization_method: null,
   };
 }
 
@@ -77,7 +84,7 @@ export function parseServerPdfMetaJson(text) {
 }
 
 /**
- * 构造提示词并调用 LLM 提取四个字段。
+ * 构造提示词并调用 LLM 提取七个字段。
  *
  * @param {{ provider?: object; title?: string; doi?: string; text?: string }} p
  * @returns {Promise<{ ok: boolean; data?: Record<string, string | null>; error?: string }>}
@@ -92,13 +99,16 @@ export async function extractServerPdfMeta(p = {}) {
   if (!window) return { ok: false, error: "empty_text" };
 
   const system =
-    "你是材料科学文献信息抽取助手。从给定论文正文中抽取以下四个字段，只抽取正文中明确出现的信息，禁止编造：\n" +
+    "你是材料科学文献信息抽取助手。从给定论文正文中抽取以下七个字段，只抽取正文中明确出现的信息，禁止编造：\n" +
     "- symmetry_phase（对称相/晶体结构，如 \"立方相, cubic, Fm-3m\"）\n" +
     "- synthesis_method（合成/制备方法，如 \"溶胶-凝胶法, sol-gel, 高温固相烧结\"）\n" +
     "- structure_descriptor（结构描述符，如 \"层状结构, nanosheet, 多孔\"）\n" +
-    "- properties（材料属性/性能，如 \"高离子电导率, high ionic conductivity\"）\n\n" +
+    "- properties（材料属性/性能，如 \"高离子电导率, high ionic conductivity\"）\n" +
+    "- applications（应用/用途，如 \"锂离子电池, lithium-ion battery, 催化\"）\n" +
+    "- material_name（材料名称/化学式，如 \"LiFePO4, 钛酸钡, BaTiO3\"）\n" +
+    "- characterization_method（表征/测试方法，如 \"XRD, 扫描电镜, SEM, 阻抗谱\"）\n\n" +
     "每个字段输出简洁的中英关键词短语，用逗号分隔，不超过 300 字；正文未明确提到某字段时输出 null。\n" +
-    '只输出一个合法 JSON 对象，不要用 markdown 围栏：{"symmetry_phase": string|null, "synthesis_method": string|null, "structure_descriptor": string|null, "properties": string|null}';
+    '只输出一个合法 JSON 对象，不要用 markdown 围栏：{"symmetry_phase": string|null, "synthesis_method": string|null, "structure_descriptor": string|null, "properties": string|null, "applications": string|null, "material_name": string|null, "characterization_method": string|null}';
 
   const user =
     `论文标题：${title || "（未知）"}\n` +
@@ -112,7 +122,7 @@ export async function extractServerPdfMeta(p = {}) {
   const result = await generateText(provider, {
     timeoutMs,
     temperature: 0.1,
-    maxTokens: 600,
+    maxTokens: 900,
     system,
     messages: [{ role: "user", content: user }],
   });

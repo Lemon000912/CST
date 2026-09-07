@@ -522,25 +522,36 @@ async function skipQueuedMetaRows(client, errorText) {
   );
 }
 
-/** 单篇抽取成功：写四个字段 + 置 ready（--meta-refresh 直接覆盖，否则保留已有非空值）。 */
+/**
+ * 单篇抽取成功：写七个字段 + 置 ready。
+ * --meta-refresh 直接覆盖；否则除 material_name 外保留已有非空值。
+ * material_name 默认是分类目录名占位，抽取到真实材料时直接替换（方案 A）。
+ */
 async function applyMetaSuccess(client, row, data, settings) {
   const now = Date.now();
   await client.query("BEGIN");
   try {
     const fieldSet = settings.metaRefresh
-      ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5"
+      ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5,"
+        + " applications = $6, characterization_method = $7, material_name = $8"
       : "symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $2),"
         + " synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $3),"
         + " structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $4),"
-        + " properties = COALESCE(NULLIF(btrim(properties), ''), $5)";
+        + " properties = COALESCE(NULLIF(btrim(properties), ''), $5),"
+        + " applications = COALESCE(NULLIF(btrim(applications), ''), $6),"
+        + " characterization_method = COALESCE(NULLIF(btrim(characterization_method), ''), $7),"
+        + " material_name = COALESCE(NULLIF($8, ''), material_name)";
     await client.query(
-      `UPDATE papers SET ${fieldSet}, updated_at = $6 WHERE paper_id = $1`,
+      `UPDATE papers SET ${fieldSet}, updated_at = $9 WHERE paper_id = $1`,
       [
         row.paper_id,
         data.symmetry_phase ?? null,
         data.synthesis_method ?? null,
         data.structure_descriptor ?? null,
         data.properties ?? null,
+        data.applications ?? null,
+        data.characterization_method ?? null,
+        data.material_name ?? null,
         now,
       ],
     );
@@ -636,7 +647,8 @@ async function extractPaperMetadataWithNer(client, settings, setup) {
 
 /**
  * 元数据提取阶段：复用 papers.abstract 中已抽取的正文，提取
- * symmetry_phase / synthesis_method / structure_descriptor / properties。
+ * symmetry_phase / synthesis_method / structure_descriptor / properties /
+ * applications / material_name / characterization_method 七个字段。
  * PDF_META_ENGINE / --meta-engine：ner（默认，本地 MatSciBERT NER）或 llm（在线大模型，原逻辑）。
  * ner 引擎启动环境缺失或整批失败时告警后整轮回退 llm（镜像 MinerU 缺失时降级 text）；无 LLM key 则标记 skipped。
  * 只处理「新入库文件」（indexPdf 插入时 meta_extract_status='queued' 的行），

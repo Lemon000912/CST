@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 PDF 入库元数据本地抽取：MatSciBERT NER（复用 matscibert-demo/ner.py 的
-BERT-BiLSTM-CRF 实现），把 SPL/SMT/DSC/PRO 标签映射为四个入库字段。
+BERT-BiLSTM-CRF 实现），把 SPL/SMT/DSC/PRO/APL/MAT/CMT 标签映射为七个入库字段。
 
 协议（一次进程只加载一次模型）：
   stdout 先输出一行 {"ready": true}（加载成功），失败时打印到 stderr 并 exit 1；
@@ -35,7 +35,31 @@ FIELD_BY_LABEL = {
     "SMT": "synthesis_method",
     "DSC": "structure_descriptor",
     "PRO": "properties",
+    "APL": "applications",
+    "MAT": "material_name",
+    "CMT": "characterization_method",
 }
+
+# demo ner.py 后处理把「大写开头的单词」都当作化学式补成 MAT，导致作者/机构/普通词混入。
+# material_name 只保留像材料的实体：含数字的化学式（Fe3O4）、中段大写缩写（GaN/CdTe）、
+# 材料词典或 demo 复合词表命中项；纯数字、全大写短词、普通英文词一律丢弃。
+COMPOSITE_TERMS = (
+    "ferrite",
+    "nanocomposite",
+    "silica",
+    "perovskite",
+    "oxide",
+    "alloy",
+    "composite",
+    "ceramic",
+    "polymer",
+    "steel",
+    "glass",
+    "carbon",
+)
+MAT_DIGITS_RE = re.compile(r"\d")
+MAT_MID_CAP_RE = re.compile(r"[A-Z]")
+MAT_NUMERIC_RE = re.compile(r"^[\d\W_]+$")
 
 
 def _env_int(name: str, fallback: int) -> int:
@@ -126,7 +150,7 @@ def _make_chunks(text: str, tokenizer, max_tokens: int = 480) -> list:
     return chunks
 
 
-def _aggregate(entities: list, max_entities: int, max_chars: int) -> dict:
+def _aggregate(entities: list, max_entities: int, max_chars: int, material_words: set) -> dict:
     """跨块聚合：大小写去重、保留首次出现顺序，单字段限长，无命中返回 None。"""
     buckets: dict[str, list] = {}
     seen: dict[str, set] = {}
@@ -142,6 +166,8 @@ def _aggregate(entities: list, max_entities: int, max_chars: int) -> dict:
         key = value.lower()
         if key in seen.get(field, set()):
             continue
+        if field == "material_name" and not _looks_like_material(value, material_words):
+            continue
         seen.setdefault(field, set()).add(key)
         bucket = buckets.setdefault(field, [])
         if len(bucket) < max_entities:
@@ -151,6 +177,19 @@ def _aggregate(entities: list, max_entities: int, max_chars: int) -> dict:
         joined = ", ".join(values)
         result[field] = joined[:max_chars] or None
     return {field: result.get(field) for field in FIELD_BY_LABEL.values()}
+
+
+def _looks_like_material(value: str, material_words: set) -> bool:
+    if MAT_NUMERIC_RE.match(value):
+        return False
+    lowered = value.lower()
+    if lowered in material_words or any(term in lowered for term in COMPOSITE_TERMS):
+        return True
+    if MAT_DIGITS_RE.search(value):
+        return True
+    if value.isupper():
+        return False
+    return bool(MAT_MID_CAP_RE.search(value[1:]))
 
 
 class NerEngine:
@@ -208,6 +247,7 @@ class NerEngine:
             torch.load = original_torch_load
         self.device = device
         self.material_dict = _material_list(demo)
+        self.material_words = {str(word).strip().lower() for word in self.material_dict if str(word).strip()}
         self.normalize_on = os.environ.get("MATSCI_META_NORMALIZE", "0").strip() == "1"
         self.max_text_chars = _env_int("MATSCI_META_MAX_TEXT_CHARS", 120_000)
         self.max_entities = _env_int("MATSCI_META_MAX_ENTITIES_PER_FIELD", 30)
@@ -242,14 +282,15 @@ class NerEngine:
                 self.device,
             )
             entities.extend(chunk_entities or [])
-        return _aggregate(entities, self.max_entities, self.max_field_chars)
+        return _aggregate(entities, self.max_entities, self.max_field_chars, self.material_words)
 
 
 def _selftest() -> int:
     engine = NerEngine()
     sample = (
         "Fe3O4 nanoparticles were synthesized by a sol-gel method and annealed at 600 C. "
-        "The magnetic properties and cubic spinel structure were characterized by VSM and XRD."
+        "The magnetic properties and cubic spinel structure were characterized by VSM and XRD. "
+        "The material is promising for anodes in lithium-ion batteries."
     )
     try:
         fields = engine.extract(sample)
