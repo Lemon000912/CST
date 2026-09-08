@@ -101,6 +101,61 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const CUSTOMER_SERVICE_PHONE = "4008 525 311";
+
+function AiAssistantWechatModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[190] flex items-center justify-center bg-[var(--t-overlay)] px-4 py-8 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ai-assistant-wechat-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-[360px] rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-modal)] p-5 shadow-2xl shadow-[var(--t-modal-shadow)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="ai-assistant-wechat-title" className="text-[16px] font-semibold text-[var(--t-text)]">
+              AI 助理微信
+            </h2>
+            <p className="mt-1 text-[12px] text-[var(--t-text-muted)]">微信扫码添加 AI 助理</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-lg leading-none text-[var(--t-text-muted)] transition hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"
+            aria-label="关闭 AI 助理微信二维码"
+          >
+            ×
+          </button>
+        </div>
+        <div className="mx-auto mt-5 flex aspect-square w-full max-w-[240px] items-center justify-center rounded-lg border border-dashed border-[color:var(--t-br12)] bg-[var(--t-muted)] p-5 text-center">
+          <div>
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--t-br10)] bg-[var(--t-field)] text-[18px] text-[var(--t-text-muted)]" aria-hidden>
+              +
+            </div>
+            <p className="mt-3 text-[12px] font-medium text-[var(--t-text)]">二维码位置</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--t-text-muted)]">二维码上传后将在这里显示</p>
+          </div>
+        </div>
+        <p className="mt-4 text-center text-[11px] text-[var(--t-text-muted)]">如需人工协助，请拨打 {CUSTOMER_SERVICE_PHONE}</p>
+      </div>
+    </div>
+  );
+}
+
 /** Decode a base64-encoded UTF-8 SVG without treating bytes as Latin-1. */
 function decodeBase64Utf8(value: string): string {
   if (typeof atob !== "function") return value;
@@ -2576,6 +2631,7 @@ export default function App({
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [studentVerificationOpen, setStudentVerificationOpen] = useState(false);
+  const [aiAssistantWechatOpen, setAiAssistantWechatOpen] = useState(false);
   const [studentVerification, setStudentVerification] = useState<StudentVerification>({ verified: false, status: null });
   const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
 
@@ -3042,10 +3098,10 @@ export default function App({
   };
 
   const onFilesSelected = (e: ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!list?.length) return;
-    void processSelectedFiles(Array.from(list));
+    if (!files.length) return;
+    void processSelectedFiles(files);
   };
 
   const onUploadDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -3900,6 +3956,10 @@ export default function App({
 
   return (
     <>
+      <AiAssistantWechatModal
+        open={aiAssistantWechatOpen}
+        onClose={() => setAiAssistantWechatOpen(false)}
+      />
       {pointsEnabled ? (
         <>
           <RechargeModal
@@ -4066,7 +4126,7 @@ export default function App({
             </span>
           </button>
         </div>
-        <div className="flex items-center gap-2 border-b border-[color:var(--t-br06)] px-2.5 py-2">
+        <div className="flex items-center gap-2 px-2.5 py-2">
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">账户</div>
             <div className="truncate text-[11px] text-[var(--t-text)]" title={getAuthProfile()?.username ?? ""}>
@@ -4114,6 +4174,26 @@ export default function App({
               </button>
             ) : null}
           </div>
+        </div>
+        <div className="grid grid-cols-[1fr_auto] items-center gap-2 border-b border-t border-[color:var(--t-br06)] px-2.5 py-2">
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">客服电话</div>
+            <a
+              href="tel:4008525311"
+              className="mt-0.5 block text-[11px] font-semibold tabular-nums text-[var(--t-text)] hover:text-[var(--t-prose-link)]"
+              aria-label={`拨打客服电话 ${CUSTOMER_SERVICE_PHONE}`}
+            >
+              {CUSTOMER_SERVICE_PHONE}
+            </a>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAiAssistantWechatOpen(true)}
+            className="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-medium text-emerald-600 transition hover:border-emerald-500/60 hover:bg-emerald-500/15 dark:text-emerald-400"
+            aria-haspopup="dialog"
+          >
+            AI 助理微信
+          </button>
         </div>
         <div className="flex flex-col gap-1.5 p-2.5">
           <button
@@ -4202,8 +4282,8 @@ export default function App({
             </div>
           ))}
         </nav>
-        <div className="border-t border-[color:var(--t-br06)] px-2.5 py-2">
-          <div className="mb-1.5 pl-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--t-text-caption)]">
+        <div className="shrink-0 border-t border-[color:var(--t-br06)] px-2.5 py-1.5">
+          <div className="mb-1 pl-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--t-text-caption)]">
             外观
           </div>
           <div className="flex gap-1" role="group" aria-label="主题">
@@ -4211,7 +4291,7 @@ export default function App({
               type="button"
               onClick={() => setTheme("dark")}
               aria-pressed={theme === "dark"}
-              className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+              className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[10px] font-medium transition ${
                 theme === "dark"
                   ? "border-[color:var(--t-br10)] bg-[var(--t-elevated)] text-[var(--t-text)] shadow-sm"
                   : "border-transparent text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"
@@ -4223,7 +4303,7 @@ export default function App({
               type="button"
               onClick={() => setTheme("light")}
               aria-pressed={theme === "light"}
-              className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+              className={`min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[10px] font-medium transition ${
                 theme === "light"
                   ? "border-[color:var(--t-br10)] bg-[var(--t-elevated)] text-[var(--t-text)] shadow-sm"
                   : "border-transparent text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"
@@ -4232,9 +4312,6 @@ export default function App({
               浅色
             </button>
           </div>
-        </div>
-        <div className="border-t border-[color:var(--t-br06)] p-2.5 text-[10px] leading-relaxed text-[var(--t-text-label)]">
-          本地 SQLite 缓存 + arXiv / Crossref。DOI 外链可访问；全文权限以机构为准。
           <button
             type="button"
             onClick={() => {
@@ -4242,7 +4319,8 @@ export default function App({
                 clearOutputPreferences();
               }
             }}
-            className="qp-link-accent mt-2 block w-full text-left text-[10px] underline underline-offset-2"
+            className="qp-link-accent mt-1 block w-full text-left text-[9px] leading-tight underline underline-offset-2"
+            aria-label="清除不满意输出偏好"
           >
             清除「不满意」输出偏好
           </button>
