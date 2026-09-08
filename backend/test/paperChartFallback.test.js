@@ -49,3 +49,27 @@ test("chart fallback refuses unrelated generic numbers", () => {
   ]);
   assert.equal(fallback, null);
 });
+
+test("chart fallback honors a metric hint when no LLM is available", () => {
+  const papers = [
+    {
+      id: "web-elong-1",
+      source: "tavily_web",
+      absUrl: "https://example.com/elong-1",
+      year: 2022,
+      summary: "The electrode reached 3.8 V and a tensile elongation of 120%.",
+    },
+    {
+      id: "web-elong-2",
+      source: "tavily_web",
+      absUrl: "https://example.com/elong-2",
+      year: 2023,
+      summary: "At 4.0 V, the tensile elongation increased to 145%.",
+    },
+  ];
+
+  const fallback = buildFallbackChartSpecFromAbstracts(papers, { hint: "拉伸率" });
+  assert.ok(fallback);
+  assert.equal(fallback.y_axis.label, "百分数 (%)");
+  assert.deepEqual(fallback.points.map((point) => point.y), [120, 145]);
+});

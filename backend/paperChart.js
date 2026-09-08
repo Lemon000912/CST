@@ -294,9 +294,10 @@ export function normalizeChartSpec(spec, paperRefs = null) {
  * LLM 无法形成图表时的保守后备：只选择一种单位明确的指标，绝不混合不同物理量。
  * 后备点用于展示与重试提示，不作为有效计费点。
  * @param {unknown[]} papers
+ * @param {{ hint?: string }} [opts]
  * @returns {object | null} 可交给 normalizeChartSpec 的原始 spec
  */
-export function buildFallbackChartSpecFromAbstracts(papers) {
+export function buildFallbackChartSpecFromAbstracts(papers, opts = {}) {
   const arr = Array.isArray(papers) ? papers.slice(0, 50) : [];
   const metrics = [
     {
@@ -358,10 +359,41 @@ export function buildFallbackChartSpecFromAbstracts(papers) {
     }
   }
 
-  const selectedMetric = metrics
+  // Even without an LLM, honor the user's作图意图 when it clearly names a
+  // metric. Previously the fallback always selected the metric occurring in
+  // the most papers (often voltage), making "拉伸率" appear to have no
+  // effect. Keep the conservative frequency-based choice for ambiguous hints.
+  const hint = String(opts?.hint ?? "").trim().toLowerCase();
+  const hintMetricTypes = [];
+  if (/(?:比容量|容量|specific\s*capacity|mAh\s*\/\s*g|Ah\s*\/\s*kg)/i.test(hint)) {
+    hintMetricTypes.push("specific_capacity");
+  }
+  if (/(?:电压|voltage|工作电压|电位|\bmv\b|\bv\b)/i.test(hint)) {
+    hintMetricTypes.push("voltage");
+  }
+  if (/(?:带隙|能量|energy|band\s*gap|\bev\b)/i.test(hint)) {
+    hintMetricTypes.push("energy_ev");
+  }
+  if (/(?:拉伸率|延伸率|伸长率|应变|效率|百分数|百分比|percent|\bstrain\b|elongation|efficiency|\%)/i.test(hint)) {
+    hintMetricTypes.push("percent");
+  }
+  const eligibleMetrics = metrics
     .map((metric) => ({ metric, points: candidatesByType.get(metric.type) }))
-    .filter((entry) => entry.points.length >= 2)
+    .filter((entry) => entry.points.length >= 2);
+  // If the user explicitly named a known metric but the excerpts do not
+  // contain two comparable values for it, do not silently substitute an
+  // unrelated metric (which looks like the hint was ignored).
+  if (hintMetricTypes.length > 0 && !eligibleMetrics.some((entry) => hintMetricTypes.includes(entry.metric.type))) {
+    return null;
+  }
+  const selectedMetric = eligibleMetrics
     .sort((a, b) => {
+      const hintRankA = hintMetricTypes.indexOf(a.metric.type);
+      const hintRankB = hintMetricTypes.indexOf(b.metric.type);
+      const hintedA = hintRankA >= 0;
+      const hintedB = hintRankB >= 0;
+      if (hintedA !== hintedB) return hintedB - hintedA;
+      if (hintedA && hintRankA !== hintRankB) return hintRankA - hintRankB;
       const paperCountA = new Set(a.points.map((point) => point.paper_index)).size;
       const paperCountB = new Set(b.points.map((point) => point.paper_index)).size;
       return paperCountB - paperCountA || b.points.length - a.points.length;

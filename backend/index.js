@@ -1093,7 +1093,7 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
       if (spec) res.locals.chartBillingSource = "llm";
     }
     if (!spec) {
-      const fb = buildFallbackChartSpecFromAbstracts(papersForChart);
+      const fb = buildFallbackChartSpecFromAbstracts(papersForChart, { hint });
       if (fb) spec = normalizeChartSpec(fb, papersForChart);
       if (spec) res.locals.chartBillingSource = "fallback";
     }
