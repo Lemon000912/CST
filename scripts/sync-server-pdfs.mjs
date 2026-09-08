@@ -19,8 +19,8 @@ import {
   serverPdfPaperId,
 } from "../backend/serverPdfLibrary.js";
 import { ensureServerPdfSchema } from "../backend/serverPdfSchema.js";
-import { resolvePrimaryProvider, resolveProviderSlot } from "../backend/llmProviders.js";
-import { extractServerPdfMeta } from "../backend/serverPdfMetaExtract.js";
+import { resolvePrimaryProvider } from "../backend/llmProviders.js";
+import { extractAbstractRule, extractServerPdfMeta } from "../backend/serverPdfMetaExtract.js";
 import {
   readMarkdownDigest,
   resolveMineruExecutable,
@@ -237,12 +237,20 @@ async function parseQueuedPdfs(client, root, settings) {
     try {
       const filePath = resolveServerPdfPath(root, row.relative_path);
       const text = await extractPdfText(filePath, settings);
+      // Keep the complete parsed text beside the PDF for full-text performance extraction.
+      // papers.abstract stores only the real first-page abstract after this step.
+      const mdPath = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}.md`);
+      try {
+        if (!(await fs.stat(mdPath).catch(() => null))) await fs.writeFile(mdPath, text, "utf8");
+      } catch (error) {
+        console.warn(`[pdf-sync] failed to write parsed markdown ${mdPath}: ${String(error?.message ?? error).slice(0, 200)}`);
+      }
       const now = Date.now();
       await client.query("BEGIN");
       try {
         await client.query(
-          `UPDATE papers SET abstract = $2, summary = $2, updated_at = $3 WHERE paper_id = $1`,
-          [row.paper_id, text, now],
+         `UPDATE papers SET abstract = $2, updated_at = $3 WHERE paper_id = $1`,
+          [row.paper_id, extractAbstractRule(text) || text.slice(0, 12000), now],
         );
         await client.query(
           `UPDATE paper_pdf_files
@@ -356,9 +364,7 @@ async function collectMarkdownText(dir) {
 
 /** 元数据提取所用 LLM：默认 A，可用 PDF_META_PROVIDER=B/C 切换到其他槽位。 */
 function resolveMetaProvider() {
-  const slot = String(process.env.PDF_META_PROVIDER ?? "").trim().toUpperCase();
-  if (!slot || slot === "A") return resolvePrimaryProvider();
-  return resolveProviderSlot(slot);
+  return resolvePrimaryProvider();
 }
 
 /** 定位 MatSciBERT NER 抽取运行环境；任一环节缺失返回 null（由调用方决定是否回退 LLM）。 */
@@ -371,8 +377,11 @@ function locateMetaNerSetup() {
       : "python3");
   let demoDir = String(process.env.MATSCI_META_DEMO_DIR ?? "").trim();
   if (!demoDir && process.platform === "win32") {
-    const candidate = "D:\\workTrace\\end\\MatSciBERT\\matscibert-demo";
-    if (existsSync(candidate)) demoDir = candidate;
+    const candidates = [
+      "D:\\workTrace\\end\\MatSciBERT\\matscibert-demo",
+      "E:\\新建文件夹\\MatSciBERT\\matscibert-demo",
+    ];
+    demoDir = candidates.find((candidate) => existsSync(candidate)) || "";
   }
   if (!demoDir) return null;
   const modelDir =
@@ -441,7 +450,7 @@ function runNerBatch(setup, rows, settings) {
           if (job?.ready === true) {
             ready = true;
             const payload = rows
-              .map((row) => JSON.stringify({ id: row.paper_id, text: String(row.text ?? "") }))
+            .map((row) => JSON.stringify({ id: row.paper_id, text: `${String(row.title ?? "")}\n${String(row.text ?? "")}` }))
               .join("\n");
             child.stdin.write(`${payload}\n`, () => {
               try {
@@ -493,7 +502,7 @@ async function selectMetaRows(client, settings) {
     ? "AND COALESCE(f.meta_extract_status, '') NOT IN ('failed', 'skipped')"
     : "AND f.meta_extract_status = 'queued'";
   return client.query(
-    `SELECT f.paper_id, p.title, p.doi, p.abstract AS text
+    `SELECT f.paper_id, f.relative_path, p.title, p.doi, p.abstract AS text
        FROM paper_pdf_files f
        JOIN papers p ON p.paper_id = f.paper_id
       WHERE f.storage_kind = 'filesystem'
@@ -532,26 +541,23 @@ async function applyMetaSuccess(client, row, data, settings) {
   await client.query("BEGIN");
   try {
     const fieldSet = settings.metaRefresh
-      ? "symmetry_phase = $2, synthesis_method = $3, structure_descriptor = $4, properties = $5,"
-        + " applications = $6, characterization_method = $7, material_name = $8"
-      : "symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $2),"
-        + " synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $3),"
-        + " structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $4),"
-        + " properties = COALESCE(NULLIF(btrim(properties), ''), $5),"
-        + " applications = COALESCE(NULLIF(btrim(applications), ''), $6),"
-        + " characterization_method = COALESCE(NULLIF(btrim(characterization_method), ''), $7),"
-        + " material_name = COALESCE(NULLIF($8, ''), material_name)";
+      ? "title = COALESCE(NULLIF($2, ''), title), abstract = COALESCE(NULLIF($3, ''), abstract), first_author = COALESCE(NULLIF($4, ''), first_author), summary = COALESCE(NULLIF($5, ''), summary), properties = $6, material_name = COALESCE(NULLIF($7, ''), material_name), symmetry_phase = $8, synthesis_method = $9, structure_descriptor = $10, applications = $11, characterization_method = $12"
+      : "title = COALESCE(NULLIF($2, ''), title), abstract = COALESCE(NULLIF($3, ''), abstract), first_author = COALESCE(NULLIF($4, ''), first_author), summary = COALESCE(NULLIF($5, ''), summary), properties = CASE WHEN $6 IS NOT NULL AND $6 <> '[]' THEN $6 ELSE properties END, material_name = COALESCE(NULLIF($7, ''), material_name), symmetry_phase = COALESCE(NULLIF(btrim(symmetry_phase), ''), $8), synthesis_method = COALESCE(NULLIF(btrim(synthesis_method), ''), $9), structure_descriptor = COALESCE(NULLIF(btrim(structure_descriptor), ''), $10), applications = COALESCE(NULLIF(btrim(applications), ''), $11), characterization_method = COALESCE(NULLIF(btrim(characterization_method), ''), $12)";
     await client.query(
-      `UPDATE papers SET ${fieldSet}, updated_at = $9 WHERE paper_id = $1`,
+      `UPDATE papers SET ${fieldSet}, updated_at = $13 WHERE paper_id = $1`,
       [
         row.paper_id,
+        data.title ?? null,
+        data.abstract ?? null,
+        data.first_author ?? null,
+        data.summary ?? null,
+        JSON.stringify(data.properties ?? []),
+        Array.isArray(data.material_name) ? data.material_name.join(", ") : data.material_name ?? null,
         data.symmetry_phase ?? null,
         data.synthesis_method ?? null,
         data.structure_descriptor ?? null,
-        data.properties ?? null,
         data.applications ?? null,
         data.characterization_method ?? null,
-        data.material_name ?? null,
         now,
       ],
     );
@@ -586,18 +592,30 @@ async function applyMetaFailure(client, row, error, settings) {
 }
 
 /** LLM 引擎：逐篇调用在线大模型，行为与改前完全一致。 */
-async function extractPaperMetadataWithLlm(client, settings, provider) {
+async function extractPaperMetadataWithLlm(client, root, settings, provider, nerById = new Map()) {
   const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
   const result = await selectMetaRows(client, settings);
   for (const row of result.rows) {
     try {
+      let fullText = String(row.text ?? "");
+      if (row.relative_path) {
+        const pdfPath = resolveServerPdfPath(root, row.relative_path);
+        const mdPath = path.join(path.dirname(pdfPath), `${path.basename(pdfPath, path.extname(pdfPath))}.md`);
+        try { fullText = await fs.readFile(mdPath, "utf8"); } catch {}
+      }
       const outcome = await extractServerPdfMeta({
         provider,
         title: row.title,
         doi: row.doi,
-        text: row.text,
+        fullText,
+        firstPage: fullText.slice(0, 18_000),
       });
       if (!outcome.ok) throw new Error(outcome.error ?? "meta_extract_failed");
+      const nerFields = nerById.get(String(row.paper_id))?.fields ?? {};
+      const llmMaterials = Array.isArray(outcome.data.material_name) ? outcome.data.material_name : [];
+      const nerMaterials = String(nerFields.material_name ?? "").split(/[,;；、]/).map((v) => v.trim()).filter(Boolean);
+      const overlap = llmMaterials.filter((name) => nerMaterials.some((candidate) => candidate.toLowerCase() === name.toLowerCase()));
+      outcome.data.material_name = overlap;
       await applyMetaSuccess(client, row, outcome.data, settings);
       counts.ready += 1;
     } catch (error) {
@@ -610,9 +628,8 @@ async function extractPaperMetadataWithLlm(client, settings, provider) {
 
 /** NER 引擎：整批交给本地 MatSciBERT worker；worker 启动失败整轮回退，单篇失败按重试语义记录。 */
 async function extractPaperMetadataWithNer(client, settings, setup) {
-  const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0 };
   const result = await selectMetaRows(client, settings);
-  if (!result.rows.length) return counts;
+  if (!result.rows.length) return { rows: [], byId: new Map(), nerElapsedMs: 0 };
   const startedAt = Date.now();
   let outputs;
   try {
@@ -621,7 +638,7 @@ async function extractPaperMetadataWithNer(client, settings, setup) {
     return {
       fallbackToLlm: true,
       message: String(error?.message ?? error).slice(0, 500),
-      counts,
+      rows: result.rows, byId: new Map(), fallbackToLlm: true,
     };
   }
   const byId = new Map(
@@ -629,20 +646,7 @@ async function extractPaperMetadataWithNer(client, settings, setup) {
       .filter((item) => item && item.id !== undefined && item.id !== null)
       .map((item) => [String(item.id), item]),
   );
-  for (const row of result.rows) {
-    const output = byId.get(String(row.paper_id));
-    try {
-      if (!output) throw new Error("ner:no-output");
-      if (!output.ok) throw new Error(String(output.error || "ner_extract_failed"));
-      await applyMetaSuccess(client, row, output.fields ?? {}, settings);
-      counts.ready += 1;
-    } catch (error) {
-      counts.failed += 1;
-      await applyMetaFailure(client, row, error, settings);
-    }
-  }
-  counts.nerElapsedMs = Date.now() - startedAt;
-  return counts;
+  return { rows: result.rows, byId, nerElapsedMs: Date.now() - startedAt };
 }
 
 /**
@@ -654,7 +658,7 @@ async function extractPaperMetadataWithNer(client, settings, setup) {
  * 只处理「新入库文件」（indexPdf 插入时 meta_extract_status='queued' 的行），
  * 历史数据（meta_extract_status 为 NULL）不触碰；--meta-refresh 显式强制重跑可覆盖。
  */
-async function extractPaperMetadata(client, settings) {
+async function extractPaperMetadata(client, root, settings) {
   const counts = { ready: 0, failed: 0, skipped: 0, noProvider: 0, engine: settings.metaEngine };
   if (settings.metaBatch === 0) return counts;
 
@@ -676,23 +680,11 @@ async function extractPaperMetadata(client, settings) {
       console.warn("[pdf-sync] no LLM provider configured; pending metadata rows marked as skipped");
       return counts;
     }
-    return extractPaperMetadataWithLlm(client, settings, provider);
+    return extractPaperMetadataWithLlm(client, root, settings, provider, new Map());
   }
 
   const outcome = await extractPaperMetadataWithNer(client, settings, setup);
-  if (!outcome.fallbackToLlm) {
-    return {
-      ...counts,
-      ready: outcome.ready,
-      failed: outcome.failed,
-      skipped: outcome.skipped,
-      nerElapsedMs: outcome.nerElapsedMs,
-    };
-  }
-
-  console.warn(
-    `[pdf-sync] MatSciBERT NER batch failed, falling back to LLM engine for this run: ${outcome.message ?? "unknown"}`,
-  );
+  if (outcome.fallbackToLlm) console.warn(`[pdf-sync] MatSciBERT NER failed; using Provider A only: ${outcome.message ?? "unknown"}`);
   const provider = resolveMetaProvider();
   if (!provider) {
     await skipQueuedMetaRows(client, "ner-unavailable-no-llm-key");
@@ -700,9 +692,9 @@ async function extractPaperMetadata(client, settings) {
     counts.engine = "ner->skipped";
     return counts;
   }
-  const llmCounts = await extractPaperMetadataWithLlm(client, settings, provider);
-  counts.engine = "ner->llm";
-  return { ...counts, ...llmCounts };
+  const llmCounts = await extractPaperMetadataWithLlm(client, root, settings, provider, outcome.byId);
+  counts.engine = outcome.fallbackToLlm ? "ner->llm" : "ner+llm-intersection";
+  return { ...counts, ...llmCounts, nerElapsedMs: outcome.nerElapsedMs };
 }
 
 async function runScan(pool, root, settings) {
@@ -795,7 +787,7 @@ async function runScan(pool, root, settings) {
       }
     }
     report.parsing = await parseQueuedPdfs(client, root, settings);
-    report.metadata = await extractPaperMetadata(client, settings);
+    report.metadata = await extractPaperMetadata(client, root, settings);
     return report;
   } finally {
     if (locked) await client.query("SELECT pg_advisory_unlock(hashtext('ailunwen-server-pdf-sync'))").catch(() => {});

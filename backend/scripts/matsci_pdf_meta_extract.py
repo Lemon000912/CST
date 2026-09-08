@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_DEMO_DIR = Path(r"D:\workTrace\end\MatSciBERT\matscibert-demo")
+DEFAULT_DEMO_DIR = Path(r"E:\新建文件夹\MatSciBERT\matscibert-demo")
 
 FIELD_BY_LABEL = {
     "SPL": "symmetry_phase",
