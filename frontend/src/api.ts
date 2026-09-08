@@ -731,6 +731,11 @@ export async function extractUploadedDocument(
   }
 
   const text = await res.text();
+  if (res.status === 413) {
+    throw new Error(
+      `文件过大，上传网关拒绝了请求。单文件需 ≤${EXTRACT_MAX_MB}MB；如文件未超限，请检查服务器反向代理的请求体大小配置。`,
+    );
+  }
   let data: { filename?: string; text?: string; charCount?: number; error?: string };
   try {
     data = JSON.parse(text) as typeof data;
