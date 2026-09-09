@@ -517,30 +517,60 @@ export async function* searchPapersV1Stream(
   const timeoutId = window.setTimeout(() => controller.abort(), 900_000);
 
   try {
-    const res = await fetch("/api/v1/search/stream", {
-      method: "POST",
-      headers: headersJson({ "Idempotency-Key": idempotencyKey }),
-      signal: controller.signal,
-      body: JSON.stringify({
-        query,
-        ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
-        field: opts.field ?? "all",
-        channel: opts.channel ?? "web",
-        sort: opts.sort ?? "relevance",
-        useLlmRewrite: opts.useLlmRewrite !== false,
-        attachmentContext: opts.attachmentContext?.slice(0, 200_000),
-        attachmentFilename: opts.attachmentFilename?.slice(0, 512),
-        conversationContext: opts.conversationContext?.slice(0, 12_000),
-        includeSynthesis: opts.patentsOnly
-          ? opts.includeSynthesis === true
-          : opts.includeSynthesis !== false,
-        useMcpWeb: opts.useMcpWeb !== false,
-        ...(opts.patentsOnly ? { patentsOnly: true } : {}),
-        ...(deepBody ? { deepMine: deepBody } : {}),
-        ...(outputAvoidance ? { outputAvoidance } : {}),
-        ...(prefKw?.length ? { preferenceKeywords: prefKw } : {}),
-      }),
+    const requestBody = JSON.stringify({
+      query,
+      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
+      field: opts.field ?? "all",
+      channel: opts.channel ?? "web",
+      sort: opts.sort ?? "relevance",
+      useLlmRewrite: opts.useLlmRewrite !== false,
+      attachmentContext: opts.attachmentContext?.slice(0, 200_000),
+      attachmentFilename: opts.attachmentFilename?.slice(0, 512),
+      conversationContext: opts.conversationContext?.slice(0, 12_000),
+      includeSynthesis: opts.patentsOnly
+        ? opts.includeSynthesis === true
+        : opts.includeSynthesis !== false,
+      useMcpWeb: opts.useMcpWeb !== false,
+      ...(opts.patentsOnly ? { patentsOnly: true } : {}),
+      ...(deepBody ? { deepMine: deepBody } : {}),
+      ...(outputAvoidance ? { outputAvoidance } : {}),
+      ...(prefKw?.length ? { preferenceKeywords: prefKw } : {}),
     });
+    let res: Response;
+    let pendingOperationAttempts = 0;
+    while (true) {
+      res = await fetch("/api/v1/search/stream", {
+        method: "POST",
+        headers: headersJson({ "Idempotency-Key": idempotencyKey }),
+        signal: controller.signal,
+        body: requestBody,
+      });
+      if (res.status !== 202) break;
+
+      let pendingError: { error?: string; code?: string } = {};
+      try { pendingError = (await res.json()) as typeof pendingError; } catch { /* handled below */ }
+      if (pendingError.code !== "operation-in-progress") {
+        yield { type: "error", error: pendingError.error || "请求正在处理中" };
+        return;
+      }
+      if (pendingOperationAttempts >= 24) {
+        yield { type: "error", error: "上一条请求仍在结算，请稍候重新发送。" };
+        return;
+      }
+      const delayMs = Math.min(1_000, 250 + pendingOperationAttempts * 100);
+      pendingOperationAttempts += 1;
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          window.clearTimeout(timer);
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        };
+        const timer = window.setTimeout(() => {
+          controller.signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, delayMs);
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+      });
+    }
 
     if (!res.ok) {
       let errMsg = `请求失败 (${res.status})`;

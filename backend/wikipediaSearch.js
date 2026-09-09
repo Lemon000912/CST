@@ -36,7 +36,7 @@ export function getWikipediaSearchConfig() {
 }
 
 /** @returns {Promise<{papers: object[]; note: string; toolName: string}>} */
-export async function fetchWikipediaWebPapers(query, max) {
+export async function fetchWikipediaWebPapers(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   const cfg = getWikipediaSearchConfig();
   if (!q) return { papers: [], note: "empty-query", toolName: "wikipedia" };
@@ -55,7 +55,7 @@ export async function fetchWikipediaWebPapers(query, max) {
   try {
     const r = await fetchWithTimeout(
       `${endpoint}?${params.toString()}`,
-      { headers: { Accept: "application/json", "User-Agent": "PaperQuery/1.0 (Wikipedia API client)" } },
+      { headers: { Accept: "application/json", "User-Agent": "PaperQuery/1.0 (Wikipedia API client)" }, signal: opts.signal },
       cfg.timeoutMs,
     );
     if (!r.ok) return { papers: [], note: `http_${r.status}`, toolName: "wikipedia" };

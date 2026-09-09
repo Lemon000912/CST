@@ -120,6 +120,7 @@ export async function understandQuery(userQuery, opts = {}) {
       timeoutMs,
       temperature: 0.1,
       maxTokens: 512,
+      signal: opts.signal,
       system,
       messages: [{ role: "user", content: q }],
     });

@@ -11,7 +11,14 @@
  */
 export async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(options.signal?.reason);
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  if (options.signal?.aborted) abortFromCaller();
   
   try {
     const response = await fetch(url, {
@@ -19,10 +26,13 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    options.signal?.removeEventListener("abort", abortFromCaller);
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    options.signal?.removeEventListener("abort", abortFromCaller);
+    if (options.signal?.aborted) throw error;
+    if (timedOut && error.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeoutMs}ms`);
     }
     throw error;
@@ -35,18 +45,31 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
  * @param {number} timeoutMs 每个任务的最大等待时间
  * @returns {Promise<Array<{name: string, status: string, value?: any, reason?: any}>>}
  */
-export async function raceWithTimeout(tasks, timeoutMs = 15000) {
-  const wrappedTasks = tasks.map(({ name, promise }) => {
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`${name} timeout`)), timeoutMs);
-    });
-    
-    return Promise.race([promise, timeoutPromise])
-      .then(value => ({ name, status: 'fulfilled', value }))
-      .catch(reason => ({ name, status: 'rejected', reason: reason?.message || String(reason) }));
+export async function raceWithTimeout(tasks, timeoutMs = 15000, { signal } = {}) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Search cancelled", "AbortError");
+  let abortHandler;
+  const aborted = new Promise((_, reject) => {
+    abortHandler = () => reject(signal.reason ?? new DOMException("Search cancelled", "AbortError"));
+    signal?.addEventListener("abort", abortHandler, { once: true });
   });
-  
-  return Promise.all(wrappedTasks);
+  const wrappedTasks = tasks.map(({ name, promise }) => {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`${name} timeout`)), timeoutMs);
+    });
+    return Promise.race([promise, timeoutPromise, aborted])
+      .then(value => ({ name, status: 'fulfilled', value }))
+      .catch(reason => {
+        if (signal?.aborted) throw reason;
+        return { name, status: 'rejected', reason: reason?.message || String(reason) };
+      })
+      .finally(() => clearTimeout(timeoutId));
+  });
+  try {
+    return await Promise.all(wrappedTasks);
+  } finally {
+    signal?.removeEventListener("abort", abortHandler);
+  }
 }
 
 /**

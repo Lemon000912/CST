@@ -1873,11 +1873,71 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let partialChannel = "database";
   let partialSort = "relevance";
   let papersReadySent = false;
+  const searchAbortController = new AbortController();
   const synthesisAbortController = new AbortController();
+  let pausedCompletion = null;
+
+  // A browser abort closes the SSE response immediately, but a slow web
+  // search can take much longer to return to the handler's catch block. Settle
+  // the visible partial result at disconnect time so its processing lease does
+  // not reject a new conversation in that gap.
+  const completePausedOperation = () => {
+    if (pausedCompletion) return pausedCompletion;
+    const visiblePapers = partialPapers;
+    const visibleSynthesis = partialSynthesis;
+    const visibleChannel = partialChannel;
+    const visibleSort = partialSort;
+    pausedCompletion = (async () => {
+      try {
+        const rawPartialPayload = {
+          papers: visiblePapers,
+          synthesis: visibleSynthesis || null,
+          // Deep mine is not displayed while it runs; do not charge hidden
+          // work when the user pauses the visible answer.
+          deepMine: null,
+          deepSynthesis: null,
+        };
+        const budgeted = limitSearchPayloadToBalance(rawPartialPayload, startingBalanceUnits);
+        const billingPayload = budgeted.payload;
+        const billingDetails = {
+          ...searchBillingDetails(billingPayload),
+          edition: enterpriseEdition ? "enterprise" : "school",
+          paused: true,
+        };
+        const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
+          characterCount: billingDetails.characterCount,
+          pdfCount: billingDetails.deepPaperCount,
+        });
+        await completeBillableOperation({
+          operationId: activeOperation.id,
+          userId: req.auth?.userId,
+          leaseToken: activeOperation.leaseToken,
+          costUnits,
+          billingDetails,
+          result: {
+            ...billingPayload,
+            channel: visibleChannel,
+            sort: visibleSort,
+            synthesisNote: "synth:paused",
+            paused: true,
+            pointsExhausted: budgeted.pointsExhausted,
+          },
+        });
+        searchPapersCache.delete(activeOperation.id);
+      } catch (billingError) {
+        console.error("[billing/pause-complete]", billingError?.message || billingError);
+        await failOperationBestEffort(activeOperation, req.auth?.userId, billingError);
+      }
+    })();
+    return pausedCompletion;
+  };
+
   res.once("close", () => {
     if (res.writableEnded) return;
     clientDisconnected = true;
+    searchAbortController.abort();
     synthesisAbortController.abort();
+    void completePausedOperation();
   });
 
   try {
@@ -1955,6 +2015,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         personaSkill,
         preferenceKeywords: preferenceKeywords.length ? preferenceKeywords : undefined,
         performanceTrace: requestTrace,
+        signal: searchAbortController.signal,
         onPapersReady: (partial) => {
           if (clientDisconnected || !partial?.papers?.length) return;
           partialPapers = partial.papers;
@@ -2288,48 +2349,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     console.error("[v1/search/stream]", e?.message);
     if (activeOperation?.id) searchPapersCache.delete(activeOperation.id);
     if (clientDisconnected && activeOperation?.id) {
-      // A user pause closes SSE intentionally. Settle the operation using only
-      // the content that was visible before disconnect (school edition bills
-      // characters; enterprise edition remains free).
-      try {
-        const rawPartialPayload = {
-          papers: partialPapers,
-          synthesis: partialSynthesis || null,
-          // Deep mine is not displayed while it runs; do not charge hidden
-          // work when the user pauses the visible answer.
-          deepMine: null,
-          deepSynthesis: null,
-        };
-        const budgeted = limitSearchPayloadToBalance(rawPartialPayload, startingBalanceUnits);
-        const billingPayload = budgeted.payload;
-        const billingDetails = {
-          ...searchBillingDetails(billingPayload),
-          edition: enterpriseEdition ? "enterprise" : "school",
-          paused: true,
-        };
-        const costUnits = enterpriseEdition ? 0 : calculateCostUnits({
-          characterCount: billingDetails.characterCount,
-          pdfCount: billingDetails.deepPaperCount,
-        });
-        await completeBillableOperation({
-          operationId: activeOperation.id,
-          userId: req.auth?.userId,
-          leaseToken: activeOperation.leaseToken,
-          costUnits,
-          billingDetails,
-          result: {
-            ...billingPayload,
-            channel: partialChannel,
-            sort: partialSort,
-            synthesisNote: "synth:paused",
-            paused: true,
-            pointsExhausted: budgeted.pointsExhausted,
-          },
-        });
-      } catch (billingError) {
-        console.error("[billing/pause-complete]", billingError?.message || billingError);
-        await failOperationBestEffort(activeOperation, req.auth?.userId, billingError);
-      }
+      await completePausedOperation();
     } else {
       await failOperationBestEffort(activeOperation, req.auth?.userId, e);
     }

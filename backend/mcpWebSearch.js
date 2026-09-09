@@ -300,7 +300,7 @@ export function isMcpUsable() {
   return true;
 }
 
-export async function fetchMcpWebPapers(query, max) {
+export async function fetchMcpWebPapers(query, max, opts = {}) {
   const cfg = getMcpWebSearchConfig();
   if (!cfg) return { papers: [], note: "disabled" };
 
@@ -316,6 +316,7 @@ export async function fetchMcpWebPapers(query, max) {
   let lastNote = "err:unknown";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (opts.signal?.aborted) throw opts.signal.reason ?? new DOMException("Search cancelled", "AbortError");
     const transport = new StdioClientTransport({
       command: cfg.command,
       args: cfg.args,
@@ -351,12 +352,18 @@ export async function fetchMcpWebPapers(query, max) {
     };
 
     let timeoutId;
+    let abortHandler;
     const timeout = new Promise((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error("mcp_timeout")), cfg.timeoutMs);
     });
+    const aborted = new Promise((_, reject) => {
+      abortHandler = () => reject(opts.signal.reason ?? new DOMException("Search cancelled", "AbortError"));
+      opts.signal?.addEventListener("abort", abortHandler, { once: true });
+      if (opts.signal?.aborted) abortHandler();
+    });
 
     try {
-      const out = await Promise.race([run(), timeout]);
+      const out = await Promise.race([run(), timeout, aborted]);
       clearTimeout(timeoutId);
       await client.close().catch(() => {});
       return out;
@@ -364,14 +371,17 @@ export async function fetchMcpWebPapers(query, max) {
       clearTimeout(timeoutId);
       await client.close().catch(() => {});
       const msg = e?.message || String(e);
+      if (opts.signal?.aborted) throw e;
       lastNote = msg.includes("mcp_timeout") ? "timeout" : `err:${msg.slice(0, 120)}`;
       if (attempt < maxAttempts - 1 && isMcpTransientDisconnect(e)) {
         const backoff = 700 + attempt * 550;
         console.warn(`[mcp_web] transient disconnect (attempt ${attempt + 1}/${maxAttempts}), retry in ${backoff}ms`, msg);
-        await sleep(backoff);
+        await Promise.race([sleep(backoff), aborted]);
         continue;
       }
       return { papers: [], note: lastNote };
+    } finally {
+      opts.signal?.removeEventListener("abort", abortHandler);
     }
   }
 
@@ -385,7 +395,7 @@ const DDG_URLS = [
   "https://html.duckduckgo.com/html/",
 ];
 
-function _ddgFetchOne(url, query, timeoutMs) {
+function _ddgFetchOne(url, query, timeoutMs, signal) {
   const fullUrl = url + "?q=" + encodeURIComponent(query);
   var ua = typeof process !== "undefined" ? String(process.env?.DDG_USER_AGENT || _ddgUA || "Mozilla/5.0").trim() : _ddgUA;
   if (!ua) ua = "Mozilla/5.0 (compatible; QuantumPinnacle/1.0)";
@@ -393,10 +403,18 @@ function _ddgFetchOne(url, query, timeoutMs) {
   var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs || 8000) : null;
   var opts = { headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml" } };
   if (controller) opts.signal = controller.signal;
+  const onAbort = () => controller?.abort(signal?.reason);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   return fetch(fullUrl, opts).then(function (r) {
     if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
     if (!r.ok) throw new Error("DDG HTTP " + r.status);
     return r.text();
+  }).catch(function (error) {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+    throw error;
   });
 }
 
@@ -408,11 +426,11 @@ function bingTimeoutMs() {
   return Math.min(35_000, Math.max(8000, Number(process.env.BING_WEB_TIMEOUT_MS) || 22_000));
 }
 
-function _ddgFetch(query) {
+function _ddgFetch(query, signal) {
   const t = ddgTimeoutMs();
   return DDG_URLS.reduce(function (chain, url) {
     return chain.catch(function () {
-      return _ddgFetchOne(url, query, t);
+      return _ddgFetchOne(url, query, t, signal);
     });
   }, Promise.reject(new Error("no-dd-endpoints")));
 }
@@ -513,6 +531,9 @@ export async function fetchBingWebSearch(query, max, opts = {}) {
   const timeout = bingTimeoutMs();
   for (const url of urls) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const onAbort = () => controller?.abort(opts.signal?.reason);
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    if (opts.signal?.aborted) onAbort();
     const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
     try {
       const res = await fetch(url, {
@@ -526,6 +547,7 @@ export async function fetchBingWebSearch(query, max, opts = {}) {
         signal: controller?.signal,
       });
       if (timer) clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
       if (!res.ok) continue;
       const html = await res.text();
       if (html.length < 400) continue;
@@ -539,6 +561,8 @@ export async function fetchBingWebSearch(query, max, opts = {}) {
       }
     } catch (e) {
       if (timer) clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+      if (opts.signal?.aborted) throw e;
       console.warn("[bing_web]", url.slice(0, 40), e?.message);
     }
   }
@@ -710,7 +734,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const fastBing = !/^(0|false|off|no)$/i.test(String(process.env.WEB_BING_FAST_PATH ?? "1").trim());
   if (fastBing && isCnBingFallbackEnabled() && !wantPreferredWeb) {
     try {
-      const bingR = await tracedSource("bing_fast", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true }));
+      const bingR = await tracedSource("bing_fast", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal: opts.signal }));
       if (bingR.papers?.length >= 4) {
         return {
           papers: bingR.papers.slice(0, totalCap),
@@ -727,70 +751,70 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const tavilyCap = Math.min(20, Math.ceil(perSource * 1.2));
   if (allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
-      tracedSource("tavily", () => fetchTavilyWebPapers(q, tavilyCap))
+      tracedSource("tavily", () => fetchTavilyWebPapers(q, tavilyCap, { signal: opts.signal }))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
-      tracedSource("dataify", () => fetchDataifyWebPapers(q, Math.min(64, Math.ceil(perSource * 1.35))))
+      tracedSource("dataify", () => fetchDataifyWebPapers(q, Math.min(64, Math.ceil(perSource * 1.35)), { signal: opts.signal }))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("wikipedia")) {
     tasks.push(
-      tracedSource("wikipedia", () => fetchWikipediaWebPapers(q, perSource))
+      tracedSource("wikipedia", () => fetchWikipediaWebPapers(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("core") && getCoreSearchConfig()) {
     tasks.push(
-      tracedSource("core", () => fetchCoreWebPapers(q, perSource))
+      tracedSource("core", () => fetchCoreWebPapers(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("searx")) {
     tasks.push(
-      tracedSource("searx", () => fetchSearxWebSearch(q, perSource))
+      tracedSource("searx", () => fetchSearxWebSearch(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mcp") && isMcpUsable()) {
     tasks.push(
-      tracedSource("mcp", () => fetchMcpWebPapers(q, perSource))
+      tracedSource("mcp", () => fetchMcpWebPapers(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mcp", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mcp", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("bing") && isBingWebEnabled()) {
     tasks.push(
-      tracedSource("bing", () => fetchBingWebSearch(q, perSource))
+      tracedSource("bing", () => fetchBingWebSearch(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "bing", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("ddg")) {
     tasks.push(
-      tracedSource("ddg", () => fetchDuckDuckGoSearch(q, perSource, { skipBing: true }))
+      tracedSource("ddg", () => fetchDuckDuckGoSearch(q, perSource, { skipBing: true, signal: opts.signal }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("qwant")) {
     tasks.push(
-      tracedSource("qwant", () => fetchQwantWebSearch(q, perSource))
+      tracedSource("qwant", () => fetchQwantWebSearch(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "qwant", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "qwant", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mojeek")) {
     tasks.push(
-      tracedSource("mojeek", () => fetchMojeekWebSearch(q, perSource))
+      tracedSource("mojeek", () => fetchMojeekWebSearch(q, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mojeek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mojeek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
@@ -798,7 +822,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   /** 与免费源并行：国内网络 DDG/SearX 常超时，cn.bing 通常可用 */
   if (isCnBingFallbackEnabled() && !allow.has("bing")) {
     tasks.push(
-      tracedSource("cn_bing", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true }))
+      tracedSource("cn_bing", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal: opts.signal }))
         .then((r) => ({ src: "cn_bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({
           src: "cn_bing",
@@ -818,6 +842,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   }
 
   const settled = await Promise.all(tasks);
+  if (opts.signal?.aborted) throw opts.signal.reason ?? new DOMException("Search cancelled", "AbortError");
   const notes = [];
   const tools = [];
   let all = [];
@@ -839,7 +864,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   /** 国内等环境：DDG/SearX 超时后自动用 cn.bing（不并入日常并行，避免依赖国际站） */
   if (!papers.length && isCnBingFallbackEnabled() && !allow.has("bing")) {
     try {
-      const fb = await fetchBingWebSearch(q, perSource, { cnOnly: true });
+      const fb = await fetchBingWebSearch(q, perSource, { cnOnly: true, signal: opts.signal });
       if (fb.papers?.length) {
         papers = fb.papers.slice(0, totalCap);
         note = `${note} · cn_bing_fallback:${fb.note}`;
@@ -873,7 +898,7 @@ export async function fetchDuckDuckGoSearch(query, max, opts) {
   if (tryBingFirst) {
     try {
       const bingQ = forPatent ? `${q} patent` : q;
-      const bing = await fetchBingWebSearch(bingQ, max);
+      const bing = await fetchBingWebSearch(bingQ, max, { signal: opts?.signal });
       if (bing.papers?.length) {
         const papers = bing.papers.map((p) => ({
           ...p,
@@ -893,10 +918,10 @@ export async function fetchDuckDuckGoSearch(query, max, opts) {
     }
   }
   try {
-    var html = await _ddgFetch(q);
+    var html = await _ddgFetch(q, opts?.signal);
     var items = _ddgParseResults(html, Math.min(max || 10, 20));
     if (!items.length) {
-      var bingItems = await _bingFallback(q, Math.min(max || 10, 20));
+      var bingItems = await _bingFallback(q, Math.min(max || 10, 20), opts?.signal);
       if (bingItems.length) {
         return {
           papers: _ddgToPapers(bingItems, sourceLabel, Math.min(max || 10, 28)),
@@ -914,7 +939,7 @@ export async function fetchDuckDuckGoSearch(query, max, opts) {
       const ddgCapErr = resolveWebSourceCap(max, 16);
       var bFallback =
         isBingWebEnabled() && !skipBing
-          ? await _bingFallback(q, ddgCapErr)
+          ? await _bingFallback(q, ddgCapErr, opts?.signal)
           : [];
       if (bFallback.length) {
         return {
@@ -930,8 +955,8 @@ export async function fetchDuckDuckGoSearch(query, max, opts) {
   }
 }
 
-async function _bingFallback(query, max) {
-  const r = await fetchBingWebSearch(query, max);
+async function _bingFallback(query, max, signal) {
+  const r = await fetchBingWebSearch(query, max, { signal });
   if (!r.papers?.length) return [];
   return r.papers.map((p) => ({
     url: p.absUrl,
@@ -940,14 +965,14 @@ async function _bingFallback(query, max) {
   }));
 }
 
-export async function fetchPatentPapers(query, max) {
+export async function fetchPatentPapers(query, max, opts = {}) {
   var cfg = getMcpWebSearchConfig();
   if (cfg) {
     var braveCheck = argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env);
     if (braveCheck) {
-      return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true });
+      return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true, signal: opts.signal });
     }
-    const out = await fetchMcpWebPapers(String(query || "").trim() + " patent", max);
+    const out = await fetchMcpWebPapers(String(query || "").trim() + " patent", max, opts);
     const papers = (out.papers ?? []).map(function (p) {
       const row = {
         ...p,
@@ -960,5 +985,5 @@ export async function fetchPatentPapers(query, max) {
     });
     return { papers: papers, note: out.note, toolName: out.toolName };
   }
-  return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true });
+  return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true, signal: opts.signal });
 }

@@ -213,6 +213,7 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
       timeoutMs: rewriteTimeoutMs,
       temperature: 0.2,
       maxTokens: 128,
+      signal: opts.signal,
       system: skillBlock + systemTail,
       messages: [
         { role: "user", content: convo ? `【对话上文】\n${convo}\n\n【本轮提问】\n${q}` : q },

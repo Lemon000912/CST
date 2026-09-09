@@ -28,7 +28,7 @@ function authorsOf(row) {
 }
 
 /** @returns {Promise<{papers: object[]; note: string; toolName: string}>} */
-export async function fetchCoreWebPapers(query, max) {
+export async function fetchCoreWebPapers(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   const cfg = getCoreSearchConfig();
   if (!q) return { papers: [], note: "empty-query", toolName: "core" };
@@ -38,7 +38,7 @@ export async function fetchCoreWebPapers(query, max) {
   try {
     const r = await fetchWithTimeout(
       `${BASE_URL}?${params.toString()}`,
-      { headers: { Accept: "application/json", Authorization: `Bearer ${cfg.apiKey}` } },
+      { headers: { Accept: "application/json", Authorization: `Bearer ${cfg.apiKey}` }, signal: opts.signal },
       cfg.timeoutMs,
     );
     if (!r.ok) return { papers: [], note: `http_${r.status}`, toolName: "core" };

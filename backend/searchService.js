@@ -530,6 +530,8 @@ function applySort(merged, sort) {
  * @returns {Promise<{ papers: object[]; patents: object[]; sourcesUsed: string[] }>}
  */
 async function runWebIntelSearch(opts) {
+  const signal = opts.signal;
+  throwIfSearchAborted(signal);
   const fullRawQuery = String(opts.fullRawQuery ?? "").trim();
   const rawQuery = String(opts.rawQuery ?? "").trim();
   const effectiveQuery = String(opts.effectiveQuery ?? "").trim();
@@ -577,7 +579,7 @@ async function runWebIntelSearch(opts) {
         performanceTrace,
         "search.web.round1.patents",
         {},
-        () => fetchPatentPapers(webPrimary, 45),
+        () => fetchPatentPapers(webPrimary, 45, { signal }),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0 }),
       ),
     });
@@ -594,6 +596,7 @@ async function runWebIntelSearch(opts) {
           chineseQuery: webSearchQ,
           performanceTrace,
           tracePrefix: `search.web.round1.query_${i + 1}.source`,
+          signal,
         }),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
       ),
@@ -607,9 +610,11 @@ async function runWebIntelSearch(opts) {
     () => raceWithTimeout(
       webTasks,
       Math.min(90_000, Math.max(45_000, Number(process.env.WEB_SEARCH_LAYER_TIMEOUT_MS) || 70_000)),
+      { signal },
     ),
     (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
+  throwIfSearchAborted(signal);
   for (const r of webLayer) {
     if (r.status !== "fulfilled") {
       console.warn(`[search] ${r.name} timeout/failed:`, r.reason);
@@ -667,6 +672,7 @@ async function runWebIntelSearch(opts) {
           chineseQuery: webSearchQ,
           performanceTrace,
           tracePrefix: `search.web.round2.query_${i + 1}.source`,
+          signal,
         }),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
       ),
@@ -678,9 +684,11 @@ async function runWebIntelSearch(opts) {
       () => raceWithTimeout(
         round2Tasks,
         Math.min(15_000, Math.max(8_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 12_000)),
+        { signal },
       ),
       (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
     );
+    throwIfSearchAborted(signal);
     for (const fr of r2) {
       if (fr.status === "fulfilled" && fr.value?.papers?.length) {
         webMerged = webMerged.concat(fr.value.papers);
@@ -704,6 +712,7 @@ async function runWebIntelSearch(opts) {
           chineseQuery: webSearchQ,
           performanceTrace,
           tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
+          signal,
         }),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
       ),
@@ -716,9 +725,10 @@ async function runWebIntelSearch(opts) {
       performanceTrace,
       "search.web.book_rescue.wait",
       { tasks: rescueTasks.length, timeoutMs: rescueTimeoutMs },
-      () => raceWithTimeout(rescueTasks, rescueTimeoutMs),
+      () => raceWithTimeout(rescueTasks, rescueTimeoutMs, { signal }),
       (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
     );
+    throwIfSearchAborted(signal);
     for (const rr of rescueResults) {
       if (webMerged.length >= 8) break;
       if (rr.status === "fulfilled" && rr.value?.papers?.length) {
@@ -740,6 +750,12 @@ async function runWebIntelSearch(opts) {
   return { papers: webMerged, patents: patentSearch, sourcesUsed };
 }
 
+function throwIfSearchAborted(signal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Search cancelled", "AbortError");
+  }
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.rawQuery
@@ -755,8 +771,11 @@ async function runWebIntelSearch(opts) {
  * @param {string} [opts.personaSkill] 用户身份 Skill 全文，先于默认策略参与检索式改写
  * @param {boolean} [opts.patentsOnly] 为 true 时仅外呼专利源（OpenAlex 专利 + DDG/MCP 专利），结果只含专利条目并补全 patentNumber
  * @param {(value: object) => void|Promise<void>} [opts.onPapersReady] 数据库基础结果可用时的增量通知
+ * @param {AbortSignal} [opts.signal] 客户端暂停时取消仍在执行的检索
  */
 export async function runPaperSearch(opts) {
+  const signal = opts.signal;
+  throwIfSearchAborted(signal);
   const started = Date.now();
   const channel = opts.channel === "web" ? "web" : "database";
   const useMcpWeb = opts.useMcpWeb !== false;
@@ -822,7 +841,7 @@ export async function runPaperSearch(opts) {
               performanceTrace,
               "search.query_rewrite",
               { queryChars: queryForSearch.length },
-              () => rewriteQueryForSearch(queryForSearch, { ...llmOpts, conversationContext }),
+              () => rewriteQueryForSearch(queryForSearch, { ...llmOpts, conversationContext, signal }),
               (value) => ({ note: value?.note }),
             )
           : { effectiveQuery: queryForSearch, note: "rewrite:skipped" };
@@ -839,7 +858,7 @@ export async function runPaperSearch(opts) {
           performanceTrace,
           "search.semantic_understand",
           { queryChars: queryForSearch.length },
-          () => understandQuery(queryForSearch, llmOpts),
+          () => understandQuery(queryForSearch, { ...llmOpts, signal }),
           (value) => ({ produced: Boolean(value) }),
         );
         if (queryIntent) {
@@ -859,6 +878,7 @@ export async function runPaperSearch(opts) {
     }
   }
   if (pending.length) await Promise.all(pending);
+  throwIfSearchAborted(signal);
   
   // 如果改写结果为空或无效，使用原始查询
   if (typoFix.hadTypo) {
@@ -944,6 +964,7 @@ export async function runPaperSearch(opts) {
       useMcpWeb,
       includePatents: isWebChannelPatentsEnabled(),
       performanceTrace,
+      signal,
     });
     sourcesUsed.push(...webIntel.sourcesUsed);
     if (webIntel.patents.length) buckets.push(webIntel.patents);
@@ -1005,7 +1026,7 @@ export async function runPaperSearch(opts) {
           partial: true,
         });
       } catch (e) {
-        // A client disconnect must not abort the underlying search pipeline.
+        // The SSE caller may have paused while this callback was in flight.
         console.warn("[search] incremental papers notification failed:", e?.message || e);
       }
     }
@@ -1044,7 +1065,8 @@ export async function runPaperSearch(opts) {
       { name: 'crossref', promise: traceAsync(performanceTrace, "search.database.crossref", {}, () => fetchCrossrefWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
       { name: 'openalex', promise: traceAsync(performanceTrace, "search.database.openalex", {}, () => fetchOpenAlexWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
       { name: 'semantic_scholar', promise: traceAsync(performanceTrace, "search.database.semantic_scholar", {}, () => fetchSemanticScholarWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
-    ], 18000); // 18秒超时
+    ], 18000, { signal }); // 18秒超时
+    throwIfSearchAborted(signal);
     
     let arxiv = [], crossSearch = [], oaSearch = [], semanticSearch = [];
     
@@ -1065,7 +1087,8 @@ export async function runPaperSearch(opts) {
     // 第2层：高质量源 Scopus（通常较慢但质量高）
     const scopusResult = await raceWithTimeout([
       { name: 'scopus', promise: traceAsync(performanceTrace, "search.database.scopus", {}, () => fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)), (rows) => ({ results: rows?.length ?? 0 })) }
-    ], 18000); // 18秒超时
+    ], 18000, { signal }); // 18秒超时
+    throwIfSearchAborted(signal);
     
     let scopusSearch = [];
     const scopusR = scopusResult[0];
@@ -1112,11 +1135,12 @@ export async function runPaperSearch(opts) {
       });
       supplementalTasks.push({
         name: "patents",
-        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35), (value) => ({ results: value?.papers?.length ?? 0 })),
+        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
       });
     }
     
-    const supplementalResults = await raceWithTimeout(supplementalTasks, 18000);
+    const supplementalResults = await raceWithTimeout(supplementalTasks, 18000, { signal });
+    throwIfSearchAborted(signal);
     
     for (const r of supplementalResults) {
       if (r.status === 'fulfilled') {
@@ -1159,6 +1183,7 @@ export async function runPaperSearch(opts) {
         useMcpWeb: true,
         includePatents: false,
         performanceTrace,
+        signal,
       });
       if (webIntel.sourcesUsed.length) sourcesUsed.push(...webIntel.sourcesUsed);
       if (webIntel.papers.length) {
@@ -1193,10 +1218,11 @@ export async function runPaperSearch(opts) {
       });
       poTasks.push({
         name: "patents",
-        promise: fetchPatentPapers(effectiveQuery, 45),
+        promise: fetchPatentPapers(effectiveQuery, 45, { signal }),
       });
     }
-    const poResults = await raceWithTimeout(poTasks, 25000);
+    const poResults = await raceWithTimeout(poTasks, 25000, { signal });
+    throwIfSearchAborted(signal);
     for (const r of poResults) {
       if (r.status === "fulfilled") {
         switch (r.name) {

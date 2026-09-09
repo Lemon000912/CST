@@ -199,7 +199,7 @@ function jsonToWebPapers(json, max, sourceLabel) {
  * @param {string} query
  * @param {number} cap
  */
-async function fetchDataifyGoogleSearch(cfg, query, cap) {
+async function fetchDataifyGoogleSearch(cfg, query, cap, opts = {}) {
   const q = sanitizeDataifySearchQuery(query);
   if (!q) {
     return { papers: [], note: "empty-query", toolName: "dataify-google" };
@@ -217,6 +217,9 @@ async function fetchDataifyGoogleSearch(cfg, query, cap) {
   if (cfg.lr) params.set("lr", cfg.lr);
 
   const controller = new AbortController();
+  const onAbort = () => controller.abort(opts.signal?.reason);
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  if (opts.signal?.aborted) onAbort();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
   try {
     const res = await fetch(cfg.requestUrl, {
@@ -268,6 +271,7 @@ async function fetchDataifyGoogleSearch(cfg, query, cap) {
     return { papers: [], note: `err:${msg}`, toolName: "dataify-google" };
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -276,7 +280,7 @@ async function fetchDataifyGoogleSearch(cfg, query, cap) {
  * @param {string} query
  * @param {number} cap
  */
-async function fetchDataifyLegacySearch(cfg, query, cap) {
+async function fetchDataifyLegacySearch(cfg, query, cap, opts = {}) {
   const u = new URL(cfg.path, cfg.base.endsWith("/") ? cfg.base : `${cfg.base}/`);
   u.searchParams.set(cfg.queryParam, query.slice(0, 2000));
   const headers = {
@@ -287,6 +291,9 @@ async function fetchDataifyLegacySearch(cfg, query, cap) {
   headers[cfg.authHeader] = authValue;
 
   const controller = new AbortController();
+  const onAbort = () => controller.abort(opts.signal?.reason);
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  if (opts.signal?.aborted) onAbort();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
   try {
     const res = await fetch(u.toString(), { method: "GET", headers, signal: controller.signal });
@@ -309,6 +316,7 @@ async function fetchDataifyLegacySearch(cfg, query, cap) {
     return { papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, toolName: "dataify" };
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -317,7 +325,7 @@ async function fetchDataifyLegacySearch(cfg, query, cap) {
  * @param {number} max
  * @returns {Promise<{ papers: object[]; note: string; toolName?: string }>}
  */
-export async function fetchDataifyWebPapers(query, max) {
+export async function fetchDataifyWebPapers(query, max, opts = {}) {
   const cfg = getDataifyWebSearchConfig();
   if (!cfg) return { papers: [], note: "disabled" };
   if (dataifyAuthDisabled && dataifyAuthDisabledKey === cfg.apiKey) {
@@ -332,7 +340,7 @@ export async function fetchDataifyWebPapers(query, max) {
 
   const cap = Math.min(max || 15, cfg.maxResults);
   if (cfg.mode === "google") {
-    return fetchDataifyGoogleSearch(cfg, q, cap);
+    return fetchDataifyGoogleSearch(cfg, q, cap, opts);
   }
-  return fetchDataifyLegacySearch(cfg, q, cap);
+  return fetchDataifyLegacySearch(cfg, q, cap, opts);
 }

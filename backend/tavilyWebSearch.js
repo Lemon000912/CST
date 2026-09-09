@@ -101,7 +101,7 @@ function tavilyJsonToPapers(json, max) {
  * @param {number} max
  * @returns {Promise<{ papers: object[]; note: string; toolName?: string }>}
  */
-export async function fetchTavilyWebPapers(query, max) {
+export async function fetchTavilyWebPapers(query, max, opts = {}) {
   if (tavilyAuthDisabled) return { papers: [], note: "auth_disabled" };
 
   const cfg = getTavilyWebSearchConfig();
@@ -119,6 +119,9 @@ export async function fetchTavilyWebPapers(query, max) {
   };
 
   const controller = new AbortController();
+  const onAbort = () => controller.abort(opts.signal?.reason);
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  if (opts.signal?.aborted) onAbort();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
   try {
     const res = await fetch(cfg.searchUrl, {
@@ -155,5 +158,6 @@ export async function fetchTavilyWebPapers(query, max) {
     return { papers: [], note: `err:${msg}`, toolName: "tavily" };
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onAbort);
   }
 }

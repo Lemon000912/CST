@@ -156,7 +156,7 @@ function parseHtmlLinks(html, max, skipHostRe) {
 /**
  * SearXNG JSON API（公共实例轮换）
  */
-export async function fetchSearxWebSearch(query, max) {
+export async function fetchSearxWebSearch(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   if (!q) return { papers: [], note: "empty-query", toolName: "searx" };
   const cap = resolveWebSourceCap(max, 12);
@@ -172,7 +172,7 @@ export async function fetchSearxWebSearch(query, max) {
     const url = `${base}/search?q=${encodeURIComponent(q)}&format=json&categories=general&language=auto&safesearch=0`;
     const r = await fetchWithTimeout(
       url,
-      { headers: { "User-Agent": UA, Accept: "application/json" } },
+      { headers: { "User-Agent": UA, Accept: "application/json" }, signal: opts.signal },
       timeout,
     );
     if (!r.ok) throw new Error(`${base}:${r.status}`);
@@ -235,7 +235,7 @@ export async function fetchSearxWebSearch(query, max) {
 /**
  * Qwant Lite HTML
  */
-export async function fetchQwantWebSearch(query, max) {
+export async function fetchQwantWebSearch(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   if (!q) return { papers: [], note: "empty-query", toolName: "qwant-lite" };
   const cap = resolveWebSourceCap(max, 12);
@@ -248,7 +248,7 @@ export async function fetchQwantWebSearch(query, max) {
 
   for (const url of urls) {
     try {
-      const r = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/html" } }, timeout);
+      const r = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/html" }, signal: opts.signal }, timeout);
       if (!r.ok) continue;
       const html = await r.text();
       const items = [];
@@ -288,7 +288,7 @@ export async function fetchQwantWebSearch(query, max) {
 /**
  * Mojeek HTML
  */
-export async function fetchMojeekWebSearch(query, max) {
+export async function fetchMojeekWebSearch(query, max, opts = {}) {
   const q = String(query ?? "").trim();
   if (!q) return { papers: [], note: "empty-query", toolName: "mojeek" };
   const cap = resolveWebSourceCap(max, 12);
@@ -297,7 +297,7 @@ export async function fetchMojeekWebSearch(query, max) {
   const skip = /mojeek\.com|google\.com|bing\.com/i;
 
   try {
-    const r = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/html" } }, timeout);
+    const r = await fetchWithTimeout(url, { headers: { "User-Agent": UA, Accept: "text/html" }, signal: opts.signal }, timeout);
     if (!r.ok) return { papers: [], note: `mojeek_http_${r.status}`, toolName: "mojeek" };
     const html = await r.text();
     const items = [];
