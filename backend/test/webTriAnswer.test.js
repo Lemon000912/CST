@@ -284,17 +284,18 @@ test("web tri skips C when one configured draft fails", async () => {
   });
 });
 
-test("web tri retries a transient fetch failure before giving up a draft", async () => {
+test("web tri makes one B attempt and preserves A after a transient fetch failure", async () => {
   await withMockLlm(async ({ baseUrl, calls }) => {
     const env = providerEnv(baseUrl);
     env.WEB_ANSWER_RETRIES = "2";
     env.LLM_PROVIDER_B_MODEL = "qwen-reset";
     await withEnv(env, async () => {
       const result = await runWebAnswer();
-      assert.equal(calls.filter((call) => call.model === "qwen-reset").length, 2);
-      assert.match(result.webAnswerDrafts.modelB, /qwen-reset answer/);
-      assert.equal(result.webAnswerDrafts.noteB, "web_answer:ok_retry_2");
-      assert.equal(result.synthesisModels.mode, "web_tri_arbitration");
+      assert.equal(calls.filter((call) => call.model === "qwen-reset").length, 1);
+      assert.equal(result.webAnswerDrafts.modelB, null);
+      assert.match(result.markdown, /gpt-test answer/);
+      assert.match(result.webAnswerDrafts.noteB, /web_answer:fetch failed/);
+      assert.equal(result.synthesisModels.mode, "web_tri_partial_1");
     });
   });
 });

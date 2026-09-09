@@ -232,6 +232,14 @@ function synthesisTimeoutMs() {
   return Math.min(360_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 180_000));
 }
 
+function previewTimeoutMs() {
+  return Math.min(120_000, Math.max(15_000, Number(process.env.WEB_PREVIEW_TIMEOUT_MS) || 45_000));
+}
+
+function draftTimeoutMs() {
+  return Math.min(120_000, Math.max(30_000, Number(process.env.WEB_DRAFT_TIMEOUT_MS) || 45_000));
+}
+
 function webAnswerMaxTokens(lite) {
   const cap = lite ? 3200 : Number(process.env.WEB_ANSWER_MAX_TOKENS) || 4200;
   return Math.min(8000, Math.max(lite ? 2200 : 3200, cap));
@@ -307,7 +315,7 @@ async function runWebDirectKnowledgeAnswer(args) {
       { slot: args.slot || "direct", model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
         signal: args.signal,
-        timeoutMs: synthesisTimeoutMs(),
+        timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
         temperature: 0.18,
         maxTokens: webAnswerMaxTokens(true),
         system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
@@ -368,9 +376,10 @@ async function runSingleWebAnswer(args) {
     ? `\n\n【输出偏好】\n${String(args.outputAvoidanceHint).slice(0, 2000)}`
     : "";
 
-  const maxAttempts = Number.isFinite(Number(args.maxAttempts))
+  const configuredAttempts = Number.isFinite(Number(args.maxAttempts))
     ? Math.min(3, Math.max(1, Math.floor(Number(args.maxAttempts))))
     : Math.min(3, Math.max(1, Number(process.env.WEB_ANSWER_RETRIES) || 2));
+  const maxAttempts = configuredAttempts;
   const provider = args.provider;
   const model = provider?.model;
   let lastNote = "web_answer:empty";
@@ -391,7 +400,7 @@ async function runSingleWebAnswer(args) {
         { model, lite: Boolean(args.lite), streaming: typeof args.onTextDelta === "function" },
         () => generateText(provider, {
           signal: args.signal,
-          timeoutMs: synthesisTimeoutMs(),
+          timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
           temperature: 0.12,
           maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
           system: skillPrefix + WEB_ANSWER_SYSTEM + avoid,
@@ -417,7 +426,9 @@ async function runSingleWebAnswer(args) {
         lastNote = `web_answer:${result.error}${upstreamStatus ? `:${upstreamStatus}` : networkCode ? `:${networkCode}` : ""}`;
         const modelMissing = result.status === 503 && /model_not_found|no available channel/i.test(result.errorBody);
         console.error("[webTriAnswer]", args.slot, model, result.status, result.error, upstreamStatus || networkCode || undefined);
-        if ((isRetriableLlmFailure(result) || modelMissing) && attempt < maxAttempts) {
+        const timeoutFailure = result.error === "timeout" || result.status === 408 || result.status === 504;
+        if ((isRetriableLlmFailure(result) || modelMissing) && attempt < maxAttempts &&
+            !(args.noTimeoutRetry && (timeoutFailure || result.status >= 500))) {
           await sleepMs(result.status === 504 ? 400 * attempt : 800 * attempt);
           continue;
         }
@@ -817,6 +828,8 @@ export async function synthesizeWebTriAnswer(p) {
     ...(useAPreview
       ? {
           lite: true,
+          timeoutMs: previewTimeoutMs(),
+          maxAttempts: 1,
           streamFirstAttemptOnly: true,
           onTextDelta: (delta) => {
             previewEmitted = true;
@@ -825,7 +838,14 @@ export async function synthesizeWebTriAnswer(p) {
         }
       : {}),
   });
-  const startB = () => runSingleWebAnswer({ ...base, provider: triProviders.B, slot: "B" });
+  const startB = () => runSingleWebAnswer({
+    ...base,
+    provider: triProviders.B,
+    slot: "B",
+    timeoutMs: draftTimeoutMs(),
+    maxAttempts: 1,
+    noTimeoutRetry: true,
+  });
   let ra;
   let rb;
   if (concurrency >= 2) {
@@ -929,6 +949,8 @@ export async function synthesizeWebTriAnswer(p) {
         // If preview yielded nothing, preserve the regular final-C streaming path.
         onTextDelta: previewEmitted ? undefined : p.onTextDelta,
         signal: p.signal,
+        timeoutMs: draftTimeoutMs(),
+        maxAttempts: 1,
       })
     : unavailableWebAnswer("web_arbitration:provider_not_configured");
 
@@ -947,11 +969,12 @@ export async function synthesizeWebTriAnswer(p) {
     };
   }
 
-  const longest = (rb.markdown?.length || 0) > (ra.markdown?.length || 0) ? rb : ra;
+  const fallback =
+    (rb.markdown?.length || 0) > (ra.markdown?.length || 0) ? rb : ra;
   return {
-    markdown: longest.markdown,
-    plan: longest.plan ?? pickWebPlan(ra, rb),
-    planNote: longest.planNote ?? null,
+    markdown: fallback.markdown,
+    plan: fallback.plan ?? pickWebPlan(ra, rb),
+    planNote: fallback.planNote ?? null,
     note: `web_tri:arbitration_failed_use_longest:${arbitration.note}|${sourceNote}`,
     synthesisModels: { ...synthesisModels, mode: executionMode("web_tri_fallback_longest") },
     llmUsage: buildLlmUsage({ ...draftUsage, C: arbitration.usage }),

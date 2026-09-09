@@ -1106,7 +1106,7 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
       // #endregion
       return res.status(422).json({
         error:
-          "未能形成可绘制的数值点（模型未返回有效 points，且摘要后备也未解析到「年份+百分数/eV」）。可换一批文献、在作图意图中写明坐标含义，或确认综述/摘要中含数字。",
+          "未能形成可绘制的数值点（模型未返回有效 points，且摘要后备也未解析到至少两个同单位、可追溯的数值）。可换一批文献、在作图意图中写明坐标含义，或确认摘要/综述中含有可比较的数字。",
         rawSpec: extracted.ok ? extracted.spec : null,
         llmError: extracted.ok ? undefined : extracted.error,
       });

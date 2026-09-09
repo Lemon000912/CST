@@ -2233,7 +2233,7 @@ function AssistantBlock({
         <div className="mt-4 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-3">
           <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">文献数值图（可点击散点 + Matplotlib PNG）</p>
           <p className="mb-2 text-[10px] leading-relaxed text-[var(--t-text-dim)]">
-            检索成功后会<strong>自动尝试</strong>作图：优先用 LLM 结合<strong>摘要 + 综述</strong>抽数；仍失败时会用摘要里的<strong>年份与首个 % / eV</strong>自动后备一张散点图（仍静默跳过若完全无数字）。也可填「作图意图」后点按钮重试。散点图下表列出各点横纵坐标对应的 DOI（`doi_x` /
+            检索成功后会<strong>自动尝试</strong>作图：优先用 LLM 结合<strong>摘要 + 综述</strong>抽取同含义、同单位的数据；仍失败时会从摘要中识别常见单位（如 %、eV、MPa、GPa、°C、nm 等）生成后备散点图（至少需要两个可追溯数值点）。也可填「作图意图」后点按钮重试。散点图下表列出各点横纵坐标对应的 DOI（`doi_x` /
             `doi_y`）。若本机已安装 Python3 与{" "}
             <code className="rounded bg-[var(--t-elevated)] px-0.5">matplotlib</code> 优先使用 Matplotlib PNG；否则使用纯 JS SVG 渲染。
           </p>

@@ -73,3 +73,25 @@ test("chart fallback honors a metric hint when no LLM is available", () => {
   assert.equal(fallback.y_axis.label, "百分数 (%)");
   assert.deepEqual(fallback.points.map((point) => point.y), [120, 145]);
 });
+
+test("chart fallback recognizes common material strength units", () => {
+  const papers = [
+    { id: "strength-1", source: "tavily_web", absUrl: "https://example.com/s1", year: 2022, summary: "Tensile strength reached 1.2 GPa." },
+    { id: "strength-2", source: "tavily_web", absUrl: "https://example.com/s2", year: 2023, summary: "The measured strength was 950 MPa." },
+  ];
+  const fallback = buildFallbackChartSpecFromAbstracts(papers, { hint: "拉伸强度" });
+  assert.ok(fallback);
+  assert.equal(fallback.y_axis.label, "强度 (MPa)");
+  assert.deepEqual(fallback.points.map((point) => point.y), [1200, 950]);
+});
+
+test("chart fallback recognizes temperature values with a hint", () => {
+  const papers = [
+    { id: "temp-1", source: "tavily_web", absUrl: "https://example.com/t1", year: 2022, summary: "The test was performed at 300 K." },
+    { id: "temp-2", source: "tavily_web", absUrl: "https://example.com/t2", year: 2023, summary: "The test temperature was 50 °C." },
+  ];
+  const fallback = buildFallbackChartSpecFromAbstracts(papers, { hint: "温度" });
+  assert.ok(fallback);
+  assert.equal(fallback.y_axis.label, "温度 (°C)");
+  assert.deepEqual(fallback.points.map((point) => Math.round(point.y * 10) / 10), [26.9, 50]);
+});

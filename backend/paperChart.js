@@ -299,29 +299,70 @@ export function normalizeChartSpec(spec, paperRefs = null) {
  */
 export function buildFallbackChartSpecFromAbstracts(papers, opts = {}) {
   const arr = Array.isArray(papers) ? papers.slice(0, 50) : [];
+  // Keep the fallback deliberately conservative: every candidate belongs to
+  // one named metric/unit family, so values with different physical meanings
+  // are never mixed on the same axis.  The LLM path remains preferred and can
+  // use domain-specific units that are not listed here.
+  const numberPattern = "([+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)";
   const metrics = [
     {
       type: "specific_capacity",
       label: "比容量 (mAh/g)",
-      regex: /(\d+(?:\.\d+)?)\s*(mAh\s*\/\s*g|Ah\s*\/\s*kg)\b/gi,
-      convert: (value) => value,
+      regex: new RegExp(`${numberPattern}\\s*(mAh\\s*\\/\\s*g|Ah\\s*\\/\\s*kg)\\b`, "gi"),
+      convert: (value, unit) => (/^ah/i.test(unit) ? value * 1000 : value),
     },
     {
       type: "voltage",
       label: "电压 (V)",
-      regex: /(\d+(?:\.\d+)?)\s*(mV|V)\b/gi,
+      regex: new RegExp(`${numberPattern}\\s*(mV|V)\\b`, "gi"),
       convert: (value, unit) => (/^mv$/i.test(unit) ? value / 1000 : value),
     },
     {
       type: "energy_ev",
       label: "能量/带隙 (eV)",
-      regex: /(\d+(?:\.\d+)?)\s*(eV)\b/gi,
+      regex: new RegExp(`${numberPattern}\\s*(eV)\\b`, "gi"),
       convert: (value) => value,
     },
     {
       type: "percent",
       label: "百分数 (%)",
-      regex: /(\d+(?:\.\d+)?)\s*([％%])/g,
+      regex: new RegExp(`${numberPattern}\\s*([％%])`, "g"),
+      convert: (value) => value,
+    },
+    {
+      type: "strength_mpa",
+      label: "强度 (MPa)",
+      regex: new RegExp(`${numberPattern}\\s*(MPa|GPa|kPa)\\b`, "gi"),
+      convert: (value, unit) => (/^gpa$/i.test(unit) ? value * 1000 : /^kpa$/i.test(unit) ? value / 1000 : value),
+    },
+    {
+      type: "modulus_gpa",
+      label: "模量 (GPa)",
+      regex: new RegExp(`${numberPattern}\\s*(GPa|MPa)\\b`, "gi"),
+      convert: (value, unit) => (/^mpa$/i.test(unit) ? value / 1000 : value),
+    },
+    {
+      type: "temperature_c",
+      label: "温度 (°C)",
+      regex: new RegExp(`${numberPattern}\\s*(°C|℃|K)(?=\\s|[,.;，。；：:)]|$)`, "gi"),
+      convert: (value, unit) => (/^k$/i.test(unit) ? value - 273.15 : value),
+    },
+    {
+      type: "size_nm",
+      label: "尺寸 (nm)",
+      regex: new RegExp(`${numberPattern}\\s*(nm|μm|µm|um)\\b`, "gi"),
+      convert: (value, unit) => (/^(?:μm|µm|um)$/i.test(unit) ? value * 1000 : value),
+    },
+    {
+      type: "conductivity",
+      label: "电导率 (S/cm)",
+      regex: new RegExp(`${numberPattern}\\s*(mS\\s*\\/\\s*cm|S\\s*\\/\\s*cm)\\b`, "gi"),
+      convert: (value, unit) => (/^ms/i.test(unit) ? value / 1000 : value),
+    },
+    {
+      type: "cycles",
+      label: "循环次数 (cycles)",
+      regex: new RegExp(`${numberPattern}\\s*(cycles?|循环(?:次数)?)(?=\\s|[,.;，。；：:)]|$)`, "gi"),
       convert: (value) => value,
     },
   ];
@@ -341,7 +382,7 @@ export function buildFallbackChartSpecFromAbstracts(papers, opts = {}) {
     for (const metric of metrics) {
       let addedForPaper = 0;
       for (const match of summary.matchAll(metric.regex)) {
-        const rawValue = Number(match[1]);
+        const rawValue = Number(String(match[1]).replace(/,/g, ""));
         const value = metric.convert(rawValue, String(match[2] ?? ""));
         if (!Number.isFinite(value)) continue;
         candidatesByType.get(metric.type).push({
@@ -376,6 +417,24 @@ export function buildFallbackChartSpecFromAbstracts(papers, opts = {}) {
   }
   if (/(?:拉伸率|延伸率|伸长率|应变|效率|百分数|百分比|percent|\bstrain\b|elongation|efficiency|\%)/i.test(hint)) {
     hintMetricTypes.push("percent");
+  }
+  if (/(?:强度|抗拉|拉伸强度|压缩强度|strength|MPa|GPa|kPa)/i.test(hint)) {
+    hintMetricTypes.push("strength_mpa");
+  }
+  if (/(?:模量|弹性模量|杨氏模量|modulus|young)/i.test(hint)) {
+    hintMetricTypes.push("modulus_gpa");
+  }
+  if (/(?:温度|temperature|°C|℃|\bK\b)/i.test(hint)) {
+    hintMetricTypes.push("temperature_c");
+  }
+  if (/(?:尺寸|粒径|厚度|直径|size|diameter|thickness|nm|μm|µm)/i.test(hint)) {
+    hintMetricTypes.push("size_nm");
+  }
+  if (/(?:电导率|导电率|conductivity|S\s*\/\s*cm)/i.test(hint)) {
+    hintMetricTypes.push("conductivity");
+  }
+  if (/(?:循环次数|循环|cycle)/i.test(hint)) {
+    hintMetricTypes.push("cycles");
   }
   const eligibleMetrics = metrics
     .map((metric) => ({ metric, points: candidatesByType.get(metric.type) }))
