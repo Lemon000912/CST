@@ -9,8 +9,9 @@
   模型加载完成后先发一行：{"ready": true}
 
 环境变量：
-  MATSCI_PIPELINE_ROOT  默认 E:\\15w，须含 pipeline.py、vocab_mappings.txt、models/MatSciBERT/…
-  MATSCI_NER_NO_CRF     默认 1（跳过 CRF，加载更快；设为 0 使用完整 CRF 权重）
+  MATSCI_PIPELINE_ROOT  Windows 默认 E:\\15w，Linux 默认 /home/ubuntu/15w；
+                         须含 pipeline.py、vocab_mappings.txt、models/MatSciBERT/…
+  MATSCI_NER_NO_CRF     默认 0（使用完整 CRF 权重；仅排错时设为 1 跳过 CRF）
 
 单次调试：python matsci_query_entities.py --once '{"text":"stainless steel corrosion"}'
 """
@@ -22,7 +23,10 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(os.environ.get("MATSCI_PIPELINE_ROOT", r"E:\15w")).expanduser().resolve()
+DEFAULT_PIPELINE_ROOT = Path(r"E:\15w") if os.name == "nt" else Path("/home/ubuntu/15w")
+ROOT = Path(
+    os.environ.get("MATSCI_PIPELINE_ROOT", str(DEFAULT_PIPELINE_ROOT))
+).expanduser().resolve()
 MAX_IN_CHARS = 12_000
 MAX_SUFFIX_CHARS = 900
 
@@ -51,7 +55,7 @@ def _load_engine():
         alt = pl.MODEL_DIR / "MatSciBERT" / "ner" / "models" / "matscholar"
         if alt.exists():
             ner_path = alt
-    no_crf = os.environ.get("MATSCI_NER_NO_CRF", "1").strip() != "0"
+    no_crf = os.environ.get("MATSCI_NER_NO_CRF", "0").strip() != "0"
     return pl.MatSciBERTNER(model_path=ner_path, no_crf=no_crf)
 
 

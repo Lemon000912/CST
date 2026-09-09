@@ -12,7 +12,8 @@ BERT-BiLSTM-CRF 实现），把 SPL/SMT/DSC/PRO/APL/MAT/CMT 标签映射为七�
   单条命令：python matsci_pdf_meta_extract.py --selftest
 
 环境变量：
-  MATSCI_META_DEMO_DIR     默认 D:\\workTrace\\end\\MatSciBERT\\matscibert-demo
+  MATSCI_META_DEMO_DIR     Windows 默认 E:\\新建文件夹\\MatSciBERT\\matscibert-demo；
+                           Linux 默认 /home/ubuntu/MatSciBERT/matscibert-demo
   MATSCI_META_MODEL_DIR    默认 <demo>\\model\\ner_matscholar
   MATSCI_META_DEVICE       默认自动（cuda 可用则 cuda，否则 cpu）
   MATSCI_META_NORMALIZE    默认 0；=1 时每个句子块先做 demo 的 normalize_text
@@ -28,7 +29,11 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_DEMO_DIR = Path(r"E:\新建文件夹\MatSciBERT\matscibert-demo")
+DEFAULT_DEMO_DIR = (
+    Path(r"E:\新建文件夹\MatSciBERT\matscibert-demo")
+    if os.name == "nt"
+    else Path("/home/ubuntu/MatSciBERT/matscibert-demo")
+)
 
 FIELD_BY_LABEL = {
     "SPL": "symmetry_phase",

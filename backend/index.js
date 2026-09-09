@@ -420,7 +420,7 @@ const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
 - **身份 / 用途（Skill）**：请求头 \`X-Persona\` 或 JSON 体 \`persona\` 填内置 id（见 \`GET /api/v1/personas\`）。服务端在**检索式 LLM 改写**与**文献综述**前会先拼接对应 Skill 再调用模型；未传时默认为 \`researcher\`。
 - **上传**：支持 PDF、Markdown、TXT、Word（.docx / .doc），解析后的正文会并入检索上下文（见 \`POST /api/v1/extract\`）。
 - **无命中扩检**：\`POST /api/v1/search\` 在首次检索返回文献 **≤12 条**时，会自动再跑一轮放宽检索（arXiv 字段固定为全文综合 \`all\`、关闭检索式 LLM 改写或附带扩检提示再改写），仍无结果时会在 \`rewriteNote\` 中带 \`expand2:still_zero\`。
-- **材料 MatSciBERT（身份 skill）**：侧栏身份选 **「材料 MatSciBERT（NER）」**（id: \`materials_matsci\`）时，服务端会用本机 Python 加载 \`MATSCI_PIPELINE_ROOT\`（默认 \`E:\\15w\`）下的 \`pipeline.py\` + MatSciBERT NER，在用户检索句后追加材料实体短语，再进入 LLM 检索式改写与多源检索。需已安装与 \`E:\\15w\` 管线相同的 PyTorch / transformers / nltk 等；可用 \`MATSCI_PYTHON\` 指定解释器，\`MATSCI_NER_DISABLE=1\` 关闭。
+- **材料 MatSciBERT（身份 skill）**：侧栏身份选 **「材料 MatSciBERT（NER）」**（id: \`materials_matsci\`）时，服务端会用本机 Python 加载 \`MATSCI_PIPELINE_ROOT\` 下的 \`pipeline.py\` + MatSciBERT NER，在用户检索句后追加材料实体短语，再进入 LLM 检索式改写与多源检索。Windows 默认目录为 \`E:\\15w\`，Linux 默认目录为 \`/home/ubuntu/15w\`；生产环境仍应显式配置 \`MATSCI_PIPELINE_ROOT\` 和 \`MATSCI_PYTHON\`，\`MATSCI_NER_DISABLE=1\` 可关闭。
 - **短语**：用英文双引号包裹，例如 \`"deep learning"\`。
 - **作者**：\`author:Einstein\` 或 \`author:"Yann LeCun"\`（映射 arXiv \`au:\`）。
 - **年份**：\`year:2023\`（映射 arXiv 提交时间区间）。
