@@ -16,7 +16,9 @@ export const RECHARGE_PACKAGE = Object.freeze({
 });
 
 const PROVIDERS = new Set(["alipay", "wechat"]);
-const ORDER_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_ORDER_TTL_MS = 15 * 60 * 1000;
+const WECHAT_ORDER_TTL_MS = 5 * 60 * 1000;
+const ORDER_NO_ATTEMPTS = 5;
 
 function requiredText(value, field, maxLength = 200) {
   const text = String(value ?? "").trim();
@@ -50,6 +52,7 @@ function publicOrder(row, balance = undefined) {
     orderNo: String(row.order_no),
     provider: String(row.provider),
     packageId: String(row.package_id),
+    description: String(row.description || ""),
     amountFen: integer(row.amount_fen, "amountFen"),
     amountYuan: integer(row.amount_fen, "amountFen") / 100,
     points: integer(row.point_units, "pointUnits") / POINT_UNITS,
@@ -102,8 +105,35 @@ async function readOrderByIdempotency(db, userId, idempotencyKey, lock = false) 
   return db.get("SELECT * FROM point_recharge_orders WHERE user_id = ? AND idempotency_key = ?", [userId, idempotencyKey]);
 }
 
-function newOrderNo() {
-  return `R${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+export function newOrderNo(provider = "wechat", now = new Date()) {
+  if (provider !== "wechat") {
+    return `R${now.getTime().toString(36).toUpperCase()}${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+  }
+  const timestamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `WX${timestamp}${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+}
+
+function effectiveAmountFen(provider) {
+  const testEnabled = String(process.env.WECHAT_PAY_TEST_MODE ?? "").trim().toLowerCase() === "true";
+  if (provider !== "wechat" || process.env.NODE_ENV === "production" || !testEnabled) {
+    return RECHARGE_PACKAGE.amountFen;
+  }
+  const configured = Number(process.env.WECHAT_PAY_TEST_AMOUNT_FEN ?? 1);
+  if (!Number.isSafeInteger(configured) || configured <= 0) {
+    throw new BillingError("invalid-wechat-test-amount", "WECHAT_PAY_TEST_AMOUNT_FEN 必须是正整数分", 503);
+  }
+  return configured;
+}
+
+function orderTtlMs(provider) {
+  return provider === "wechat" ? WECHAT_ORDER_TTL_MS : DEFAULT_ORDER_TTL_MS;
 }
 
 export function getRechargeCatalog() {
@@ -139,12 +169,22 @@ async function markCreateFailed(orderId, error) {
   }
 }
 
-export async function createRechargeOrder({ userId, provider, idempotencyKey }) {
+export async function createRechargeOrder({
+  userId,
+  provider,
+  idempotencyKey,
+  planId = RECHARGE_PACKAGE.id,
+  createProviderOrderImpl = createProviderOrder,
+}) {
   const normalizedUserId = requiredText(userId, "userId", 128);
   const normalizedProvider = requiredText(provider, "provider", 32).toLowerCase();
   const normalizedKey = requiredText(idempotencyKey, "idempotencyKey", 200);
+  const normalizedPlanId = requiredText(planId, "planId", 100);
   if (!PROVIDERS.has(normalizedProvider)) {
     throw new BillingError("unsupported-payment-provider", "不支持的支付方式", 400);
+  }
+  if (normalizedPlanId !== RECHARGE_PACKAGE.id) {
+    throw new BillingError("recharge-plan-not-found", "充值套餐不存在或已下架", 404);
   }
   const availability = getPaymentProviderAvailability();
   if (!availability[normalizedProvider]) {
@@ -163,26 +203,36 @@ export async function createRechargeOrder({ userId, provider, idempotencyKey }) 
         return { row: existing, shouldCreateAtProvider: false };
       }
       const id = crypto.randomUUID();
-      const orderNo = newOrderNo();
+      let orderNo = "";
+      for (let attempt = 0; attempt < ORDER_NO_ATTEMPTS; attempt += 1) {
+        const candidate = newOrderNo(normalizedProvider);
+        if (!(await readOrderByNo(tx, candidate))) {
+          orderNo = candidate;
+          break;
+        }
+      }
+      if (!orderNo) throw new BillingError("recharge-order-conflict", "无法生成唯一支付订单号，请重试", 409);
       const now = Date.now();
-      const expiresAt = now + ORDER_TTL_MS;
+      const expiresAt = now + orderTtlMs(normalizedProvider);
+      const amountFen = effectiveAmountFen(normalizedProvider);
+      const description = `积分充值：${RECHARGE_PACKAGE.points} 积分`;
       if (tx.dialect === "postgres") {
         await tx.run(
           `INSERT INTO point_recharge_orders
-           (id, order_no, user_id, package_id, provider, idempotency_key, amount_fen, point_units,
+           (id, order_no, user_id, package_id, description, provider, idempotency_key, amount_fen, point_units,
             status, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'creating',$9,$9,$10)`,
-          [id, orderNo, normalizedUserId, RECHARGE_PACKAGE.id, normalizedProvider, normalizedKey,
-            RECHARGE_PACKAGE.amountFen, RECHARGE_PACKAGE.pointUnits, now, expiresAt],
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'creating',$10,$10,$11)`,
+          [id, orderNo, normalizedUserId, normalizedPlanId, description, normalizedProvider, normalizedKey,
+            amountFen, RECHARGE_PACKAGE.pointUnits, now, expiresAt],
         );
       } else {
         await tx.run(
           `INSERT INTO point_recharge_orders
-           (id, order_no, user_id, package_id, provider, idempotency_key, amount_fen, point_units,
+           (id, order_no, user_id, package_id, description, provider, idempotency_key, amount_fen, point_units,
             status, created_at, updated_at, expires_at)
-           VALUES (?,?,?,?,?,?,?,?,'creating',?,?,?)`,
-          [id, orderNo, normalizedUserId, RECHARGE_PACKAGE.id, normalizedProvider, normalizedKey,
-            RECHARGE_PACKAGE.amountFen, RECHARGE_PACKAGE.pointUnits, now, now, expiresAt],
+           VALUES (?,?,?,?,?,?,?,?,?,'creating',?,?,?)`,
+          [id, orderNo, normalizedUserId, normalizedPlanId, description, normalizedProvider, normalizedKey,
+            amountFen, RECHARGE_PACKAGE.pointUnits, now, now, expiresAt],
         );
       }
       return { row: await readOrderById(tx, id), shouldCreateAtProvider: true };
@@ -209,11 +259,12 @@ export async function createRechargeOrder({ userId, provider, idempotencyKey }) 
   // original request into marking a successfully-created order as failed.
   if (!shouldCreateAtProvider || String(row.status) !== "creating") return publicOrder(row);
   try {
-    const providerOrder = await createProviderOrder({
+    if (normalizedProvider === "wechat") console.log(`[WechatPay] create native order ${String(row.order_no)}`);
+    const providerOrder = await createProviderOrderImpl({
       provider: normalizedProvider,
       orderNo: String(row.order_no),
-      amountFen: RECHARGE_PACKAGE.amountFen,
-      description: `积分充值：${RECHARGE_PACKAGE.points} 积分`,
+      amountFen: integer(row.amount_fen, "amountFen"),
+      description: String(row.description || `积分充值：${RECHARGE_PACKAGE.points} 积分`),
     });
     const now = Date.now();
     row = await withDatabaseTransaction(async (tx) => {
@@ -223,7 +274,7 @@ export async function createRechargeOrder({ userId, provider, idempotencyKey }) 
            SET status = 'pending', code_url = $1, provider_order_id = COALESCE($2, provider_order_id),
                failure_code = NULL, updated_at = $3
            WHERE id = $4 AND status = 'creating'`,
-          [providerOrder.codeUrl, providerOrder.providerOrderId, now, row.id],
+          [providerOrder.codeUrl, providerOrder.providerOrderId ?? null, now, row.id],
         );
       } else {
         await tx.run(
@@ -231,11 +282,12 @@ export async function createRechargeOrder({ userId, provider, idempotencyKey }) 
            SET status = 'pending', code_url = ?, provider_order_id = COALESCE(?, provider_order_id),
                failure_code = NULL, updated_at = ?
            WHERE id = ? AND status = 'creating'`,
-          [providerOrder.codeUrl, providerOrder.providerOrderId, now, row.id],
+          [providerOrder.codeUrl, providerOrder.providerOrderId ?? null, now, row.id],
         );
       }
       return readOrderById(tx, row.id);
     });
+    if (normalizedProvider === "wechat") console.log(`[WechatPay] native order created ${String(row.order_no)}`);
     return publicOrder(row);
   } catch (error) {
     await markCreateFailed(row.id, error);
@@ -250,10 +302,55 @@ export async function getRechargeOrder({ userId, orderId }) {
   const normalizedUserId = requiredText(userId, "userId", 128);
   const normalizedOrderId = requiredText(orderId, "orderId", 128);
   const db = await readDb();
-  const row = await readOrderById(db, normalizedOrderId);
+  let row = await readOrderById(db, normalizedOrderId);
   if (!row || String(row.user_id) !== normalizedUserId) {
     throw new BillingError("recharge-order-not-found", "充值订单不存在", 404);
   }
+  row = await closeExpiredOrder(row);
+  let balance;
+  if (String(row.status) === "paid") {
+    const wallet = db.dialect === "postgres"
+      ? await db.get("SELECT balance_units FROM point_wallets WHERE user_id = $1", [normalizedUserId])
+      : await db.get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [normalizedUserId]);
+    if (wallet) balance = balancePayload(normalizedUserId, wallet.balance_units);
+  }
+  return publicOrder(row, balance);
+}
+
+async function closeExpiredOrder(row) {
+  if (!row || !["creating", "pending"].includes(String(row.status)) || Date.now() < Number(row.expires_at)) {
+    return row;
+  }
+  return withDatabaseTransaction(async (tx) => {
+    const locked = await readOrderById(tx, row.id, true);
+    if (!locked) return row;
+    if (["creating", "pending"].includes(String(locked.status)) && Date.now() >= Number(locked.expires_at)) {
+      const now = Date.now();
+      if (tx.dialect === "postgres") {
+        await tx.run(
+          "UPDATE point_recharge_orders SET status = 'closed', code_url = NULL, updated_at = $1 WHERE id = $2 AND status IN ('creating','pending')",
+          [now, locked.id],
+        );
+      } else {
+        await tx.run(
+          "UPDATE point_recharge_orders SET status = 'closed', code_url = NULL, updated_at = ? WHERE id = ? AND status IN ('creating','pending')",
+          [now, locked.id],
+        );
+      }
+    }
+    return readOrderById(tx, locked.id);
+  });
+}
+
+export async function getRechargeOrderByNo({ userId, orderNo }) {
+  const normalizedUserId = requiredText(userId, "userId", 128);
+  const normalizedOrderNo = requiredText(orderNo, "orderNo", 128);
+  const db = await readDb();
+  let row = await readOrderByNo(db, normalizedOrderNo);
+  if (!row || String(row.user_id) !== normalizedUserId) {
+    throw new BillingError("recharge-order-not-found", "充值订单不存在", 404);
+  }
+  row = await closeExpiredOrder(row);
   let balance;
   if (String(row.status) === "paid") {
     const wallet = db.dialect === "postgres"
@@ -287,6 +384,9 @@ export async function completeRechargeOrder({ provider, orderNo, providerTransac
         ? await tx.get("SELECT balance_units FROM point_wallets WHERE user_id = $1", [row.user_id])
         : await tx.get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [row.user_id]);
       return { replayed: true, order: publicOrder(row, wallet ? balancePayload(row.user_id, wallet.balance_units) : undefined) };
+    }
+    if (!["creating", "pending"].includes(String(row.status))) {
+      throw new BillingError("payment-order-state-invalid", "支付订单当前状态不允许入账", 409);
     }
 
     const wallet = tx.dialect === "postgres"
@@ -340,6 +440,7 @@ export async function completeRechargeOrder({ provider, orderNo, providerTransac
       );
     }
     const completedRow = await readOrderById(tx, row.id);
+    if (normalizedProvider === "wechat") console.log(`[WechatPay] order ${normalizedOrderNo} paid`);
     return { replayed: false, order: publicOrder(completedRow, balancePayload(row.user_id, nextBalanceUnits)) };
   });
 }

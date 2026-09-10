@@ -27,6 +27,7 @@ export type RechargeOrder = {
   orderNo: string;
   provider: RechargeProvider;
   packageId: string;
+  description?: string;
   amountFen: number;
   amountYuan: number;
   points: number;

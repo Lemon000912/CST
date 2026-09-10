@@ -234,6 +234,7 @@ function parseRechargeOrder(value: unknown): RechargeOrder | undefined {
     orderNo,
     provider,
     packageId: String(raw.packageId ?? ""),
+    description: raw.description == null ? undefined : String(raw.description),
     amountFen: finiteNumber(raw.amountFen),
     amountYuan: finiteNumber(raw.amountYuan, finiteNumber(raw.amountFen) / 100),
     points: finiteNumber(raw.points),
@@ -278,26 +279,30 @@ export async function fetchRechargeCatalog(): Promise<RechargeCatalog> {
   };
 }
 
-export async function createRechargeOrder(provider: RechargeProvider): Promise<RechargeOrder> {
-  const res = await fetch("/api/v1/billing/recharge/orders", {
+export async function createRechargeOrder(provider: RechargeProvider, planId?: string): Promise<RechargeOrder> {
+  const isWechat = provider === "wechat";
+  const res = await fetch(isWechat ? "/api/pay/wechat/native" : "/api/v1/billing/recharge/orders", {
     method: "POST",
     headers: headersJson({ "Idempotency-Key": createIdempotencyKey() }),
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify(isWechat ? { planId } : { provider }),
   });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw apiErrorFrom(res.status, data, `创建充值订单失败（${res.status}）`);
-  const order = parseRechargeOrder(data.order);
-  if (!order) throw new ApiError("充值订单响应不完整", { status: res.status });
-  return order;
+  const parsedOrder = parseRechargeOrder(data.order);
+  if (!parsedOrder) throw new ApiError("充值订单响应不完整", { status: res.status });
+  return parsedOrder;
 }
 
-export async function fetchRechargeOrder(orderId: string): Promise<RechargeOrder> {
-  const res = await fetch(`/api/v1/billing/recharge/orders/${encodeURIComponent(orderId)}`, { headers: headersJson() });
+export async function fetchRechargeOrder(order: Pick<RechargeOrder, "id" | "orderNo" | "provider">): Promise<RechargeOrder> {
+  const url = order.provider === "wechat"
+    ? `/api/pay/wechat/orders/${encodeURIComponent(order.orderNo)}/status`
+    : `/api/v1/billing/recharge/orders/${encodeURIComponent(order.id)}`;
+  const res = await fetch(url, { headers: headersJson() });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw apiErrorFrom(res.status, data, `查询充值订单失败（${res.status}）`);
-  const order = parseRechargeOrder(data.order);
-  if (!order) throw new ApiError("充值订单响应不完整", { status: res.status });
-  return order;
+  const parsedOrder = parseRechargeOrder(data.order);
+  if (!parsedOrder) throw new ApiError("充值订单响应不完整", { status: res.status });
+  return parsedOrder;
 }
 
 export async function fetchUserSkillFavoriteKeywords(): Promise<string[] | undefined> {

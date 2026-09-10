@@ -19,3 +19,8 @@ backend/data/deep-mine-temp/
 backend/data/pdf-source-cache/
 .cursor
 .env
+.env.production
+.env.local
+.env.*.local
+*.pem
+apiclient_key.pem

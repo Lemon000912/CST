@@ -120,9 +120,11 @@ import {
 } from "./recharge.js";
 import {
   PaymentProviderError,
+  logWechatPayStartupStatus,
   verifyAlipayNotification,
   verifyWechatNotification,
 } from "./rechargeProviders.js";
+import { createWechatPayRouter } from "./wechatPayRoutes.js";
 import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
 import {
   getPdfSourceJob,
@@ -457,7 +459,10 @@ app.use(cors({ origin: true }));
 app.use(express.json({
   limit: "24mb",
   verify: (req, _res, buffer) => {
-    if (req.originalUrl.startsWith("/api/v1/billing/recharge/callback/wechat")) {
+    if (
+      req.originalUrl.startsWith("/api/v1/billing/recharge/callback/wechat")
+      || req.originalUrl.startsWith("/api/pay/wechat/notify")
+    ) {
       req.rawBody = Buffer.from(buffer);
     }
   },
@@ -707,6 +712,13 @@ app.get("/api/v1/billing/recharge/orders/:id", requireAuthenticatedUser, async (
     return sendStructuredError(res, error, { message: "查询充值订单失败" });
   }
 });
+
+if (!isEnterpriseEdition()) {
+  app.use("/api/pay/wechat", createWechatPayRouter({
+    requireAuthenticatedUser,
+    rateLimit: rechargeLimiter,
+  }));
+}
 
 app.post(
   "/api/v1/billing/recharge/callback/alipay",
@@ -3765,6 +3777,10 @@ await initDatabase().catch((e) => {
   console.error("[db] fatal init", e);
   process.exit(1);
 });
+
+if (!isEnterpriseEdition()) {
+  logWechatPayStartupStatus();
+}
 
 await seedDevAdminIfEnabled();
 await seedEnterpriseAdminIfEnabled();

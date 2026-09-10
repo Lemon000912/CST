@@ -571,6 +571,7 @@ export async function initDatabase() {
           order_no TEXT NOT NULL UNIQUE,
           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
           package_id TEXT NOT NULL,
+          description TEXT,
           provider TEXT NOT NULL CHECK (provider IN ('alipay', 'wechat')),
           idempotency_key TEXT NOT NULL,
           amount_fen BIGINT NOT NULL CHECK (amount_fen > 0),
@@ -588,6 +589,7 @@ export async function initDatabase() {
           UNIQUE(provider, provider_transaction_id)
         )
       `);
+      await billingClient.query(`ALTER TABLE point_recharge_orders ADD COLUMN IF NOT EXISTS description TEXT`);
       await billingClient.query(`
         CREATE INDEX IF NOT EXISTS point_recharge_orders_user_created
         ON point_recharge_orders(user_id, created_at DESC)
@@ -813,6 +815,7 @@ export async function initDatabase() {
         order_no TEXT NOT NULL UNIQUE,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
         package_id TEXT NOT NULL,
+        description TEXT,
         provider TEXT NOT NULL CHECK (provider IN ('alipay', 'wechat')),
         idempotency_key TEXT NOT NULL,
         amount_fen INTEGER NOT NULL CHECK (amount_fen > 0),
@@ -842,6 +845,11 @@ export async function initDatabase() {
       await db.exec(`ALTER TABLE point_operations ADD COLUMN lease_token TEXT`);
     } catch (_) {
       /* Existing database already has the lease fencing column. */
+    }
+    try {
+      await db.exec(`ALTER TABLE point_recharge_orders ADD COLUMN description TEXT`);
+    } catch (_) {
+      /* Existing database already has the payment description column. */
     }
     // papers 表（本地文献库）
     await db.exec(`
