@@ -30,7 +30,8 @@ export default function SchoolRechargeModal({
   const [catalog, setCatalog] = useState<RechargeCatalog | null>(null);
   const [provider, setProvider] = useState<RechargeProvider>("wechat");
   const [order, setOrder] = useState<RechargeOrder | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const paidHandledRef = useRef(false);
   const pollingStartedAtRef = useRef(0);
@@ -41,7 +42,8 @@ export default function SchoolRechargeModal({
     pollingStartedAtRef.current = 0;
     setOrder(null);
     setError(null);
-    setLoading(true);
+    setCreatingOrder(false);
+    setCatalogLoading(true);
     void fetchRechargeCatalog()
       .then((next) => {
         setCatalog(next);
@@ -50,7 +52,7 @@ export default function SchoolRechargeModal({
         if (firstEnabled) setProvider(firstEnabled.id);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "充值配置加载失败"))
-      .finally(() => setLoading(false));
+      .finally(() => setCatalogLoading(false));
   }, [open]);
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export default function SchoolRechargeModal({
   const providerLabel = catalog?.providers.find((item) => item.id === order?.provider)?.label ?? "支付应用";
 
   const startPayment = async () => {
-    setLoading(true);
+    setCreatingOrder(true);
     setError(null);
     paidHandledRef.current = false;
     pollingStartedAtRef.current = Date.now();
@@ -135,7 +137,7 @@ export default function SchoolRechargeModal({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建充值订单失败");
     } finally {
-      setLoading(false);
+      setCreatingOrder(false);
     }
   };
 
@@ -187,7 +189,7 @@ export default function SchoolRechargeModal({
                     <button
                       key={item.id}
                       type="button"
-                      disabled={!item.enabled || loading}
+                      disabled={!item.enabled || catalogLoading || creatingOrder}
                       onClick={() => setProvider(item.id)}
                       className={`rounded-xl border px-3 py-3 text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                         provider === item.id
@@ -202,13 +204,13 @@ export default function SchoolRechargeModal({
               </div>
               <button
                 type="button"
-                disabled={loading || enabledProviders.length === 0}
+                disabled={catalogLoading || creatingOrder || enabledProviders.length === 0}
                 onClick={() => void startPayment()}
                 className="qp-btn-primary w-full justify-center py-2.5 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {loading ? "正在创建订单…" : "生成付款二维码"}
+                {creatingOrder ? "正在创建订单…" : "生成付款二维码"}
               </button>
-              {!loading && catalog && enabledProviders.length === 0 ? (
+              {!catalogLoading && !creatingOrder && catalog && enabledProviders.length === 0 ? (
                 <p className="text-center text-[11px] leading-relaxed text-amber-500">支付通道尚未配置，请联系管理员。</p>
               ) : null}
             </>
@@ -229,11 +231,11 @@ export default function SchoolRechargeModal({
               </div>
               <button
                 type="button"
-                disabled={loading}
+                disabled={creatingOrder}
                 onClick={() => void startPayment()}
                 className="qp-btn-primary mt-5 w-full justify-center py-2.5 disabled:opacity-45"
               >
-                {loading ? "正在创建订单…" : "重新支付"}
+                {creatingOrder ? "正在创建订单…" : "重新支付"}
               </button>
             </div>
           ) : (
