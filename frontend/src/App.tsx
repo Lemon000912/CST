@@ -96,9 +96,12 @@ import type {
 // Vite replaces this value per edition. The enterprise build eliminates the
 // dynamic import entirely, so payment UI and QR code code exist only in the
 // school frontend artifact.
-const SchoolRechargeModal = import.meta.env.VITE_APP_EDITION === "enterprise"
+const loadSchoolRechargeModule = import.meta.env.VITE_APP_EDITION === "enterprise"
   ? null
-  : lazy(() => import("./SchoolRechargeModal"));
+  : () => import("./SchoolRechargeModal");
+const SchoolRechargeModal = loadSchoolRechargeModule
+  ? lazy(loadSchoolRechargeModule)
+  : null;
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -2498,6 +2501,15 @@ export default function App({
   }, [onLogout, pointsEnabled]);
 
   useEffect(() => {
+    if (!pointsEnabled || !loadSchoolRechargeModule) return;
+    void loadSchoolRechargeModule()
+      .then((module) => module.preloadRechargeCatalog())
+      .catch(() => {
+        // 打开充值弹窗前会重试；预加载失败不影响其他校园版功能。
+      });
+  }, [pointsEnabled]);
+
+  useEffect(() => {
     if (!pointsEnabled) {
       setStudentVerificationOpen(false);
       return;
@@ -2539,6 +2551,16 @@ export default function App({
       })
       .catch((reason) => setBalanceError(reason instanceof Error ? reason.message : "积分余额刷新失败"));
   }, [pointsEnabled]);
+
+  const openRechargeModal = useCallback(() => {
+    if (!loadSchoolRechargeModule) return;
+    void loadSchoolRechargeModule()
+      .then((module) => module.preloadRechargeCatalog())
+      .catch(() => {
+        // 弹窗内部会显示配置加载错误并允许用户稍后重试。
+      })
+      .finally(() => setRechargeOpen(true));
+  }, []);
 
   useEffect(() => {
     if (!deepMineToast) return;
@@ -3961,7 +3983,7 @@ export default function App({
             {pointsEnabled ? (
               <button
                 type="button"
-                onClick={() => setRechargeOpen(true)}
+                onClick={openRechargeModal}
                 className="rounded-md border border-blue-500/35 bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-500 transition hover:border-blue-500/60 hover:bg-blue-500/15"
               >
                 充值
@@ -4147,7 +4169,7 @@ export default function App({
           {pointsEnabled ? (
             <button
               type="button"
-              onClick={() => setRechargeOpen(true)}
+              onClick={openRechargeModal}
               className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-right text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] lg:hidden"
               aria-label="查看积分并充值"
             >

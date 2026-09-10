@@ -16,6 +16,27 @@ function formatPoints(value: number | undefined): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : "—";
 }
 
+let cachedRechargeCatalog: RechargeCatalog | null = null;
+let rechargeCatalogRequest: Promise<RechargeCatalog> | null = null;
+
+function loadRechargeCatalog(refresh = false): Promise<RechargeCatalog> {
+  if (!refresh && cachedRechargeCatalog) return Promise.resolve(cachedRechargeCatalog);
+  if (rechargeCatalogRequest) return rechargeCatalogRequest;
+  rechargeCatalogRequest = fetchRechargeCatalog()
+    .then((next) => {
+      cachedRechargeCatalog = next;
+      return next;
+    })
+    .finally(() => {
+      rechargeCatalogRequest = null;
+    });
+  return rechargeCatalogRequest;
+}
+
+export function preloadRechargeCatalog(): Promise<RechargeCatalog> {
+  return loadRechargeCatalog();
+}
+
 export default function SchoolRechargeModal({
   open,
   balance,
@@ -27,7 +48,7 @@ export default function SchoolRechargeModal({
   onClose: () => void;
   onPaid: (billing?: PointBalance) => void;
 }) {
-  const [catalog, setCatalog] = useState<RechargeCatalog | null>(null);
+  const [catalog, setCatalog] = useState<RechargeCatalog | null>(() => cachedRechargeCatalog);
   const [provider, setProvider] = useState<RechargeProvider>("wechat");
   const [order, setOrder] = useState<RechargeOrder | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -38,21 +59,34 @@ export default function SchoolRechargeModal({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    const cached = cachedRechargeCatalog;
     paidHandledRef.current = false;
     pollingStartedAtRef.current = 0;
     setOrder(null);
     setError(null);
     setCreatingOrder(false);
-    setCatalogLoading(true);
-    void fetchRechargeCatalog()
+    setCatalog(cached);
+    setCatalogLoading(!cached);
+    void loadRechargeCatalog(Boolean(cached))
       .then((next) => {
+        if (cancelled) return;
         setCatalog(next);
         // 支付宝入口暂时下线；恢复时移除 id 过滤，并补回下方的支付宝占位项。
         const firstEnabled = next.providers.find((item) => item.id === "wechat" && item.enabled);
         if (firstEnabled) setProvider(firstEnabled.id);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "充值配置加载失败"))
-      .finally(() => setCatalogLoading(false));
+      .catch((reason) => {
+        if (!cancelled && !cached) {
+          setError(reason instanceof Error ? reason.message : "充值配置加载失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -122,10 +156,11 @@ export default function SchoolRechargeModal({
   }, [onClose, open]);
 
   if (!open) return null;
+  const activeCatalog = catalog ?? cachedRechargeCatalog;
   // 学生版充值弹窗当前只展示微信支付，后端返回的支付宝通道暂不暴露给用户。
-  const visibleProviders = catalog?.providers.filter((item) => item.id === "wechat") ?? [];
+  const visibleProviders = activeCatalog?.providers.filter((item) => item.id === "wechat") ?? [];
   const enabledProviders = visibleProviders.filter((item) => item.enabled);
-  const providerLabel = catalog?.providers.find((item) => item.id === order?.provider)?.label ?? "支付应用";
+  const providerLabel = activeCatalog?.providers.find((item) => item.id === order?.provider)?.label ?? "支付应用";
 
   const startPayment = async () => {
     setCreatingOrder(true);
@@ -133,7 +168,7 @@ export default function SchoolRechargeModal({
     paidHandledRef.current = false;
     pollingStartedAtRef.current = Date.now();
     try {
-      setOrder(await createRechargeOrder(provider, catalog?.package.id));
+      setOrder(await createRechargeOrder(provider, activeCatalog?.package.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建充值订单失败");
     } finally {
@@ -169,11 +204,11 @@ export default function SchoolRechargeModal({
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[13px] text-[var(--t-text-muted)]">充值套餐</span>
               <span className="text-[18px] font-semibold text-[var(--t-text-heading)]">
-                ¥{catalog?.package.amountYuan ?? 100}
+                ¥{activeCatalog?.package.amountYuan ?? 100}
               </span>
             </div>
             <div className="mt-1 text-right text-[13px] font-medium text-[var(--t-text)]">
-              获得 {(catalog?.package.points ?? 1000).toLocaleString()} 积分
+              获得 {(activeCatalog?.package.points ?? 1000).toLocaleString()} 积分
             </div>
           </div>
 
@@ -182,7 +217,7 @@ export default function SchoolRechargeModal({
               <div>
                 <div className="mb-2 text-[12px] font-medium text-[var(--t-text)]">选择扫码方式</div>
                 <div className="grid grid-cols-1 gap-2">
-                  {(catalog ? visibleProviders : [
+                  {(activeCatalog ? visibleProviders : [
                     // { id: "alipay" as const, label: "支付宝", enabled: false },
                     { id: "wechat" as const, label: "微信支付", enabled: false },
                   ]).map((item) => (
@@ -210,7 +245,7 @@ export default function SchoolRechargeModal({
               >
                 {creatingOrder ? "正在创建订单…" : "生成付款二维码"}
               </button>
-              {!catalogLoading && !creatingOrder && catalog && enabledProviders.length === 0 ? (
+              {!catalogLoading && !creatingOrder && activeCatalog && enabledProviders.length === 0 ? (
                 <p className="text-center text-[11px] leading-relaxed text-amber-500">支付通道尚未配置，请联系管理员。</p>
               ) : null}
             </>
