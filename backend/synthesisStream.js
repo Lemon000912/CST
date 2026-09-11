@@ -1,5 +1,6 @@
 const PRIVATE_TAIL_MARKERS = ["```json", "``` json", "【结构化 json"];
-const HOLD_BACK_CHARS = Math.max(...PRIVATE_TAIL_MARKERS.map((marker) => marker.length)) - 1;
+const PRIVATE_JSON_FENCE_RE = /```[ \t]{1,8}json[ \t]*(?:\r?\n|(?=\{))/i;
+const HOLD_BACK_CHARS = Math.max(16, Math.max(...PRIVATE_TAIL_MARKERS.map((marker) => marker.length)) - 1);
 
 function rawJsonFooterStart(text) {
   const m = String(text ?? "").match(/(?:^|\n)[ \t]*\{(?=[\s\S]{0,240}"(?:extractedData|steps)"\s*:)/i);
@@ -55,6 +56,10 @@ export function createSynthesisStreamEmitter(send, options = {}) {
       for (const marker of PRIVATE_TAIL_MARKERS) {
         const index = comparable.indexOf(marker);
         if (index >= 0 && (markerIndex < 0 || index < markerIndex)) markerIndex = index;
+      }
+      const fenceMatch = comparable.match(PRIVATE_JSON_FENCE_RE);
+      if (fenceMatch?.index != null && (markerIndex < 0 || fenceMatch.index < markerIndex)) {
+        markerIndex = fenceMatch.index;
       }
       if (markerIndex >= 0) {
         emit(pending.slice(0, markerIndex));

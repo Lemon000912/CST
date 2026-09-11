@@ -13,6 +13,47 @@ test("invalid structured JSON footer is removed from visible markdown", () => {
   assert.equal(parsed.planNote, "synth_plan:parse_error");
 });
 
+test("structured JSON fence is removed even when a provider appends trailing text", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n```json\n{\"extractedData\":[],\"steps\":[]}\n```\n\n后续说明",
+  );
+  assert.equal(parsed.markdown, "正文结论\n\n后续说明");
+  assert.equal(parsed.planNote, "synth_plan:ok_no_data");
+});
+
+test("spaced json fence is treated as a structured footer", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n``` json\n{\"extractedData\":[],\"steps\":[]}\n```",
+  );
+  assert.equal(parsed.markdown, "正文结论");
+  assert.equal(parsed.planNote, "synth_plan:ok_no_data");
+});
+
+test("truncated structured JSON is hidden instead of rendered as正文", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n```json\n{\"extractedData\":[{\"metric\":\"活性\",\"value\":\"11.8\"}]",
+  );
+  assert.equal(parsed.markdown, "正文结论");
+  assert.equal(parsed.plan, null);
+  assert.equal(parsed.planNote, "synth_plan:parse_error");
+});
+
+test("raw structured JSON with a valid object is split from正文", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n{\"extractedData\":[{\"metric\":\"活性\",\"value\":\"11.8\"}],\"steps\":[]}",
+  );
+  assert.equal(parsed.markdown, "正文结论");
+  assert.equal(parsed.plan?.extractedData?.[0]?.value, "11.8");
+});
+
+test("raw structured JSON keeps trailing human-readable text", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n{\"extractedData\":[],\"steps\":[]}\n\n补充说明",
+  );
+  assert.equal(parsed.markdown, "正文结论\n\n补充说明");
+  assert.equal(parsed.planNote, "synth_plan:ok_inline_no_data");
+});
+
 test("synthesis stream hides a split structured JSON footer and reconciles final markdown", () => {
   const events = [];
   const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));
@@ -29,6 +70,17 @@ test("synthesis stream hides a split structured JSON footer and reconciles final
     data: { synthesis: "正文第一段" },
   });
   assert.equal(JSON.stringify(events).includes("steps"), false);
+});
+
+test("synthesis stream hides a spaced json fence before it reaches the client", () => {
+  const events = [];
+  const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));
+  stream.push("正文结论\n\n```  js");
+  stream.push("on\n{\"extractedData\":[],\"steps\":[]}\n```");
+  stream.finish("正文结论");
+
+  assert.equal(events.filter((x) => x.event === "synthesis_token").map((x) => x.data.token).join(""), "正文结论\n\n");
+  assert.equal(JSON.stringify(events).includes("extractedData"), false);
 });
 
 test("synthesis stream hides an unfenced raw structured JSON footer", () => {

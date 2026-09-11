@@ -54,6 +54,58 @@ export function normalizeSynthesisPlan(obj) {
   };
 }
 
+function looksLikeStructuredPlan(text, start) {
+  return /"(?:extractedData|steps)"\s*:/i.test(String(text).slice(start, start + 1200));
+}
+
+/** Find the end of a JSON object without being confused by braces in strings. */
+function findJsonObjectEnd(text, start) {
+  const source = String(text);
+  if (source[start] !== "{") return -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+function parseStructuredObjectAt(text, start) {
+  if (!looksLikeStructuredPlan(text, start)) return null;
+  const end = findJsonObjectEnd(text, start);
+  if (end < 0) return { end: -1, plan: null, parseError: true };
+  try {
+    const parsed = JSON.parse(String(text).slice(start, end));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (!("steps" in parsed) && !("extractedData" in parsed)) return null;
+    return { end, plan: normalizeSynthesisPlan(parsed), parseError: false };
+  } catch {
+    return { end, plan: null, parseError: true };
+  }
+}
+
+function joinVisibleParts(before, after) {
+  const left = String(before ?? "").trim();
+  const right = String(after ?? "").trim();
+  return [left, right].filter(Boolean).join("\n\n");
+}
+
 /**
  * @param {string} raw
  * @returns {{ markdown: string; plan: Record<string, unknown> | null; planNote: string }}
@@ -62,25 +114,32 @@ export function parseSynthesisOutput(raw) {
   const text = String(raw ?? "").trim();
   if (!text) return { markdown: "", plan: null, planNote: "synth_plan:empty" };
 
-  const fenceRe = /```(?:json)?\s*([\s\S]*?)```\s*$/i;
-  const fm = text.match(fenceRe);
-  if (fm) {
-    const markdown = text.slice(0, fm.index).trim();
-    try {
-      const plan = normalizeSynthesisPlan(JSON.parse(fm[1].trim()));
+  // Providers may place the footer in a fenced block, omit the closing fence,
+  // or append a short note after it. Detect the structured object first so the
+  // machine section cannot leak into the user-visible markdown.
+  const fenceRe = /```[ \t]*(?:json[ \t]*)?(?:\r?\n|$)/gi;
+  let fm;
+  while ((fm = fenceRe.exec(text))) {
+    const contentStart = fm.index + fm[0].length;
+    const objectOffset = text.slice(contentStart, contentStart + 1200).search(/\{/);
+    if (objectOffset < 0) continue;
+    const start = contentStart + objectOffset;
+    const parsed = parseStructuredObjectAt(text, start);
+    if (!parsed) continue;
+    const closeMatch = parsed.end >= 0
+      ? text.slice(parsed.end).match(/^\s*```/)
+      : null;
+    const close = closeMatch ? parsed.end + closeMatch[0].length : -1;
+    const after = close >= 0 ? text.slice(close) : "";
+    const markdown = joinVisibleParts(text.slice(0, fm.index), after);
+    if (parsed.plan) {
       return {
         markdown,
-        plan,
-        planNote: plan?.extractedData?.length ? "synth_plan:ok" : "synth_plan:ok_no_data",
+        plan: parsed.plan,
+        planNote: parsed.plan.extractedData?.length ? "synth_plan:ok" : "synth_plan:ok_no_data",
       };
-    } catch {
-      // The footer is an internal machine-readable section.  Providers
-      // occasionally emit invalid JSON (for example an unescaped URL inside
-      // source_ref); never leak that implementation detail into the answer.
-      // Keep the human-readable markdown before the trailing fence and report
-      // the parse failure only through metadata.
-      return { markdown, plan: null, planNote: "synth_plan:parse_error" };
     }
+    return { markdown, plan: null, planNote: "synth_plan:parse_error" };
   }
 
   const candidateStarts = [];
@@ -88,20 +147,20 @@ export function parseSynthesisOutput(raw) {
     if (text[i] === "{" && (i === 0 || /\s/.test(text[i - 1]))) candidateStarts.push(i);
   }
   for (const start of candidateStarts) {
-    const tail = text.slice(start).trim();
-    try {
-      const parsed = JSON.parse(tail);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-      if (!("steps" in parsed) && !("extractedData" in parsed)) continue;
-      const plan = normalizeSynthesisPlan(parsed);
+    const parsed = parseStructuredObjectAt(text, start);
+    if (!parsed) continue;
+    const after = parsed.end >= 0
+      ? text.slice(parsed.end).replace(/^\s*```/, "")
+      : "";
+    const markdown = joinVisibleParts(text.slice(0, start), after);
+    if (parsed.plan) {
       return {
-        markdown: text.slice(0, start).trim(),
-        plan,
-        planNote: plan?.extractedData?.length ? "synth_plan:ok_inline" : "synth_plan:ok_inline_no_data",
+        markdown,
+        plan: parsed.plan,
+        planNote: parsed.plan.extractedData?.length ? "synth_plan:ok_inline" : "synth_plan:ok_inline_no_data",
       };
-    } catch {
-      /* try the next outer brace */
     }
+    return { markdown, plan: null, planNote: "synth_plan:parse_error" };
   }
 
   return { markdown: text, plan: null, planNote: "synth_plan:no_json_block" };
