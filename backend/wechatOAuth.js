@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { getConfiguredAppEdition } from "./appEdition.js";
 
 const AUTHORIZE_URL = "https://open.weixin.qq.com/connect/qrconnect";
 const API_ORIGIN = "https://api.weixin.qq.com";
@@ -19,6 +20,11 @@ function env(name) {
   return String(process.env[name] ?? "").trim();
 }
 
+function editionEnv(name) {
+  const editionPrefix = getConfiguredAppEdition().toUpperCase();
+  return env(`${editionPrefix}_${name}`) || env(name);
+}
+
 function normalizedHttpUrl(value, field) {
   try {
     const url = new URL(value);
@@ -33,8 +39,8 @@ function normalizedHttpUrl(value, field) {
 }
 
 export function getWechatOAuthConfig() {
-  const callbackUrl = env("WECHAT_OPEN_REDIRECT_URI");
-  let frontendUrl = env("WECHAT_OPEN_FRONTEND_URL");
+  const callbackUrl = editionEnv("WECHAT_OPEN_REDIRECT_URI");
+  let frontendUrl = editionEnv("WECHAT_OPEN_FRONTEND_URL");
   if (!frontendUrl && callbackUrl) {
     try {
       frontendUrl = `${new URL(callbackUrl).origin}/`;
@@ -43,12 +49,12 @@ export function getWechatOAuthConfig() {
     }
   }
   return {
-    appId: env("WECHAT_OPEN_APP_ID"),
-    appSecret: env("WECHAT_OPEN_APP_SECRET"),
+    appId: editionEnv("WECHAT_OPEN_APP_ID"),
+    appSecret: editionEnv("WECHAT_OPEN_APP_SECRET"),
     callbackUrl,
     frontendUrl,
-    authorizeUrl: env("WECHAT_OPEN_AUTHORIZE_URL") || AUTHORIZE_URL,
-    apiOrigin: (env("WECHAT_OPEN_API_ORIGIN") || API_ORIGIN).replace(/\/+$/, ""),
+    authorizeUrl: editionEnv("WECHAT_OPEN_AUTHORIZE_URL") || AUTHORIZE_URL,
+    apiOrigin: (editionEnv("WECHAT_OPEN_API_ORIGIN") || API_ORIGIN).replace(/\/+$/, ""),
   };
 }
 

@@ -12,6 +12,7 @@ import {
 } from "../wechatOAuth.js";
 
 const ENV_KEYS = [
+  "APP_EDITION",
   "NODE_ENV",
   "WECHAT_OPEN_APP_ID",
   "WECHAT_OPEN_APP_SECRET",
@@ -19,6 +20,14 @@ const ENV_KEYS = [
   "WECHAT_OPEN_FRONTEND_URL",
   "WECHAT_OPEN_AUTHORIZE_URL",
   "WECHAT_OPEN_API_ORIGIN",
+  "SCHOOL_WECHAT_OPEN_APP_ID",
+  "SCHOOL_WECHAT_OPEN_APP_SECRET",
+  "SCHOOL_WECHAT_OPEN_REDIRECT_URI",
+  "SCHOOL_WECHAT_OPEN_FRONTEND_URL",
+  "ENTERPRISE_WECHAT_OPEN_APP_ID",
+  "ENTERPRISE_WECHAT_OPEN_APP_SECRET",
+  "ENTERPRISE_WECHAT_OPEN_REDIRECT_URI",
+  "ENTERPRISE_WECHAT_OPEN_FRONTEND_URL",
 ];
 
 function configuredEnv(t) {
@@ -63,6 +72,24 @@ test("WeChat website OAuth URL uses snsapi_login and an exact callback", (t) => 
     "https://example.test/api/v1/auth/wechat/callback",
   );
   assert.equal(url.toString().includes("secret-test-value"), false);
+});
+
+test("one shared env can provide edition-specific WeChat OAuth settings", (t) => {
+  configuredEnv(t);
+  Object.assign(process.env, {
+    APP_EDITION: "enterprise",
+    ENTERPRISE_WECHAT_OPEN_APP_ID: "wx-enterprise-app",
+    ENTERPRISE_WECHAT_OPEN_APP_SECRET: "enterprise-secret",
+    ENTERPRISE_WECHAT_OPEN_REDIRECT_URI: "https://enterprise.example.test/api/v1/auth/wechat/callback",
+    ENTERPRISE_WECHAT_OPEN_FRONTEND_URL: "https://enterprise.example.test/",
+  });
+
+  const url = new URL(buildWechatAuthorizationUrl("enterprise-state"));
+  assert.equal(url.searchParams.get("appid"), "wx-enterprise-app");
+  assert.equal(
+    url.searchParams.get("redirect_uri"),
+    "https://enterprise.example.test/api/v1/auth/wechat/callback",
+  );
 });
 
 test("WeChat OAuth exchanges code server-side and returns only normalized identity", async (t) => {

@@ -17,6 +17,7 @@ import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
 import type { AppEdition } from "./edition";
+import { buildWxLoginOptions, type WxLoginOptions } from "./wechatLoginOptions";
 
 function PreviewQrCode() {
   const size = 25;
@@ -43,17 +44,6 @@ function PreviewQrCode() {
   );
 }
 
-type WxLoginOptions = {
-  self_redirect: boolean;
-  id: string;
-  appid: string;
-  scope: string;
-  redirect_uri: string;
-  state: string;
-  style: string;
-  href: string;
-};
-
 declare global {
   interface Window {
     WxLogin?: new (options: WxLoginOptions) => unknown;
@@ -73,18 +63,8 @@ function WechatQrEmbed({ authorizationUrl, onError }: { authorizationUrl: string
         return;
       }
       try {
-        const url = new URL(authorizationUrl);
         container.replaceChildren();
-        new WxLogin({
-          self_redirect: false,
-          id: containerId,
-          appid: url.searchParams.get("appid") || "",
-          scope: url.searchParams.get("scope") || "snsapi_login",
-          redirect_uri: url.searchParams.get("redirect_uri") || "",
-          state: url.searchParams.get("state") || "",
-          style: "black",
-          href: "",
-        });
+        new WxLogin(buildWxLoginOptions(authorizationUrl, containerId));
       } catch {
         onError("微信二维码地址无效，请关闭后重试");
       }
