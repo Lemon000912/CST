@@ -1,6 +1,5 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { SignJWT, jwtVerify } from "jose";
 import {
   createUserRecord,
   findUserByUsernameKey,
@@ -35,6 +34,11 @@ import {
   updateWechatTicket,
 } from "./wechatOAuth.js";
 import { getConfiguredAppEdition } from "./appEdition.js";
+
+// jose 6 uses the Web Crypto API. Node 20+ exposes it globally, while the
+// production Node 18 runtime requires wiring in Node's built-in implementation.
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
+const { SignJWT, jwtVerify } = await import("jose");
 
 const JWT_ISS = "paper-query";
 const WECHAT_COOKIE_PATH = "/api/v1/auth/wechat";
