@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWxLoginOptions } from "../src/wechatLoginOptions.ts";
+import { buildWxLoginOptions } from "../src/wechatLoginOptionsRuntime.js";
 
 test("WxLogin receives a URL-encoded redirect_uri", () => {
   const callback = "https://school.example.com/api/v1/auth/wechat/callback?source=qr login";
