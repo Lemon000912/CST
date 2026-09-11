@@ -216,6 +216,7 @@ body {
 /* 主内容区 */
 .main-content {
     flex: 1;
+    min-width: 0;
     margin-left: var(--sidebar-width);
     min-height: 100vh;
     transition: var(--transition);
@@ -486,6 +487,31 @@ body {
     background: #f8f9fa;
 }
 
+.users-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.users-table {
+    min-width: 1080px;
+}
+
+.users-table th:first-child,
+.users-table td:first-child {
+    width: 150px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.users-table th:nth-child(4),
+.users-table td:nth-child(4),
+.users-table th:last-child,
+.users-table td:last-child {
+    white-space: nowrap;
+}
+
 .data-table .actions {
     display: flex;
     gap: 8px;
@@ -517,6 +543,11 @@ body {
 
 .btn-action:hover {
     opacity: 0.8;
+}
+
+.btn-action:disabled {
+    cursor: wait;
+    opacity: 0.55;
 }
 
 .status-badge {
@@ -1019,6 +1050,310 @@ body {
 
 .points-toast.show { transform: translateY(0); opacity: 1; }
 
+/* ==================== AI问答记录 ==================== */
+.ai-qa-page {
+    --qa-ink: #17202f;
+    --qa-muted: #778397;
+    --qa-line: #e4e9f0;
+}
+
+.ai-qa-title-row,
+.ai-qa-toolbar,
+.ai-qa-pagination,
+.ai-qa-title-actions {
+    display: flex;
+    align-items: center;
+}
+
+.ai-qa-title-row {
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.ai-qa-title-row > div:first-child {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+}
+
+.ai-qa-title-row h2 {
+    margin: 0;
+}
+
+.ai-qa-count {
+    color: var(--qa-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.ai-qa-title-actions {
+    gap: 8px;
+}
+
+.ai-qa-secondary-button,
+.ai-qa-export-button,
+.ai-qa-detail-button,
+.ai-qa-pagination button {
+    border: 1px solid var(--qa-line);
+    background: #fff;
+    color: #526176;
+    cursor: pointer;
+}
+
+.ai-qa-secondary-button,
+.ai-qa-detail-button,
+.ai-qa-pagination button {
+    width: 38px;
+    height: 38px;
+    border-radius: 6px;
+}
+
+.ai-qa-export-button {
+    height: 38px;
+    padding: 0 14px;
+    border-color: #276dcc;
+    border-radius: 6px;
+    background: #276dcc;
+    color: #fff;
+    font-weight: 600;
+}
+
+.ai-qa-secondary-button:hover,
+.ai-qa-detail-button:hover,
+.ai-qa-pagination button:hover:not(:disabled) {
+    border-color: #276dcc;
+    color: #276dcc;
+}
+
+.ai-qa-export-button:disabled,
+.ai-qa-secondary-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.ai-qa-toolbar {
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--qa-line);
+    border-bottom: 0;
+    background: #fff;
+}
+
+.ai-qa-search-box {
+    max-width: 520px;
+    min-width: 260px;
+}
+
+.ai-qa-toolbar select,
+.ai-qa-date-input,
+.ai-qa-pagination select {
+    height: 38px;
+    border: 1px solid #dce2ea;
+    border-radius: 6px;
+    background: #fff;
+    color: #4c596c;
+    font-size: 13px;
+}
+
+.ai-qa-toolbar select,
+.ai-qa-pagination select {
+    padding: 0 10px;
+}
+
+.ai-qa-date-input {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+
+.ai-qa-date-input span {
+    padding: 0 8px;
+    color: #8a95a5;
+    border-right: 1px solid #e6eaf0;
+}
+
+.ai-qa-date-input input {
+    width: 134px;
+    height: 36px;
+    padding: 0 8px;
+    border: 0;
+    outline: 0;
+    color: #4c596c;
+}
+
+.ai-qa-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--qa-line);
+    background: #fff;
+}
+
+.ai-qa-table {
+    min-width: 920px;
+    table-layout: fixed;
+}
+
+.ai-qa-table th:nth-child(1) { width: 170px; }
+.ai-qa-table th:nth-child(2) { width: auto; }
+.ai-qa-table th:nth-child(3) { width: 90px; }
+.ai-qa-table th:nth-child(4) { width: 110px; }
+.ai-qa-table th:nth-child(5) { width: 170px; }
+.ai-qa-table th:nth-child(6) { width: 72px; text-align: center; }
+.ai-qa-table td:last-child { text-align: center; }
+
+.ai-qa-user,
+.ai-qa-user strong,
+.ai-qa-user small,
+.ai-qa-operation {
+    display: block;
+    min-width: 0;
+}
+
+.ai-qa-user strong {
+    color: var(--qa-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-qa-user small,
+.ai-qa-operation,
+.ai-qa-date {
+    color: #8a95a5;
+    font-size: 11px;
+}
+
+.ai-qa-user small,
+.ai-qa-operation {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-qa-question {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #26364c;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    letter-spacing: 0;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-qa-question:hover { color: #276dcc; }
+
+.ai-qa-status {
+    display: inline-flex;
+    align-items: center;
+    height: 25px;
+    padding: 0 9px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ai-qa-status.success { color: #137554; background: #e4f6ef; }
+.ai-qa-status.stopped { color: #9a6509; background: #fff2d8; }
+.ai-qa-cost { color: #b94754; font-size: 13px; }
+.ai-qa-empty { padding: 48px 20px !important; color: #8a95a5; text-align: center !important; }
+.ai-qa-empty i { margin-right: 7px; }
+
+.ai-qa-pagination {
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 0 0;
+}
+
+.ai-qa-pagination button:disabled { opacity: 0.45; cursor: not-allowed; }
+.ai-qa-pagination span { min-width: 110px; color: var(--qa-muted); font-size: 12px; text-align: center; }
+
+.ai-qa-modal-content {
+    width: min(1040px, 94vw);
+    max-width: none;
+    padding: 24px;
+}
+
+.ai-qa-detail-content {
+    max-height: calc(90vh - 150px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.ai-qa-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.ai-qa-detail-grid > div {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #e6eaf0;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.ai-qa-detail-grid span,
+.ai-qa-detail-grid strong,
+.ai-qa-detail-grid small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-qa-detail-grid span { color: #8590a1; font-size: 11px; }
+.ai-qa-detail-grid strong { margin: 3px 0; color: var(--qa-ink); font-size: 14px; }
+.ai-qa-detail-grid small { color: #7a8697; font-size: 11px; }
+
+.ai-qa-detail-section {
+    margin-top: 14px;
+}
+
+.ai-qa-detail-section h4 {
+    margin-bottom: 7px;
+    color: #334359;
+    font-size: 13px;
+}
+
+.ai-qa-detail-section pre {
+    max-height: 360px;
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid #e1e6ed;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #28364a;
+    font: 13px/1.75 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ai-qa-trace {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.ai-qa-trace > div {
+    min-width: 0;
+    padding: 10px 12px;
+    border-top: 1px solid #e6eaf0;
+}
+
+.ai-qa-trace span { display: block; margin-bottom: 4px; color: #8893a4; font-size: 11px; }
+.ai-qa-trace code { display: block; overflow: hidden; color: #4f5e73; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 分页 */
 .pagination {
     display: flex;
@@ -1343,6 +1678,50 @@ body {
 
     .points-modal-content {
         padding: 20px;
+    }
+
+    .ai-qa-title-row,
+    .ai-qa-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .ai-qa-title-row > div:first-child {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .ai-qa-title-actions {
+        justify-content: flex-end;
+    }
+
+    .ai-qa-search-box {
+        min-width: 0;
+        max-width: none;
+    }
+
+    .ai-qa-page {
+        width: calc(100vw - 40px);
+        max-width: calc(100vw - 40px);
+    }
+
+    .ai-qa-table-wrap {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .ai-qa-date-input input {
+        width: 100%;
+    }
+
+    .ai-qa-detail-grid,
+    .ai-qa-trace {
+        grid-template-columns: 1fr;
+    }
+
+    .ai-qa-modal-content {
+        padding: 18px;
     }
 }
 

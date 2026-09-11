@@ -88,6 +88,8 @@ import {
   handleMe,
   handleRegister,
   handleSendRegisterSmsCode,
+  handleSendPasswordResetSmsCode,
+  handleResetPassword,
   handleWechatBindPhone,
   handleWechatCallback,
   handleWechatSession,
@@ -129,6 +131,7 @@ import { fetchPdfSecurely, PdfFulfillmentError } from "./pdfFulfillment.js";
 import {
   getPdfSourceJob,
   loadCachedPdfSource,
+  purgePdfSourceJob,
   startPdfSourceCrawl,
 } from "./pdfSourceSidecar.js";
 import { databasePdfArtifact, databasePdfPaperId } from "./databasePdf.js";
@@ -164,6 +167,13 @@ import {
   listAdminPointLedger,
   listAdminPointUsers,
 } from "./adminPoints.js";
+import {
+  AdminAiQaError,
+  exportAdminAiQaRecords,
+  getAdminAiQaRecord,
+  listAdminAiQaRecords,
+} from "./adminAiQa.js";
+import { AdminUsersError, deleteAdminUser, listAdminUsers } from "./adminUsers.js";
 import { recognizeStudentCard, STUDENT_CARD_MAX_BYTES, studentCardUploadMiddleware } from "./studentVerification.js";
 
 const PORT = (() => {
@@ -289,6 +299,24 @@ function searchBillingDetails(payload) {
     deepPaperCount,
     characterUnits: calculateCostUnits({ characterCount }),
     deepPaperUnits: calculateCostUnits({ pdfCount: deepPaperCount }),
+  };
+}
+
+function currentQuestionForAudit(body) {
+  const currentQuery = String(body?.query ?? "").trim();
+  if (currentQuery) {
+    const containsLegacyContext =
+      /【对话上下文|【本对话上文/.test(currentQuery) || /----\s*当前提问\s*----/i.test(currentQuery);
+    return containsLegacyContext ? (extractCoreSearchQuery(currentQuery) || currentQuery) : currentQuery;
+  }
+  const filename = String(body?.attachmentFilename ?? "").trim();
+  return filename ? `（仅上传文件：${filename}）` : "（仅上传文件）";
+}
+
+function aiQaAuditResult(question) {
+  return {
+    version: 1,
+    question: String(question || "").trim(),
   };
 }
 
@@ -568,6 +596,30 @@ app.post("/api/v1/auth/sms/send", async (req, res) => {
     });
   }
   await handleSendRegisterSmsCode(req, res);
+});
+
+app.post("/api/v1/auth/password-reset/sms/send", async (req, res) => {
+  const ip = clientIp(req);
+  const phone = String(req.body?.phone ?? "").trim().slice(0, 32);
+  if (!smsIpLimiter("password-reset:sms:ip", ip) || !smsPhoneLimiter("password-reset:sms:phone", phone)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "验证码发送过于频繁，请稍后再试",
+      code: "sms-rate-limit-exceeded",
+    });
+  }
+  await handleSendPasswordResetSmsCode(req, res);
+});
+
+app.post("/api/v1/auth/password-reset", async (req, res) => {
+  const ip = clientIp(req);
+  const phone = String(req.body?.phone ?? "").trim().slice(0, 32);
+  if (!authLimiter("password-reset:ip", ip) || !authLimiter("password-reset:phone", phone)) {
+    return res.status(429).set("Retry-After", "600").json({
+      error: "密码重置请求过于频繁，请稍后再试",
+      code: "rate-limit-exceeded",
+    });
+  }
+  await handleResetPassword(req, res);
 });
 
 app.post("/api/v1/auth/register", async (req, res) => {
@@ -1884,6 +1936,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let partialSynthesis = "";
   let partialChannel = "database";
   let partialSort = "relevance";
+  let auditQuestion = currentQuestionForAudit(req.body);
   let papersReadySent = false;
   const searchAbortController = new AbortController();
   const synthesisAbortController = new AbortController();
@@ -1933,6 +1986,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
             synthesisNote: "synth:paused",
             paused: true,
             pointsExhausted: budgeted.pointsExhausted,
+            adminQa: aiQaAuditResult(auditQuestion),
           },
         });
         searchPapersCache.delete(activeOperation.id);
@@ -1955,6 +2009,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   try {
     // ── 解析请求参数（与 /api/v1/search 完全一致） ──
     const currentQuery = String(req.body?.query ?? "").trim();
+    auditQuestion = currentQuestionForAudit(req.body);
     const conversationContext = String(req.body?.conversationContext ?? "").trim().slice(0, 12_000);
     const attachmentContext = String(req.body?.attachmentContext ?? "").trim().slice(0, 200_000);
     const attachmentFilename = String(req.body?.attachmentFilename ?? "").trim().slice(0, 512);
@@ -2322,6 +2377,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         performanceTrace: requestTrace.snapshot(),
         pdfSources: pdfJobAtCompletion?.sources ?? [],
         pdfCrawlStatus: pdfJobAtCompletion?.status,
+        adminQa: aiQaAuditResult(auditQuestion),
       },
     }), (value) => ({ charged: Boolean(value?.receipt) }));
     const billingReceipt = completed.receipt;
@@ -2433,7 +2489,10 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             leaseToken: activeOperation.leaseToken,
             costUnits,
             billingDetails,
-            result: responseBody,
+            result: {
+              ...responseBody,
+              adminQa: aiQaAuditResult(currentQuestionForAudit(req.body)),
+            },
           });
           return originalJson({
             ...responseBody,
@@ -3095,68 +3154,34 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
 /** 用户列表 */
 app.get("/api/v1/admin/users", async (req, res) => {
   try {
-    const skip = Math.max(0, Number(req.query.skip) || 0);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
-    const search = String(req.query.search || "").trim();
-
-    let users = [];
-    let total = 0;
-
-    if (pgPool) {
-      let countSql = "SELECT COUNT(*) as total FROM users";
-      let countParams = [];
-      if (search) {
-        countSql += " WHERE username ILIKE $1";
-        countParams = [`%${search}%`];
-      }
-      const countResult = await pgPool.query(countSql, countParams);
-      total = parseInt(countResult.rows[0]?.total ?? "0") || 0;
-
-      let sql = "SELECT id, username, created_at FROM users";
-      let params = [];
-      if (search) {
-        sql += " WHERE username ILIKE $1";
-        params = [`%${search}%`];
-      }
-      sql += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-      params.push(limit, skip);
-      const result = await pgPool.query(sql, params);
-      users = result.rows;
-    } else {
-      const db = await getSqliteDb();
-      let sql = "SELECT id, username, created_at FROM users";
-      let params = [];
-      if (search) {
-        sql += " WHERE username LIKE ?";
-        params = [`%${search}%`];
-      }
-      const countResult = await db.all(
-        `SELECT COUNT(*) as total FROM users ${search ? "WHERE username LIKE ?" : ""}`,
-        search ? [`%${search}%`] : [],
-      );
-      total = countResult[0]?.total || 0;
-      sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-      params.push(limit, skip);
-      users = await db.all(sql, params);
-    }
-
-    res.json({
-      success: true,
-      data: {
-        users: users.map((u) => ({
-          id: u.id,
-          username: u.username,
-          email: null,
-          created_at: u.created_at,
-          last_active: u.created_at,
-          is_active: true,
-        })),
-        total,
-      },
+    const data = await listAdminUsers({
+      skip: req.query.skip,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
     });
+    return res.json({ success: true, data });
   } catch (e) {
     console.error("[admin/users] error:", e);
-    res.status(500).json({ success: false, message: e.message });
+    const status = e instanceof AdminUsersError ? e.status : 500;
+    return res.status(status).json({ success: false, code: e.code, message: e.message });
+  }
+});
+
+app.delete("/api/v1/admin/users/:id", async (req, res) => {
+  try {
+    const purgeResult = await deleteAdminUser({ userId: req.params.id, adminUserId: req.auth.userId });
+    for (const operationId of purgeResult.operationIds ?? []) {
+      searchPapersCache.delete(operationId);
+      pdfArtifactCache.delete(operationId);
+      await purgePdfSourceJob(operationId);
+    }
+    const { operationIds: _operationIds, ...data } = purgeResult;
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("[admin/users/delete] error:", error);
+    const status = error instanceof AdminUsersError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
   }
 });
 
@@ -3195,6 +3220,55 @@ app.post("/api/v1/admin/points/adjust", async (req, res) => {
   } catch (error) {
     console.error("[admin/points/adjust] error:", error);
     const status = error instanceof AdminPointsError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
+  }
+});
+
+/** AI 问答记录：仅展示上线后实际产生积分扣减的 search 操作 */
+app.get("/api/v1/admin/ai-qa", async (req, res) => {
+  try {
+    const data = await listAdminAiQaRecords({
+      skip: req.query.skip,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
+      from: req.query.from,
+      to: req.query.to,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("[admin/ai-qa] error:", error);
+    const status = error instanceof AdminAiQaError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
+  }
+});
+
+app.get("/api/v1/admin/ai-qa/export", async (req, res) => {
+  try {
+    const csv = await exportAdminAiQaRecords({
+      search: req.query.search,
+      status: req.query.status,
+      from: req.query.from,
+      to: req.query.to,
+    });
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="ai-qa-records-${date}.csv"`);
+    return res.send(csv);
+  } catch (error) {
+    console.error("[admin/ai-qa/export] error:", error);
+    const status = error instanceof AdminAiQaError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code, message: error.message });
+  }
+});
+
+app.get("/api/v1/admin/ai-qa/:id", async (req, res) => {
+  try {
+    const record = await getAdminAiQaRecord(req.params.id);
+    return res.json({ success: true, data: record });
+  } catch (error) {
+    console.error("[admin/ai-qa/detail] error:", error);
+    const status = error instanceof AdminAiQaError ? error.status : 500;
     return res.status(status).json({ success: false, code: error.code, message: error.message });
   }
 });

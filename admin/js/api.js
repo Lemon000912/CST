@@ -176,6 +176,35 @@ class ApiClient {
         return data.data || data;
     }
 
+    // AI 问答记录
+    async getAiQaRecords(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const data = await this.request(`/admin/ai-qa?${query}`);
+        return data.data || data;
+    }
+
+    async getAiQaRecord(id) {
+        const data = await this.request(`/admin/ai-qa/${encodeURIComponent(id)}`);
+        return data.data || data;
+    }
+
+    async downloadAiQaCsv(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const response = await fetch(`${this.baseURL}/admin/ai-qa/export?${query}`, {
+            headers: this.getHeaders()
+        });
+        if (response.status === 401 || response.status === 403) {
+            this.clearToken();
+            window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'admin_forbidden' } }));
+            throw new Error('登录已过期，请重新登录');
+        }
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || `导出失败: ${response.status}`);
+        }
+        return response.blob();
+    }
+
     // PDF列表
     async getPDFs(params = {}) {
         const query = new URLSearchParams(params).toString();

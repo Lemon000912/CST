@@ -55,6 +55,10 @@
                         <i class="fas fa-coins"></i>
                         <span>积分管理</span>
                     </a>
+                    <a href="#" class="nav-item" data-page="ai-qa">
+                        <i class="fas fa-comments"></i>
+                        <span>AI问答记录</span>
+                    </a>
                     <a href="#" class="nav-item" data-page="pdfs">
                         <i class="fas fa-database"></i>
                         <span>文献数据库</span>
@@ -160,7 +164,7 @@
                             <div class="table-header">
                                 <div class="search-box">
                                     <i class="fas fa-search"></i>
-                                    <input type="text" id="user-search" placeholder="搜索用户名或邮箱...">
+                                    <input type="text" id="user-search" placeholder="搜索用户名、邮箱或手机号...">
                                 </div>
                                 <div class="filter-box">
                                     <select id="user-filter">
@@ -170,12 +174,14 @@
                                     </select>
                                 </div>
                             </div>
-                            <table class="data-table">
+                            <div class="users-table-wrap">
+                            <table class="data-table users-table">
                                 <thead>
                                     <tr>
                                         <th>ID</th>
                                         <th>用户名</th>
                                         <th>邮箱</th>
+                                        <th>手机号</th>
                                         <th>创建时间</th>
                                         <th>最后活跃</th>
                                         <th>状态</th>
@@ -184,12 +190,13 @@
                                 </thead>
                                 <tbody id="users-table-body">
                                     <tr>
-                                        <td colspan="7" class="loading">
+                                        <td colspan="8" class="loading">
                                             <div class="spinner"></div>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
+                            </div>
                             <div class="pagination">
                                 <button id="user-prev" disabled><i class="fas fa-chevron-left"></i></button>
                                 <span id="user-page-info">第 1 页</span>
@@ -269,6 +276,58 @@
                                 </div>
                                 <div id="points-ledger-list" class="points-ledger-list"><div class="loading"><div class="spinner"></div></div></div>
                             </aside>
+                        </div>
+                    </div>
+
+                    <!-- AI问答记录页面 -->
+                    <div id="page-ai-qa" class="page ai-qa-page">
+                        <div class="ai-qa-title-row">
+                            <div>
+                                <h2><i class="fas fa-comments"></i> AI问答记录</h2>
+                                <span id="ai-qa-count" class="ai-qa-count">0 条记录</span>
+                            </div>
+                            <div class="ai-qa-title-actions">
+                                <button id="ai-qa-refresh" class="ai-qa-secondary-button" type="button" title="刷新">
+                                    <i class="fas fa-rotate"></i>
+                                </button>
+                                <button id="ai-qa-export" class="ai-qa-export-button" type="button">
+                                    <i class="fas fa-file-export"></i> 导出 CSV
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="ai-qa-toolbar">
+                            <div class="search-box ai-qa-search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="ai-qa-search" placeholder="用户名、用户 ID、问题或操作 ID">
+                            </div>
+                            <select id="ai-qa-status" title="请求状态">
+                                <option value="">全部状态</option>
+                                <option value="success">成功</option>
+                                <option value="stopped">已停止</option>
+                            </select>
+                            <label class="ai-qa-date-input"><span>起</span><input id="ai-qa-from" type="date" title="开始日期"></label>
+                            <label class="ai-qa-date-input"><span>止</span><input id="ai-qa-to" type="date" title="结束日期"></label>
+                            <button id="ai-qa-reset" class="ai-qa-secondary-button" type="button" title="重置筛选">
+                                <i class="fas fa-filter-circle-xmark"></i>
+                            </button>
+                        </div>
+
+                        <div class="ai-qa-table-wrap">
+                            <table class="data-table ai-qa-table">
+                                <thead><tr><th>用户</th><th>用户问题</th><th>状态</th><th>消耗积分</th><th>完成时间</th><th>详情</th></tr></thead>
+                                <tbody id="ai-qa-table-body"><tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="ai-qa-pagination">
+                            <select id="ai-qa-page-size" title="每页记录数">
+                                <option value="20">20 条/页</option>
+                                <option value="50">50 条/页</option>
+                                <option value="100">100 条/页</option>
+                            </select>
+                            <button id="ai-qa-prev" type="button" disabled title="上一页"><i class="fas fa-chevron-left"></i></button>
+                            <span id="ai-qa-page-info">0-0 / 0</span>
+                            <button id="ai-qa-next" type="button" disabled title="下一页"><i class="fas fa-chevron-right"></i></button>
                         </div>
                     </div>
 
@@ -453,6 +512,20 @@
                     </div>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- AI问答详情模态框 -->
+    <div id="ai-qa-detail-modal" class="modal ai-qa-modal">
+        <div class="modal-content ai-qa-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-message"></i> 问答详情</h3>
+                <button id="ai-qa-modal-close" class="modal-close" type="button">&times;</button>
+            </div>
+            <div id="ai-qa-detail-content" class="ai-qa-detail-content"></div>
+            <div class="modal-footer">
+                <button type="button" id="ai-qa-modal-done" class="btn-submit">关闭</button>
+            </div>
         </div>
     </div>
 

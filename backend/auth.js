@@ -9,6 +9,7 @@ import {
   findUserById,
   findUserByWechatIdentity,
   bindWechatIdentityByVerifiedPhone,
+  updateUserPassword,
   WechatIdentityLinkError,
   normalizeUsernameKey,
 } from "./db.js";
@@ -325,6 +326,57 @@ export async function handleSendRegisterSmsCode(req, res) {
     }
     console.error("[auth/sms/send]", error instanceof Error ? error.message : error);
     return res.status(502).json({ error: "短信服务暂时不可用", code: "sms-provider-failed" });
+  }
+}
+
+export async function handleSendPasswordResetSmsCode(req, res) {
+  try {
+    const ph = validatePhoneForRegister(req.body?.phone);
+    if (!ph.ok) return res.status(400).json({ error: ph.error, code: "invalid-phone" });
+
+    const existingPhone = await findUserByPhone(ph.phone);
+    if (!existingPhone) {
+      return res.status(404).json({ error: "该手机号尚未注册", code: "phone-not-registered" });
+    }
+
+    const sent = await sendRegisterVerificationCode(ph.phone);
+    return res.json({ ok: true, expiresIn: sent.expiresIn });
+  } catch (error) {
+    if (error instanceof SmsVerificationError) {
+      console.warn("[auth/password-reset/sms]", error.code, error.providerCode || "");
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/password-reset/sms]", error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: "短信服务暂时不可用", code: "sms-provider-failed" });
+  }
+}
+
+export async function handleResetPassword(req, res) {
+  try {
+    const ph = validatePhoneForRegister(req.body?.phone);
+    if (!ph.ok) return res.status(400).json({ error: ph.error, code: "invalid-phone" });
+    const p = validatePasswordForRegister(req.body?.password);
+    if (!p.ok) return res.status(400).json({ error: p.error, code: "invalid-password" });
+
+    const existingPhone = await findUserByPhone(ph.phone);
+    if (!existingPhone) {
+      return res.status(404).json({ error: "该手机号尚未注册", code: "phone-not-registered" });
+    }
+
+    await checkRegisterVerificationCode(ph.phone, req.body?.smsCode);
+    const passwordHash = await hashUserPassword(p.password);
+    const updated = await updateUserPassword(existingPhone.id, passwordHash);
+    if (!updated) {
+      return res.status(404).json({ error: "账号不存在", code: "user-not-found" });
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    if (error instanceof SmsVerificationError) {
+      console.warn("[auth/password-reset]", error.code, error.providerCode || "");
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error("[auth/password-reset]", error instanceof Error ? error.message : error);
+    return res.status(500).json({ error: "密码重置失败", code: "password-reset-failed" });
   }
 }
 

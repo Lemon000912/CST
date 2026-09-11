@@ -8,6 +8,7 @@ import { store } from './store.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { UsersPage } from './pages/users.js';
 import { PointsPage } from './pages/points.js';
+import { AiQaPage } from './pages/aiQa.js';
 import { PDFsPage } from './pages/pdfs.js';
 import { DOIsPage } from './pages/dois.js';
 import { LogsPage } from './pages/logs.js';
@@ -18,6 +19,7 @@ const pages = {
     dashboard: DashboardPage,
     users: UsersPage,
     points: PointsPage,
+    'ai-qa': AiQaPage,
     pdfs: PDFsPage,
     doi: DOIsPage,
     logs: LogsPage,

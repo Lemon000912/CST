@@ -566,6 +566,14 @@ export async function initDatabase() {
         )
       `);
       await billingClient.query(`
+        CREATE INDEX IF NOT EXISTS point_ledger_operation_id
+        ON point_ledger(operation_id)
+      `);
+      await billingClient.query(`
+        CREATE INDEX IF NOT EXISTS point_operations_type_status_completed
+        ON point_operations(operation_type, status, completed_at DESC)
+      `);
+      await billingClient.query(`
         CREATE TABLE IF NOT EXISTS point_recharge_orders (
           id TEXT PRIMARY KEY,
           order_no TEXT NOT NULL UNIQUE,
@@ -597,6 +605,10 @@ export async function initDatabase() {
       await billingClient.query(`
         CREATE OR REPLACE FUNCTION reject_point_ledger_mutation() RETURNS trigger AS $$
         BEGIN
+          IF TG_OP = 'DELETE'
+             AND current_setting('quantum_pinnacle.allow_user_purge', true) = 'on' THEN
+            RETURN OLD;
+          END IF;
           RAISE EXCEPTION 'point_ledger is immutable';
         END;
         $$ LANGUAGE plpgsql
@@ -810,6 +822,10 @@ export async function initDatabase() {
         created_at INTEGER NOT NULL,
         UNIQUE(user_id, idempotency_key)
       );
+      CREATE INDEX IF NOT EXISTS point_ledger_operation_id
+      ON point_ledger(operation_id);
+      CREATE INDEX IF NOT EXISTS point_operations_type_status_completed
+      ON point_operations(operation_type, status, completed_at DESC);
       CREATE TABLE IF NOT EXISTS point_recharge_orders (
         id TEXT PRIMARY KEY,
         order_no TEXT NOT NULL UNIQUE,
@@ -1338,7 +1354,7 @@ async function backfillPointWallets() {
         `WITH created_wallets AS (
            INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
            SELECT u.id, $1, $2, $2 FROM users u
-           WHERE NOT EXISTS (SELECT 1 FROM point_wallets w WHERE w.user_id = u.id)
+            WHERE NOT EXISTS (SELECT 1 FROM point_wallets w WHERE w.user_id = u.id)
            ON CONFLICT (user_id) DO NOTHING
            RETURNING user_id, balance_units
          )
@@ -1797,6 +1813,18 @@ export async function updateUserInfo(userId, userInfo) {
     values.push(userId);
     await db.run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
   }
+}
+
+export async function updateUserPassword(userId, passwordHash) {
+  const normalizedUserId = String(userId ?? "").trim();
+  const normalizedHash = String(passwordHash ?? "");
+  if (!normalizedUserId || !normalizedHash) return false;
+  return withDatabaseTransaction(async (tx) => {
+    const result = tx.dialect === "postgres"
+      ? await tx.run("UPDATE users SET password_hash = $1 WHERE id = $2", [normalizedHash, normalizedUserId])
+      : await tx.run("UPDATE users SET password_hash = ? WHERE id = ?", [normalizedHash, normalizedUserId]);
+    return Number(result?.changes ?? 0) > 0;
+  });
 }
 
 export async function findUserByPhone(phone) {

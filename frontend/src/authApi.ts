@@ -107,6 +107,39 @@ export async function apiSendRegisterSmsCode(phone: string): Promise<{ expiresIn
   };
 }
 
+async function apiSendSmsCode(path: string, phone: string, label: string): Promise<{ expiresIn: number }> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: phone.trim() }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${label}失败：${message}`);
+  }
+  const text = await res.text();
+  const data = parseAuthJson(text) as AuthJson & { expiresIn?: number };
+  if (!res.ok) throw new Error(data.error || `${label}失败（HTTP ${res.status}）`);
+  return { expiresIn: Number.isFinite(Number(data.expiresIn)) ? Number(data.expiresIn) : 300 };
+}
+
+export function apiSendPasswordResetSmsCode(phone: string): Promise<{ expiresIn: number }> {
+  return apiSendSmsCode("/api/v1/auth/password-reset/sms/send", phone, "验证码发送");
+}
+
+export async function apiResetPassword(phone: string, password: string, smsCode: string): Promise<void> {
+  const response = await fetch("/api/v1/auth/password-reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone: phone.trim(), password, smsCode: smsCode.trim() }),
+  });
+  const text = await response.text();
+  const data = parseAuthJson(text);
+  if (!response.ok) throw new Error(data.error || `密码重置失败（HTTP ${response.status}）`);
+}
+
 export async function apiRegister(
   username: string,
   password: string,

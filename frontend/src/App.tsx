@@ -4163,6 +4163,17 @@ export default function App({
           >
             <IconMenu className="h-5 w-5" />
           </button>
+          {!pointsEnabled ? (
+            <button
+              type="button"
+              className="absolute left-3 hidden h-8 items-center gap-1.5 rounded-md border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-2.5 text-[11px] font-medium text-[var(--t-text-muted)] transition hover:border-[color:var(--t-accent-ring)] hover:bg-[var(--t-accent-muted)] hover:text-[var(--t-text)] lg:inline-flex"
+              aria-label="其他数据库"
+              title="其他数据库"
+            >
+              <IconDatabase className="h-3.5 w-3.5" />
+              <span>其他数据库</span>
+            </button>
+          ) : null}
           <div className="min-w-0 flex-1 text-center">
             <h1 className="truncate text-[13px] font-semibold tracking-tight text-[var(--t-text)]">{APP_NAME}</h1>
           </div>

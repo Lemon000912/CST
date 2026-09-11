@@ -10,6 +10,8 @@ export class UsersPage {
         this.currentPage = 1;
         this.searchQuery = '';
         this.filterStatus = '';
+        this.usersOnPage = [];
+        this.handleTableClick = this.handleTableClick.bind(this);
     }
 
     async mount() {
@@ -57,6 +59,8 @@ export class UsersPage {
                 this.loadData();
             });
         }
+
+        document.getElementById('users-table-body')?.addEventListener('click', this.handleTableClick);
     }
 
     async loadData() {
@@ -97,17 +101,19 @@ export class UsersPage {
     renderUsers(users) {
         const tbody = document.getElementById('users-table-body');
         if (!tbody) return;
+        this.usersOnPage = users;
 
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">暂无数据</td></tr>';
             return;
         }
 
         tbody.innerHTML = users.map(user => `
             <tr>
-                <td>${user.id}</td>
-                <td>${user.username}</td>
-                <td>${user.email || '-'}</td>
+                <td title="${this.escapeHtml(user.id)}">${this.escapeHtml(user.id)}</td>
+                <td>${this.escapeHtml(user.username)}</td>
+                <td>${this.escapeHtml(user.email || '-')}</td>
+                <td>${this.escapeHtml(user.phone || '-')}</td>
                 <td>${this.formatDate(user.created_at)}</td>
                 <td>${this.formatDate(user.last_active)}</td>
                 <td>
@@ -115,16 +121,36 @@ export class UsersPage {
                         ${user.is_active ? '活跃' : '禁用'}
                     </span>
                 </td>
-                <td>
-                    <button class="btn-icon" onclick="editUser(${user.id})" title="编辑">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn-icon" onclick="deleteUser(${user.id})" title="删除">
+                <td class="actions">
+                    <button class="btn-action delete" type="button" data-delete-user="${this.escapeHtml(user.id)}" title="删除用户">
                         <i class="fas fa-trash"></i>
                     </button>
                 </td>
             </tr>
         `).join('');
+    }
+
+    async handleTableClick(event) {
+        const button = event.target.closest('[data-delete-user]');
+        if (!button) return;
+
+        const userId = button.dataset.deleteUser;
+        const user = this.usersOnPage.find(item => String(item.id) === userId);
+        const label = user?.username ? `“${user.username}”` : '该用户';
+        if (!window.confirm(`确定要永久删除${label}吗？账号及相关数据将被清除，且无法恢复。`)) return;
+
+        button.disabled = true;
+        try {
+            await api.deleteUser(userId);
+            if (this.usersOnPage.length === 1 && this.currentPage > 1) {
+                this.currentPage--;
+            }
+            await this.loadData();
+        } catch (error) {
+            console.error('删除用户失败:', error);
+            window.alert(error.message || '删除用户失败');
+            button.disabled = false;
+        }
     }
 
     updatePagination(total) {
@@ -150,7 +176,7 @@ export class UsersPage {
     setLoading(loading) {
         const tbody = document.getElementById('users-table-body');
         if (tbody && loading) {
-            tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>';
         }
     }
 
@@ -168,11 +194,20 @@ export class UsersPage {
         };
     }
 
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
     showError(message) {
         console.error(message);
     }
 
     unmount() {
-        // 清理资源
+        document.getElementById('users-table-body')?.removeEventListener('click', this.handleTableClick);
     }
 }

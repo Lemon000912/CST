@@ -6,7 +6,9 @@ import {
   apiIsWechatLoginAvailable,
   apiLogin,
   apiRegister,
+  apiResetPassword,
   apiSendRegisterSmsCode,
+  apiSendPasswordResetSmsCode,
   apiSendWechatBindSmsCode,
   apiStartWechatLoginEmbed,
   type WechatBindingState,
@@ -124,7 +126,7 @@ export default function LoginScreen({
 }) {
   const isWechatPreview = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
-  const [mode, setMode] = useState<"login" | "register" | "wechat">("login");
+  const [mode, setMode] = useState<"login" | "register" | "wechat" | "reset">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
@@ -223,7 +225,9 @@ export default function LoginScreen({
       }
       const result = mode === "wechat"
         ? await apiSendWechatBindSmsCode(normalizedPhone)
-        : await apiSendRegisterSmsCode(normalizedPhone);
+        : mode === "reset"
+          ? await apiSendPasswordResetSmsCode(normalizedPhone)
+          : await apiSendRegisterSmsCode(normalizedPhone);
       setSmsCountdown(60);
       setSmsNotice(`验证码已发送，有效期约 ${Math.ceil(result.expiresIn / 60)} 分钟`);
     } catch (error) {
@@ -240,7 +244,7 @@ export default function LoginScreen({
       return;
     }
     if (
-      (mode === "register" || (mode === "wechat" && !wechatNeedsAccountDetails))
+      (mode === "register" || mode === "reset" || (mode === "wechat" && !wechatNeedsAccountDetails))
       && !/^\d{4,8}$/.test(smsCode.trim())
     ) {
       setErr("请输入短信验证码");
@@ -252,6 +256,10 @@ export default function LoginScreen({
       && ((isSchool ? !phone.trim() : !username.trim()) || password.length < 8)
     ) {
       setErr(isSchool ? "请设置至少 8 位登录密码" : "请设置新账号用户名和至少 8 位密码");
+      return;
+    }
+    if (mode === "reset" && password.length < 8) {
+      setErr("请设置至少 8 位新密码");
       return;
     }
     if (isWechatPreview && mode === "wechat") {
@@ -268,6 +276,13 @@ export default function LoginScreen({
       const accountName = isSchool ? phone.trim() : username;
       if (mode === "login") {
         await apiLogin(accountName, password);
+      } else if (mode === "reset") {
+        await apiResetPassword(phone, password, smsCode);
+        setMode("login");
+        setPassword("");
+        setSmsCode("");
+        setSmsNotice("密码已重置，请使用新密码登录");
+        return;
       } else if (mode === "register") {
         await apiRegister(accountName, password, isSchool ? undefined : email, phone, smsCode);
       } else {
@@ -319,7 +334,7 @@ export default function LoginScreen({
           <AppLogo size="lg" className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
-            {mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : "企业版"}
+            {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : "企业版"}
           </p>
         </div>
 
@@ -340,6 +355,21 @@ export default function LoginScreen({
                 返回账号登录
               </button>
             </div>
+          </div>
+        ) : mode === "reset" ? (
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-3 py-2 text-[12px] text-[var(--t-text-muted)]">
+            <span>忘记密码</span>
+            <button
+              type="button"
+              className="text-[11px] text-[var(--t-text-muted)] hover:text-[var(--t-text)]"
+              onClick={() => {
+                setMode("login");
+                setSmsNotice(null);
+                setErr(null);
+              }}
+            >
+              返回账号登录
+            </button>
           </div>
         ) : (
           <div className="mb-4 flex rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-muted)] p-0.5 text-[13px]">
@@ -369,7 +399,7 @@ export default function LoginScreen({
         )}
 
         <div className="flex flex-col gap-3">
-          {!isSchool && (mode !== "wechat" || wechatNeedsAccountDetails) && (
+          {!isSchool && (mode === "login" || mode === "register" || (mode === "wechat" && wechatNeedsAccountDetails)) && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">
                 {mode === "wechat" ? "设置新账号用户名" : "用户名"}
@@ -462,7 +492,7 @@ export default function LoginScreen({
           {(mode !== "wechat" || wechatNeedsAccountDetails) && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">
-                {mode === "wechat" ? "设置登录密码" : "密码"}
+                {mode === "wechat" ? "设置登录密码" : mode === "reset" ? "新密码" : "密码"}
               </label>
               <PasswordInputWithToggle
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
@@ -476,20 +506,41 @@ export default function LoginScreen({
               />
             </div>
           )}
+          {mode === "login" ? (
+            <button
+              type="button"
+              className="self-end text-[11px] text-[var(--t-text-muted)] hover:text-[var(--t-text)]"
+              onClick={() => {
+                setMode("reset");
+                setPhone("");
+                setPassword("");
+                setSmsCode("");
+                setSmsNotice(null);
+                setErr(null);
+              }}
+            >
+              忘记密码？
+            </button>
+          ) : null}
+          {mode === "login" && smsNotice ? (
+            <p className="text-[12px] text-emerald-600 dark:text-emerald-400">{smsNotice}</p>
+          ) : null}
           {err ? <p className="text-[12px] text-[var(--t-error)]">{err}</p> : null}
           <button type="button" disabled={busy} onClick={() => void submit()} className="qp-btn-primary mt-1">
             {busy
               ? LOADING_AUTH
               : mode === "login"
                 ? "登录"
-                : mode === "register"
-                  ? "注册并登录"
-                  : wechatNeedsAccountDetails
-                    ? "创建账号并绑定微信"
-                    : "验证手机号并继续"}
+                : mode === "reset"
+                  ? "确认重置密码"
+                  : mode === "register"
+                    ? "注册并登录"
+                    : wechatNeedsAccountDetails
+                      ? "创建账号并绑定微信"
+                      : "验证手机号并继续"}
           </button>
 
-          {mode !== "wechat" ? (
+          {mode === "login" || mode === "register" ? (
             <>
               <div className="flex items-center gap-3 py-1 text-[10px] text-[var(--t-text-dim)]">
                 <span className="h-px flex-1 bg-[var(--t-br08)]" />

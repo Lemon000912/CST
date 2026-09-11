@@ -227,3 +227,11 @@ export async function loadCachedPdfSource(operationId, rawSourceId, options = {}
     return null;
   }
 }
+
+/** Remove in-memory and disk-backed PDF source artifacts for a purged user. */
+export async function purgePdfSourceJob(operationId, options = {}) {
+  const id = String(operationId ?? "").trim();
+  if (!id) return;
+  jobs.delete(id);
+  await fs.unlink(manifestPath(id, options)).catch(() => undefined);
+}
