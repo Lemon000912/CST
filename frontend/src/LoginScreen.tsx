@@ -109,6 +109,7 @@ export default function LoginScreen({
   const [mode, setMode] = useState<"login" | "register" | "wechat" | "reset">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [smsCode, setSmsCode] = useState("");
@@ -242,6 +243,10 @@ export default function LoginScreen({
       setErr("请设置至少 8 位新密码");
       return;
     }
+    if (mode === "reset" && password !== confirmPassword) {
+      setErr("两次输入的新密码不一致");
+      return;
+    }
     if (isWechatPreview && mode === "wechat") {
       if (!wechatNeedsAccountDetails) {
         setWechatNeedsAccountDetails(true);
@@ -260,6 +265,7 @@ export default function LoginScreen({
         await apiResetPassword(phone, password, smsCode);
         setMode("login");
         setPassword("");
+        setConfirmPassword("");
         setSmsCode("");
         setSmsNotice("密码已重置，请使用新密码登录");
         return;
@@ -344,6 +350,8 @@ export default function LoginScreen({
               className="text-[11px] text-[var(--t-text-muted)] hover:text-[var(--t-text)]"
               onClick={() => {
                 setMode("login");
+                setPassword("");
+                setConfirmPassword("");
                 setSmsNotice(null);
                 setErr(null);
               }}
@@ -486,6 +494,21 @@ export default function LoginScreen({
               />
             </div>
           )}
+          {mode === "reset" ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">确认新密码</label>
+              <PasswordInputWithToggle
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="请再次输入新密码"
+                className="qp-field"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submit();
+                }}
+              />
+            </div>
+          ) : null}
           {mode === "login" ? (
             <button
               type="button"
@@ -494,6 +517,7 @@ export default function LoginScreen({
                 setMode("reset");
                 setPhone("");
                 setPassword("");
+                setConfirmPassword("");
                 setSmsCode("");
                 setSmsNotice(null);
                 setErr(null);

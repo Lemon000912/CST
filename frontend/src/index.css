@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Edge may add its own password-reveal control; the app provides one consistently. */
+.qp-password-input::-ms-reveal,
+.qp-password-input::-ms-clear {
+  display: none;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

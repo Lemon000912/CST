@@ -57,7 +57,7 @@ export function PasswordInputWithToggle({
       <input
         {...rest}
         type={visible ? "text" : "password"}
-        className={`${className} pr-10`.trim()}
+        className={`qp-password-input ${className} pr-10`.trim()}
       />
       <button
         type="button"
