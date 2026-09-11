@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   WechatOAuthError,
+  buildWechatEnterpriseCallbackRelayUrl,
   buildWechatAuthorizationUrl,
   consumeWechatTicket,
+  createWechatOAuthState,
   createWechatTicket,
   exchangeWechatCode,
+  getWechatOAuthStateCookieDomain,
+  getWechatOAuthStateEdition,
   getWechatTicket,
   isWechatOAuthConfigured,
   updateWechatTicket,
@@ -20,6 +24,8 @@ const ENV_KEYS = [
   "WECHAT_OPEN_FRONTEND_URL",
   "WECHAT_OPEN_AUTHORIZE_URL",
   "WECHAT_OPEN_API_ORIGIN",
+  "WECHAT_OPEN_COOKIE_DOMAIN",
+  "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI",
   "SCHOOL_WECHAT_OPEN_APP_ID",
   "SCHOOL_WECHAT_OPEN_APP_SECRET",
   "SCHOOL_WECHAT_OPEN_REDIRECT_URI",
@@ -90,6 +96,38 @@ test("one shared env can provide edition-specific WeChat OAuth settings", (t) =>
     url.searchParams.get("redirect_uri"),
     "https://enterprise.example.test/api/v1/auth/wechat/callback",
   );
+});
+
+test("cross-subdomain enterprise login uses a bounded state and shared parent cookie", (t) => {
+  configuredEnv(t);
+  Object.assign(process.env, {
+    APP_EDITION: "enterprise",
+    ENTERPRISE_WECHAT_OPEN_REDIRECT_URI: "https://login.example.test/api/v1/auth/wechat/callback",
+    ENTERPRISE_WECHAT_OPEN_FRONTEND_URL: "https://enterprise.login.example.test/",
+    WECHAT_OPEN_COOKIE_DOMAIN: "login.example.test",
+  });
+
+  const state = createWechatOAuthState("enterprise");
+  assert.match(state, /^enterprise\.[A-Za-z0-9_-]{32}$/);
+  assert.equal(getWechatOAuthStateEdition(state), "enterprise");
+  assert.equal(getWechatOAuthStateEdition(`enterprise.${"x".repeat(31)}`), null);
+  assert.equal(getWechatOAuthStateEdition(`https://evil.test/${"x".repeat(32)}`), null);
+  assert.equal(getWechatOAuthStateCookieDomain(), "login.example.test");
+});
+
+test("enterprise callback relay is fixed by server configuration", (t) => {
+  configuredEnv(t);
+  process.env.WECHAT_OPEN_ENTERPRISE_CALLBACK_URI = "https://enterprise.example.test/api/v1/auth/wechat/callback";
+
+  const relayUrl = new URL(buildWechatEnterpriseCallbackRelayUrl({
+    code: "temporary code",
+    state: `enterprise.${"x".repeat(32)}`,
+    redirect_uri: "https://evil.test/",
+  }));
+  assert.equal(relayUrl.origin, "https://enterprise.example.test");
+  assert.equal(relayUrl.searchParams.get("code"), "temporary code");
+  assert.equal(relayUrl.searchParams.get("state"), `enterprise.${"x".repeat(32)}`);
+  assert.equal(relayUrl.searchParams.has("redirect_uri"), false);
 });
 
 test("WeChat OAuth exchanges code server-side and returns only normalized identity", async (t) => {

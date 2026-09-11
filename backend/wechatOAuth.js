@@ -38,6 +38,10 @@ function normalizedHttpUrl(value, field) {
   }
 }
 
+function hostMatchesCookieDomain(hostname, cookieDomain) {
+  return hostname === cookieDomain || hostname.endsWith(`.${cookieDomain}`);
+}
+
 export function getWechatOAuthConfig() {
   const callbackUrl = editionEnv("WECHAT_OPEN_REDIRECT_URI");
   let frontendUrl = editionEnv("WECHAT_OPEN_FRONTEND_URL");
@@ -89,6 +93,66 @@ function requireWechatOAuthConfig() {
     }
   }
   return config;
+}
+
+export function createWechatOAuthState(edition = getConfiguredAppEdition()) {
+  const normalizedEdition = String(edition ?? "").trim().toLowerCase();
+  if (normalizedEdition !== "school" && normalizedEdition !== "enterprise") {
+    throw new WechatOAuthError("微信登录版本无效", {
+      code: "wechat-not-configured",
+      status: 503,
+    });
+  }
+  return `${normalizedEdition}.${randomBytes(24).toString("base64url")}`;
+}
+
+export function getWechatOAuthStateEdition(state) {
+  const match = /^(school|enterprise)\.([A-Za-z0-9_-]{32})$/.exec(String(state ?? ""));
+  return match?.[1] ?? null;
+}
+
+export function getWechatOAuthStateCookieDomain() {
+  const config = requireWechatOAuthConfig();
+  const callbackHost = new URL(config.callbackUrl).hostname.toLowerCase();
+  const frontendHost = new URL(config.frontendUrl).hostname.toLowerCase();
+  if (callbackHost === frontendHost) return "";
+
+  const cookieDomain = editionEnv("WECHAT_OPEN_COOKIE_DOMAIN")
+    .replace(/^\.+/, "")
+    .toLowerCase();
+  if (!cookieDomain
+    || !hostMatchesCookieDomain(callbackHost, cookieDomain)
+    || !hostMatchesCookieDomain(frontendHost, cookieDomain)) {
+    throw new WechatOAuthError("跨域微信登录需要正确配置 WECHAT_OPEN_COOKIE_DOMAIN", {
+      code: "wechat-not-configured",
+      status: 503,
+    });
+  }
+  return cookieDomain;
+}
+
+export function buildWechatEnterpriseCallbackRelayUrl(params = {}) {
+  const configuredUrl = env("WECHAT_OPEN_ENTERPRISE_CALLBACK_URI");
+  if (!configuredUrl) {
+    throw new WechatOAuthError("微信登录未配置：WECHAT_OPEN_ENTERPRISE_CALLBACK_URI", {
+      code: "wechat-not-configured",
+      status: 503,
+    });
+  }
+  const url = new URL(normalizedHttpUrl(configuredUrl, "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI"));
+  if (String(process.env.NODE_ENV ?? "").toLowerCase() === "production" && url.protocol !== "https:") {
+    throw new WechatOAuthError("生产环境企业版微信回调中继必须使用 HTTPS", {
+      code: "wechat-not-configured",
+      status: 503,
+    });
+  }
+  url.search = "";
+  url.hash = "";
+  for (const key of ["code", "state"]) {
+    const value = String(params?.[key] ?? "").trim();
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 export function buildWechatAuthorizationUrl(state) {

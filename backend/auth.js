@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import {
@@ -21,12 +21,16 @@ import {
 } from "./smsVerification.js";
 import {
   WechatOAuthError,
+  buildWechatEnterpriseCallbackRelayUrl,
   buildWechatAuthorizationUrl,
   clearWechatTicket,
   consumeWechatTicket,
+  createWechatOAuthState,
   createWechatTicket,
   exchangeWechatCode,
   getWechatFrontendRedirect,
+  getWechatOAuthStateCookieDomain,
+  getWechatOAuthStateEdition,
   getWechatTicket,
   updateWechatTicket,
 } from "./wechatOAuth.js";
@@ -78,7 +82,11 @@ function isSecureWechatCookie() {
     || /^https:\/\//i.test(String(process.env.WECHAT_OPEN_REDIRECT_URI ?? "").trim());
 }
 
-function setWechatCookie(res, name, value, maxAgeSeconds) {
+function editionCookieName(baseName, edition = getConfiguredAppEdition()) {
+  return `${baseName}_${edition}`;
+}
+
+function setWechatCookie(res, name, value, maxAgeSeconds, domain = "") {
   const attributes = [
     `${name}=${encodeURIComponent(String(value))}`,
     `Path=${WECHAT_COOKIE_PATH}`,
@@ -86,12 +94,13 @@ function setWechatCookie(res, name, value, maxAgeSeconds) {
     "HttpOnly",
     "SameSite=Lax",
   ];
+  if (domain) attributes.push(`Domain=${domain}`);
   if (isSecureWechatCookie()) attributes.push("Secure");
   res.append("Set-Cookie", attributes.join("; "));
 }
 
-function clearWechatCookie(res, name) {
-  setWechatCookie(res, name, "", 0);
+function clearWechatCookie(res, name, domain = "") {
+  setWechatCookie(res, name, "", 0, domain);
 }
 
 function equalState(left, right) {
@@ -101,7 +110,7 @@ function equalState(left, right) {
 }
 
 function wechatTicketFromRequest(req) {
-  return parseRequestCookies(req)[WECHAT_TICKET_COOKIE] ?? "";
+  return parseRequestCookies(req)[editionCookieName(WECHAT_TICKET_COOKIE)] ?? "";
 }
 
 async function successfulAuthPayload(user) {
@@ -394,9 +403,11 @@ function redirectWechatResult(res, params, fallbackStatus = 400) {
 
 export async function handleWechatStart(req, res) {
   try {
-    const state = randomBytes(24).toString("base64url");
-    setWechatCookie(res, WECHAT_STATE_COOKIE, state, 10 * 60);
+    const edition = getConfiguredAppEdition();
+    const state = createWechatOAuthState(edition);
     const authorizationUrl = buildWechatAuthorizationUrl(state);
+    const cookieDomain = getWechatOAuthStateCookieDomain();
+    setWechatCookie(res, editionCookieName(WECHAT_STATE_COOKIE, edition), state, 10 * 60, cookieDomain);
     if (String(req.query?.display ?? "") === "embed") {
       res.set("Cache-Control", "no-store");
       return res.json({ authorizationUrl });
@@ -412,10 +423,35 @@ export async function handleWechatStart(req, res) {
 }
 
 export async function handleWechatCallback(req, res) {
-  const cookies = parseRequestCookies(req);
-  clearWechatCookie(res, WECHAT_STATE_COOKIE);
   const returnedState = String(req.query?.state ?? "");
-  if (!equalState(cookies[WECHAT_STATE_COOKIE], returnedState)) {
+  const stateEdition = getWechatOAuthStateEdition(returnedState);
+  const currentEdition = getConfiguredAppEdition();
+
+  if (currentEdition === "school" && stateEdition === "enterprise") {
+    try {
+      return res.redirect(302, buildWechatEnterpriseCallbackRelayUrl({
+        code: req.query?.code,
+        state: returnedState,
+      }));
+    } catch (error) {
+      console.error("[auth/wechat/relay]", error instanceof Error ? error.message : error);
+      const status = error instanceof WechatOAuthError ? error.status : 500;
+      return res.status(status).json({ error: "企业版微信登录中继未正确配置", code: "wechat-not-configured" });
+    }
+  }
+
+  let cookieDomain;
+  try {
+    cookieDomain = getWechatOAuthStateCookieDomain();
+  } catch (error) {
+    console.error("[auth/wechat/cookie]", error instanceof Error ? error.message : error);
+    const status = error instanceof WechatOAuthError ? error.status : 500;
+    return res.status(status).json({ error: "微信登录跨域 Cookie 未正确配置", code: "wechat-not-configured" });
+  }
+  const stateCookieName = editionCookieName(WECHAT_STATE_COOKIE, currentEdition);
+  const cookies = parseRequestCookies(req);
+  clearWechatCookie(res, stateCookieName, cookieDomain);
+  if (stateEdition !== currentEdition || !equalState(cookies[stateCookieName], returnedState)) {
     return redirectWechatResult(res, { wechat_error: "invalid_state" });
   }
   const code = String(req.query?.code ?? "").trim();
@@ -431,7 +467,7 @@ export async function handleWechatCallback(req, res) {
         ? { kind: "login", userId: linkedUser.id }
         : { kind: "bind", identity },
     );
-    setWechatCookie(res, WECHAT_TICKET_COOKIE, ticket.token, ticket.expiresIn);
+    setWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE), ticket.token, ticket.expiresIn);
     return redirectWechatResult(res, { wechat: "complete" });
   } catch (error) {
     console.warn(
@@ -449,7 +485,7 @@ export async function handleWechatSession(req, res) {
     const ticketToken = wechatTicketFromRequest(req);
     const ticket = getWechatTicket(ticketToken);
     if (!ticket) {
-      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
       return res.status(401).json({ error: "微信登录已过期，请重新扫码", code: "wechat-ticket-expired" });
     }
     if (ticket.kind === "bind") {
@@ -463,11 +499,11 @@ export async function handleWechatSession(req, res) {
     }
     if (ticket.kind !== "login") {
       clearWechatTicket(ticketToken);
-      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
       return res.status(400).json({ error: "微信登录状态无效", code: "wechat-ticket-invalid" });
     }
     const consumed = consumeWechatTicket(ticketToken);
-    clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+    clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
     const user = consumed ? await findUserById(consumed.userId) : null;
     if (!user) {
       return res.status(401).json({ error: "微信绑定账号不存在", code: "wechat-user-not-found" });
@@ -506,7 +542,7 @@ export async function handleWechatBindPhone(req, res) {
   try {
     const ticket = getWechatTicket(ticketToken);
     if (!ticket || ticket.kind !== "bind") {
-      clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+      clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
       return res.status(401).json({ error: "微信登录已过期，请重新扫码", code: "wechat-ticket-expired" });
     }
     const phoneResult = validatePhoneForRegister(req.body?.phone);
@@ -556,7 +592,7 @@ export async function handleWechatBindPhone(req, res) {
       newUser,
     });
     consumeWechatTicket(ticketToken);
-    clearWechatCookie(res, WECHAT_TICKET_COOKIE);
+    clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
     return res.status(result.created ? 201 : 200).json({
       ...(await successfulAuthPayload(result.user)),
       accountCreated: result.created,
