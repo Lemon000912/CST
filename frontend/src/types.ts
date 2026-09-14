@@ -358,4 +358,6 @@ export type UploadedAttachment = {
   name: string;
   text: string;
   chars: number;
+  kind?: "document" | "image";
+  previewUrl?: string;
 };

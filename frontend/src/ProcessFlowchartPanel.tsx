@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMessage } from "./types";
+import { sanitizeSvg } from "./sanitizeSvg";
 
 export type ProcessStep = {
   step_no?: number | string;
@@ -216,14 +217,14 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
         const { svg } = await mermaid.render(`pq-flow-${uid}`, artifact.mermaid.trim());
         if (cancelled) return;
         el.innerHTML = svg;
-        setSvgHtml(svg);
+        setSvgHtml(sanitizeSvg(svg));
       } catch (e) {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "流程图渲染失败");
           if (artifact.svgBase64) {
             const fallback = `<img alt="工艺流程" src="data:image/svg+xml;base64,${artifact.svgBase64}" class="max-w-full h-auto" />`;
             el.innerHTML = fallback;
-            setSvgHtml(fallback);
+            setSvgHtml(sanitizeSvg(fallback));
             setErr(null);
           }
         }

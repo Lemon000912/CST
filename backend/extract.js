@@ -49,7 +49,7 @@ async function extractPptxText(buffer) {
 }
 
 export const uploadMiddleware = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({ destination: os.tmpdir(), filename: (_req, file, cb) => cb(null, `pq-upload-${Date.now()}-${Math.random().toString(36).slice(2,10)}${path.extname(file.originalname || "")}`) }),
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 

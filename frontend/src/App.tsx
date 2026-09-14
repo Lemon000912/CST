@@ -35,6 +35,7 @@ import {
   ApiError,
   createIdempotencyKey,
   extractUploadedDocument,
+  readImagePreview,
   fetchPointBalance,
   fetchStudentVerificationStatus,
   getCachedPdfSources,
@@ -75,7 +76,8 @@ import { StudentVerificationModal } from "./StudentVerificationModal";
 import { pickWelcomeCopy } from "./welcomeCopy";
 import { clearAuthSession, getAuthProfile } from "./authSession";
 import { loadSessions, mergeChatSessions, saveSessions, sessionsPayloadForServer } from "./storage";
-import { fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
+import { cancelBillingOperation, fetchChatSessionsFromServer, saveChatSessionsToServer } from "./api";
+import { sanitizeSvg } from "./sanitizeSvg";
 import { getAuthToken } from "./authSession";
 import { DEFAULT_PERSONA_LIST, fetchPersonaList, getPersonaId, setPersonaId } from "./persona";
 import type {
@@ -1903,7 +1905,9 @@ function AssistantBlock({
                     </ReactMarkdown>
                   ) : (
                     <p className="text-[var(--t-text-dim)]">
-                      （未生成或调用失败{note ? `：${note}` : ""}）
+                      {webSynthesisPending || initialRequestPending
+                        ? "（等待模型作答…）"
+                        : `（未生成或调用失败${note ? `：${note}` : ""}）`}
                     </p>
                   )}
                 </div>
@@ -1961,7 +1965,7 @@ function AssistantBlock({
                   ? "收起全部来源"
                   : "收起论文列表"
                 : isWebChannel
-                  ? "查看全部来源"
+                  ? "查看下载PDF"
                   : "展开论文列表"}
               <span className="ml-1 font-normal text-[var(--t-text-muted)]">
                 （{isWebChannel ? listedSourcePapers.length : n} 条）
@@ -2101,7 +2105,7 @@ function AssistantBlock({
                   <p className="mb-1 mt-2 text-[10px] text-[var(--t-text-dim)]">静态预览（SVG 散点图，纯JS渲染）</p>
                   <div
                     className="max-h-[min(72vh,720px)] w-full max-w-full overflow-auto rounded-lg border border-[color:var(--t-br08)] bg-white"
-                    dangerouslySetInnerHTML={{ __html: decodeBase64Utf8(msg.meta.paperChart.svgBase64) }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeSvg(decodeBase64Utf8(msg.meta.paperChart.svgBase64)) }}
                   />
                   <div className="mt-2 flex flex-wrap gap-2">
                     <a
@@ -2397,6 +2401,7 @@ export default function App({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const activeOperationIdRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
@@ -2888,13 +2893,14 @@ export default function App({
     try {
       for (const f of files) {
         setUploadingFileName(f.name);
-        const r = await extractUploadedDocument(f);
-        const item: UploadedAttachment = {
-          id: uid(),
-          name: r.filename || f.name,
-          text: r.text,
-          chars: r.charCount,
-        };
+        const isImage = /^image\//i.test(f.type) || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(f.name);
+        let item: UploadedAttachment;
+        if (isImage) {
+          item = { id: uid(), name: f.name, text: `图片附件：${f.name}`, chars: 0, kind: "image", previewUrl: await readImagePreview(f) };
+        } else {
+          const r = await extractUploadedDocument(f);
+          item = { id: uid(), name: r.filename || f.name, text: r.text, chars: r.charCount, kind: "document" };
+        }
         added.push(item);
         setAttachments((prev) => [...prev, item]);
       }
@@ -3483,6 +3489,7 @@ export default function App({
         if (event.type === "papers") {
           papersReceived = event.papers ?? [];
           pdfCrawlOperationId = event.parentOperationId ?? pdfCrawlOperationId;
+          activeOperationIdRef.current = event.parentOperationId ?? activeOperationIdRef.current;
           if ((event.channel ?? channelAtSend) === "web" && papersReceived.length > 0) {
             pdfCrawlStatusReceived = "running";
           }
@@ -3573,6 +3580,7 @@ export default function App({
           completedBillingReceipt = event.billingReceipt ?? null;
           completedPointsExhausted = event.pointsExhausted ?? false;
           pdfCrawlOperationId = event.parentOperationId ?? pdfCrawlOperationId;
+          activeOperationIdRef.current = event.parentOperationId ?? activeOperationIdRef.current;
           if (event.pdfSources?.length) mergePdfSources(event.pdfSources);
           pdfCrawlStatusReceived = event.pdfCrawlStatus ?? pdfCrawlStatusReceived;
           if (event.billingReceipt) applyReceipt(event.billingReceipt);
@@ -3752,10 +3760,12 @@ export default function App({
     }
   };
 
-  const pause = useCallback(() => {
+  const pause = useCallback(async () => {
     if (!busy || !activeAbortControllerRef.current) return;
     pauseRequestedRef.current = true;
     activeAbortControllerRef.current.abort();
+    const operationId = activeOperationIdRef.current;
+    if (operationId) { try { await cancelBillingOperation(operationId); } catch (e) { console.warn("[pause] cancel failed", e); } }
   }, [busy]);
 
   const willAttachConvoContext = (active?.messages.length ?? 0) > 0;
@@ -4375,6 +4385,7 @@ export default function App({
                               className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-chip-bg)] py-1 pl-2 pr-1 text-[11px] text-[var(--t-text-chrome)]"
                               title={`已解析 ${a.chars.toLocaleString()} 字`}
                             >
+                              {a.kind === "image" && a.previewUrl ? <img src={a.previewUrl} alt="" className="h-6 w-6 rounded object-cover" /> : null}
                               <span className="max-w-[14rem] truncate font-medium">{a.name}</span>
                               <span className="text-[10px] text-[var(--t-text-muted)]">
                                 {a.chars.toLocaleString()} 字
@@ -4400,7 +4411,7 @@ export default function App({
                   tabIndex={-1}
                   className="pointer-events-none absolute h-0 w-0 opacity-0"
                   multiple
-                  accept=".pdf,.pptx,.ppsx,.md,.markdown,.txt,.text,.doc,.docx,.docm,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                  accept=".pdf,.pptx,.ppsx,.md,.markdown,.txt,.text,.doc,.docx,.docm,image/*,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                   onChange={onFilesSelected}
                   disabled={uploadBusy || exportPickMode}
                 />
@@ -4436,7 +4447,7 @@ export default function App({
                   aria-label={
                     attachments.length > 0 ? `已附加 ${attachments.length} 个文件，点击继续添加` : "上传文件"
                   }
-                  title="支持 PDF、PPTX、Markdown、TXT、Word（.doc / .docx），单文件 ≤100MB"
+                  title="支持图片、PDF、PPTX、Markdown、TXT、Word，单文件 ≤100MB"
                 >
                   {uploadBusy ? (
                     <LoadingSpinner />

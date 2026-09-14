@@ -19,7 +19,7 @@ const {
   grantStudentVerification,
   initDatabase,
 } = await import("../db.js");
-const { isStudentCardAccepted, parseStudentCardDecision } = await import("../studentVerification.js");
+const { isEligibleStudentSchool, isStudentCardAccepted, parseStudentCardDecision } = await import("../studentVerification.js");
 
 test("student card decisions require confidence, school and an identity field", () => {
   const valid = parseStudentCardDecision('```json\n{"is_student_card":true,"confidence":0.92,"school":"测试大学","student_id":"20260001","reason":"清晰"}\n```');
@@ -28,6 +28,13 @@ test("student card decisions require confidence, school and an identity field", 
   assert.equal(isStudentCardAccepted({ ...valid, school: "" }), false);
   assert.equal(isStudentCardAccepted({ ...valid, studentId: "", name: "" }), false);
   assert.equal(parseStudentCardDecision("not json"), null);
+});
+
+test("student verification rewards only Xi'an Jiaotong University students", () => {
+  assert.equal(isEligibleStudentSchool("西安交通大学"), true);
+  assert.equal(isEligibleStudentSchool(" 西安 交通 大学 "), true);
+  assert.equal(isEligibleStudentSchool("Xian Jiaotong University"), true);
+  assert.equal(isEligibleStudentSchool("西北工业大学"), false);
 });
 
 test("student verification grants exactly 1000 points once", async (t) => {

@@ -174,7 +174,7 @@ import {
   listAdminAiQaRecords,
 } from "./adminAiQa.js";
 import { AdminUsersError, deleteAdminUser, listAdminUsers } from "./adminUsers.js";
-import { recognizeStudentCard, STUDENT_CARD_MAX_BYTES, studentCardUploadMiddleware } from "./studentVerification.js";
+import { recognizeStudentCard, isEligibleStudentSchool, STUDENT_CARD_MAX_BYTES, studentCardUploadMiddleware } from "./studentVerification.js";
 
 const PORT = (() => {
   const n = Number.parseInt(String(process.env.PORT ?? "").trim(), 10);
@@ -458,30 +458,8 @@ const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
 更多字段组合可在后续版本扩展。`;
 
 const app = express();
-const AGENT_DEBUG_LOG_PATH = path.join(__dirname, "..", ".cursor", "debug-ef7a54.log");
-// #region agent log
-function agentDbgChartBackend(location, hypothesisId, message, data) {
-  const payload = {
-    sessionId: "ef7a54",
-    hypothesisId,
-    location,
-    message,
-    data,
-    timestamp: Date.now(),
-  };
-  try {
-    fs.mkdirSync(path.dirname(AGENT_DEBUG_LOG_PATH), { recursive: true });
-    fs.appendFileSync(AGENT_DEBUG_LOG_PATH, `${JSON.stringify(payload)}\n`);
-  } catch {
-    /* ignore */
-  }
-  fetch("http://127.0.0.1:7467/ingest/0e8c1981-4719-4a28-ab2f-2d5a4ae28120", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ef7a54" },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
-}
-// #endregion
+let extractInFlight = 0;
+const MAX_EXTRACT_IN_FLIGHT = 2;
 app.use(cors({ origin: true }));
 /** 文献作图等接口会携带多篇摘录 + 综述，4MB 易触发 entity.too.large，body-parser 默认返回 HTML 导致前端「非 JSON」 */
 app.use(express.json({
@@ -696,6 +674,13 @@ app.post("/api/v1/student-verification", requireAuthenticatedUser, (req, res, ne
         verification: { verified: false, confidence: result.decision.confidence },
       });
     }
+    if (!isEligibleStudentSchool(result.decision.school)) {
+      return res.status(422).json({
+        error: "仅西安交通大学学生可获得认证积分",
+        code: "student-school-not-eligible",
+        verification: { verified: false, confidence: result.decision.confidence, details: { school: result.decision.school } },
+      });
+    }
     const details = {
       school: result.decision.school,
     };
@@ -796,6 +781,16 @@ app.post("/api/v1/billing/recharge/callback/wechat", async (req, res) => {
     console.error("[recharge] 微信支付回调处理失败:", error?.code || error?.message || error);
     return res.status(400).json({ code: "FAIL", message: "支付通知处理失败" });
   }
+});
+
+app.post("/api/v1/billing/operations/:id/cancel", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const operation = await getBillableOperation({ operationId: req.params.id, userId: req.auth.userId });
+    if (operation.status === "processing" && operation.leaseToken) {
+      await failBillableOperation({ operationId: operation.id, userId: req.auth.userId, leaseToken: operation.leaseToken, errorCode: "cancelled-by-user" });
+    }
+    return res.json({ ok: true, operation: await getBillableOperation({ operationId: req.params.id, userId: req.auth.userId }) });
+  } catch (error) { return sendStructuredError(res, error, { message: "Unable to cancel billing operation" }); }
 });
 
 app.get("/api/v1/billing/operations/:id", requireAuthenticatedUser, async (req, res) => {
@@ -1113,11 +1108,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
     } catch {
       approxBytes = -1;
     }
-    agentDbgChartBackend("index.js:chart:entry", "H2", "chart handler past validation", {
-      papersLen: papers.length,
-      approxBodyBytes: approxBytes,
-      chartUsedLen: Math.min(papers.length, 22),
-    });
     // #endregion
     /** 文献过多时 Matplotlib/JSON 响应过大易导致代理断连与空 body；仅在此路由内截断 */
     const papersForChart = papers.slice(0, 22);
@@ -1145,12 +1135,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
       userHint: hint,
       synthesisMarkdown: synthesisMd || undefined,
     });
-    // #region agent log
-    agentDbgChartBackend("index.js:chart:post-llm", "H2", "after extractChartSpecWithLlm", {
-      extractedOk: extracted.ok,
-      llmErrHead: extracted.ok ? undefined : String(extracted.error || "").slice(0, 160),
-    });
-    // #endregion
     let spec = null;
     if (extracted.ok) {
       spec = normalizeChartSpec(extracted.spec, papersForChart);
@@ -1162,12 +1146,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
       if (spec) res.locals.chartBillingSource = "fallback";
     }
     if (!spec) {
-      // #region agent log
-      agentDbgChartBackend("index.js:chart:no-spec", "H2", "chart returning 422 no drawable spec", {
-        extractedOk: extracted.ok,
-        llmError: extracted.ok ? undefined : String(extracted.error || "").slice(0, 200),
-      });
-      // #endregion
       return res.status(422).json({
         error:
           "未能形成可绘制的数值点（模型未返回有效 points，且摘要后备也未解析到至少两个同单位、可追溯的数值）。可换一批文献、在作图意图中写明坐标含义，或确认摘要/综述中含有可比较的数字。",
@@ -1179,11 +1157,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
     try {
       png = await renderChartPngWithMatplotlib(spec);
     } catch (e) {
-      // #region agent log
-      agentDbgChartBackend("index.js:chart:matplotlib-threw", "H2", "renderChartPngWithMatplotlib threw", {
-        err: String(e?.message || e).slice(0, 400),
-      });
-      // #endregion
       return res.status(500).json({ error: `Matplotlib 阶段异常: ${String(e?.message || e)}` });
     }
     if (!png.ok) {
@@ -1192,11 +1165,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
         const { renderScatterChartSvg } = await import("./renderChartSvg.js");
         svgStr = renderScatterChartSvg(spec);
       } catch (e) {
-        // #region agent log
-        agentDbgChartBackend("index.js:chart:svg-threw", "H2", "renderScatterChartSvg threw", {
-          err: String(e?.message || e).slice(0, 400),
-        });
-        // #endregion
         return res.status(500).json({ error: `SVG 备用渲染异常: ${String(e?.message || e)}` });
       }
       if (svgStr) {
@@ -1229,12 +1197,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
         spec,
       });
     }
-    // #region agent log
-    agentDbgChartBackend("index.js:chart:png-ok", "H3", "chart matplotlib ok sending json", {
-      pngB64Len: typeof png.pngBase64 === "string" ? png.pngBase64.length : 0,
-      title: String(spec?.title || "").slice(0, 80),
-    });
-    // #endregion
     const pngBody = {
       mime: "image/png",
       pngBase64: png.pngBase64,
@@ -1261,12 +1223,6 @@ app.post("/api/v1/chart/from-papers", async (req, res) => {
     }
   } catch (e) {
     console.error("[chart/from-papers]", e);
-    // #region agent log
-    agentDbgChartBackend("index.js:chart:catch", "H2", "chart handler threw", {
-      err: String(e?.message || e).slice(0, 400),
-      name: e?.name,
-    });
-    // #endregion
     return res.status(500).json({ error: e?.message || "生成图表失败" });
   }
 });
@@ -1748,12 +1704,16 @@ app.post("/api/v1/extract", (req, res, next) => {
     next();
   });
 }, async (req, res) => {
+  if (extractInFlight >= MAX_EXTRACT_IN_FLIGHT) { if (req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {}); return res.status(429).json({ error: "文件解析任务过多，请稍后再试" }); }
+  extractInFlight += 1;
   const ip = clientIp(req);
   if (!rateLimitHit(ip)) {
+    extractInFlight = Math.max(0, extractInFlight - 1);
+    if (req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
     return res.status(429).json({ error: "请求过于频繁，请稍后再试" });
   }
   try {
-    if (!req.file?.buffer) {
+    if (!req.file?.path) {
       return res.status(400).json({ error: "未收到文件（字段名须为 file）" });
     }
     console.log(
@@ -1761,7 +1721,9 @@ app.post("/api/v1/extract", (req, res, next) => {
       String(req.file.originalname || "file").slice(0, 120),
       `${req.file.size} bytes`,
     );
-    const text = await extractDocumentText(req.file.buffer, req.file.originalname);
+    const uploadBuffer = await fs.promises.readFile(req.file.path);
+    const text = await extractDocumentText(uploadBuffer, req.file.originalname);
+    await fs.promises.unlink(req.file.path).catch(() => {});
     res.json({
       filename: String(req.file.originalname || "file").slice(0, 512),
       charCount: text.length,
@@ -1771,6 +1733,8 @@ app.post("/api/v1/extract", (req, res, next) => {
   } catch (e) {
     console.error("[extract]", e);
     res.status(500).json({ error: e?.message || "文件解析失败" });
+  } finally {
+    extractInFlight = Math.max(0, extractInFlight - 1);
   }
 });
 
@@ -3822,15 +3786,6 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = err.status ?? err.statusCode;
   const type = err.type;
-  // #region agent log
-  agentDbgChartBackend("index.js:express-err", "H1", "express error middleware", {
-    path: req.path,
-    method: req.method,
-    errStatus: status,
-    errType: type,
-    errMsg: String(err?.message || err).slice(0, 300),
-  });
-  // #endregion
   if (status === 413 || type === "entity.too.large") {
     return res.status(413).json({
       error:
@@ -3891,33 +3846,18 @@ server.on("error", async (err) => {
 
 async function killPortAndRetry(port) {
   const { execSync } = await import("node:child_process");
-  // Find PIDs listening on the port (Windows netstat output)
   let raw;
-  try {
-    raw = execSync(`netstat -ano | findstr /R ":${port}[^0-9]"`, { encoding: "utf8", timeout: 8000 });
-  } catch {
-    throw new Error(`netstat 查询无结果，端口 ${port} 可能已释放或命令不可用`);
-  }
-  const pids = new Set(
-    raw.split(/\r?\n/)
-      .map((line) => { const m = line.trim().match(/\s+(\d+)$/); return m ? m[1] : null; })
-      .filter((pid) => pid && pid !== "0"),
-  );
+  try { raw = execSync(`netstat -ano | findstr /R ":${port}[^0-9]"`, { encoding: "utf8", timeout: 8000 }); }
+  catch { throw new Error(`netstat 查询无结果，端口 ${port} 可能已释放或命令不可用`); }
+  const pids = new Set(raw.split(/\r?\n/).map((line) => { const m = line.trim().match(/\s+(\d+)$/); return m ? m[1] : null; }).filter((pid) => pid && pid !== "0"));
   if (!pids.size) throw new Error(`未找到占用端口 ${port} 的 PID`);
   const selfPid = String(process.pid);
   for (const pid of pids) {
     if (pid === selfPid) continue;
-    try {
-      execSync(`taskkill /PID ${pid} /F`, { timeout: 5000 });
-      console.log(`[api] 已终止 PID ${pid}`);
-    } catch (e) {
-      console.warn(`[api] 终止 PID ${pid} 失败：${e?.message}`);
-    }
+    try { execSync(`taskkill /PID ${pid} /F`, { timeout: 5000 }); console.log(`[api] 已终止 PID ${pid}`); }
+    catch (e) { console.warn(`[api] 终止 PID ${pid} 失败：${e?.message}`); }
   }
-  // Brief pause for the OS to release the port, then re-attempt listen
   await new Promise((r) => setTimeout(r, 800));
-  await new Promise((resolve, reject) => {
-    server.listen(PORT, "127.0.0.1", resolve).once("error", reject);
-  });
+  await new Promise((resolve, reject) => { server.listen(PORT, "127.0.0.1", resolve).once("error", reject); });
   console.log(`[api] 重新监听端口 ${PORT} 成功`);
 }

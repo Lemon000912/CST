@@ -793,6 +793,15 @@ export async function extractUploadedDocument(
   };
 }
 
+export function readImagePreview(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("图片读取失败，请重新选择"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export type FulfillPdfResult = {
   blob: Blob;
   receipt?: BillingReceipt;
@@ -943,6 +952,11 @@ function slimPaperForChartApi(p: Paper) {
 
 
 /** 从服务端加载聊天会话（登录用户，后端持久化） */
+export async function cancelBillingOperation(operationId: string): Promise<void> {
+  const res = await fetch(`/api/v1/billing/operations/${encodeURIComponent(operationId)}/cancel`, { method: "POST", headers: headersJson() });
+  if (!res.ok && res.status !== 404) throw new Error(`取消操作失败（HTTP ${res.status}）`);
+}
+
 export async function fetchChatSessionsFromServer(): Promise<{
   sessions: ChatSession[];
   updatedAt: number;

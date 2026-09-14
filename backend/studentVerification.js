@@ -10,6 +10,16 @@ export const studentCardUploadMiddleware = multer({
 });
 const ACCEPTED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
+// 学生认证奖励仅面向西安交通大学在校生。模型返回的学校名称可能包含
+// 空格或英文大小写差异，因此先做轻量规范化再进行精确匹配。
+export function isEligibleStudentSchool(school) {
+  const normalized = String(school ?? "")
+    .trim()
+    .replace(/[\s\u3000]+/g, "")
+    .toLowerCase();
+  return normalized === "西安交通大学" || normalized === "xi'anjiaotonguniversity" || normalized === "xianjiaotonguniversity";
+}
+
 function verificationError(message, code, status) {
   const error = new Error(message);
   error.code = code;
