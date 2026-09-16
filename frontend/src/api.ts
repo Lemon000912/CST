@@ -17,6 +17,7 @@ import { getLlmChatCompletionsUrl, getOpenAiKey, getOpenAiModel } from "./openai
 import { getPersonaId } from "./persona";
 import { getAuthToken, getEffectiveUserId } from "./authSession";
 import { getOutputAvoidanceForRequest } from "./outputPreferences";
+import { createUuid } from "./uuid";
 
 /** 带超时的 fetch（检索/综述等长请求） */
 async function fetchWithTimeout(
@@ -58,7 +59,7 @@ export class ApiError extends Error {
 }
 
 export function createIdempotencyKey(): string {
-  return crypto.randomUUID();
+  return createUuid();
 }
 
 export type StudentVerification = {
