@@ -194,14 +194,13 @@ test("repeated WeChat success notification credits points exactly once", async (
   assert.equal(ledger.length, 1);
 });
 
-test("production uses the temporary package price regardless of the WeChat test override", async () => {
+test("production uses the 0.01 package price when the env test switch is enabled", async () => {
   await initDatabase();
   const userId = "wechat-production-amount-user";
   await createUserRecord(userId, "wechat_production_amount_user", "not-used-in-this-test");
   const savedNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
   process.env.WECHAT_PAY_TEST_MODE = "true";
-  process.env.WECHAT_PAY_TEST_AMOUNT_FEN = "2";
   let charged;
   try {
     await createRechargeOrder({
@@ -217,9 +216,8 @@ test("production uses the temporary package price regardless of the WeChat test 
   } finally {
     process.env.NODE_ENV = savedNodeEnv;
     delete process.env.WECHAT_PAY_TEST_MODE;
-    delete process.env.WECHAT_PAY_TEST_AMOUNT_FEN;
   }
-  assert.equal(charged, RECHARGE_PACKAGE.amountFen);
+  assert.equal(charged, 1);
 });
 
 test("expired Native order closes locally and cannot grant points", async () => {

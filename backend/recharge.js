@@ -8,12 +8,22 @@ import {
 } from "./rechargeProviders.js";
 
 export const RECHARGE_PACKAGE = Object.freeze({
-  id: "cny001_points1000",
-  amountFen: 1,
-  amountYuan: 0.01,
+  id: "cny100_points1000",
+  amountFen: 10_000,
+  amountYuan: 100,
   points: 1_000,
   pointUnits: 1_000 * POINT_UNITS,
 });
+
+export function getEffectiveRechargePackage() {
+  const testMode = String(process.env.WECHAT_PAY_TEST_MODE ?? "").trim().toLowerCase() === "true";
+  if (!testMode) return RECHARGE_PACKAGE;
+  return Object.freeze({
+    ...RECHARGE_PACKAGE,
+    amountFen: 1,
+    amountYuan: 0.01,
+  });
+}
 
 const PROVIDERS = new Set(["alipay", "wechat"]);
 const DEFAULT_ORDER_TTL_MS = 15 * 60 * 1000;
@@ -124,18 +134,6 @@ export function newOrderNo(provider = "wechat", now = new Date()) {
   return `WX${timestamp}${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
 }
 
-function effectiveAmountFen(provider) {
-  const testEnabled = String(process.env.WECHAT_PAY_TEST_MODE ?? "").trim().toLowerCase() === "true";
-  if (provider !== "wechat" || process.env.NODE_ENV === "production" || !testEnabled) {
-    return RECHARGE_PACKAGE.amountFen;
-  }
-  const configured = Number(process.env.WECHAT_PAY_TEST_AMOUNT_FEN ?? 1);
-  if (!Number.isSafeInteger(configured) || configured <= 0) {
-    throw new BillingError("invalid-wechat-test-amount", "WECHAT_PAY_TEST_AMOUNT_FEN 必须是正整数分", 503);
-  }
-  return configured;
-}
-
 function orderTtlMs(provider) {
   return provider === "wechat" ? WECHAT_ORDER_TTL_MS : DEFAULT_ORDER_TTL_MS;
 }
@@ -143,7 +141,7 @@ function orderTtlMs(provider) {
 export function getRechargeCatalog() {
   const availability = getPaymentProviderAvailability();
   return {
-    package: RECHARGE_PACKAGE,
+    package: getEffectiveRechargePackage(),
     providers: [
       { id: "alipay", label: "支付宝", enabled: availability.alipay },
       { id: "wechat", label: "微信支付", enabled: availability.wechat },
@@ -180,6 +178,7 @@ export async function createRechargeOrder({
   planId = RECHARGE_PACKAGE.id,
   createProviderOrderImpl = createProviderOrder,
 }) {
+  const activePackage = getEffectiveRechargePackage();
   const normalizedUserId = requiredText(userId, "userId", 128);
   const normalizedProvider = requiredText(provider, "provider", 32).toLowerCase();
   const normalizedKey = requiredText(idempotencyKey, "idempotencyKey", 200);
@@ -187,7 +186,7 @@ export async function createRechargeOrder({
   if (!PROVIDERS.has(normalizedProvider)) {
     throw new BillingError("unsupported-payment-provider", "不支持的支付方式", 400);
   }
-  if (normalizedPlanId !== RECHARGE_PACKAGE.id) {
+  if (normalizedPlanId !== activePackage.id) {
     throw new BillingError("recharge-plan-not-found", "充值套餐不存在或已下架", 404);
   }
   const availability = getPaymentProviderAvailability();
@@ -201,7 +200,7 @@ export async function createRechargeOrder({
     const creation = await withDatabaseTransaction(async (tx) => {
       const existing = await readOrderByIdempotency(tx, normalizedUserId, normalizedKey, true);
       if (existing) {
-        if (String(existing.provider) !== normalizedProvider || String(existing.package_id) !== RECHARGE_PACKAGE.id) {
+        if (String(existing.provider) !== normalizedProvider || String(existing.package_id) !== activePackage.id) {
           throw new BillingError("idempotency-conflict", "该幂等键已用于其他充值请求", 409);
         }
         return { row: existing, shouldCreateAtProvider: false };
@@ -218,8 +217,8 @@ export async function createRechargeOrder({
       if (!orderNo) throw new BillingError("recharge-order-conflict", "无法生成唯一支付订单号，请重试", 409);
       const now = Date.now();
       const expiresAt = now + orderTtlMs(normalizedProvider);
-      const amountFen = effectiveAmountFen(normalizedProvider);
-      const description = `积分充值：${RECHARGE_PACKAGE.points} 积分`;
+      const amountFen = activePackage.amountFen;
+      const description = `积分充值：${activePackage.points} 积分`;
       if (tx.dialect === "postgres") {
         await tx.run(
           `INSERT INTO point_recharge_orders
@@ -227,7 +226,7 @@ export async function createRechargeOrder({
             status, created_at, updated_at, expires_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'creating',$10,$10,$11)`,
           [id, orderNo, normalizedUserId, normalizedPlanId, description, normalizedProvider, normalizedKey,
-            amountFen, RECHARGE_PACKAGE.pointUnits, now, expiresAt],
+            amountFen, activePackage.pointUnits, now, expiresAt],
         );
       } else {
         await tx.run(
@@ -236,7 +235,7 @@ export async function createRechargeOrder({
             status, created_at, updated_at, expires_at)
            VALUES (?,?,?,?,?,?,?,?,?,'creating',?,?,?)`,
           [id, orderNo, normalizedUserId, normalizedPlanId, description, normalizedProvider, normalizedKey,
-            amountFen, RECHARGE_PACKAGE.pointUnits, now, now, expiresAt],
+            amountFen, activePackage.pointUnits, now, now, expiresAt],
         );
       }
       return { row: await readOrderById(tx, id), shouldCreateAtProvider: true };
@@ -268,7 +267,7 @@ export async function createRechargeOrder({
       provider: normalizedProvider,
       orderNo: String(row.order_no),
       amountFen: integer(row.amount_fen, "amountFen"),
-      description: String(row.description || `积分充值：${RECHARGE_PACKAGE.points} 积分`),
+      description: String(row.description || `积分充值：${activePackage.points} 积分`),
     });
     const now = Date.now();
     row = await withDatabaseTransaction(async (tx) => {

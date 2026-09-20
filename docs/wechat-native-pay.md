@@ -20,7 +20,6 @@ WECHAT_PAY_PUBLIC_KEY_PATH=/home/ubuntu/wechatpay/cert/pub_key.pem
 WECHAT_PAY_PUBLIC_KEY_ID=PUB_KEY_ID_YOUR_WECHAT_PAY_PUBLIC_KEY_ID
 WECHAT_PAY_NOTIFY_URL=https://syncsee.cstdata.net/api/pay/wechat/notify
 WECHAT_PAY_TEST_MODE=false
-WECHAT_PAY_TEST_AMOUNT_FEN=1
 ```
 
 `apiclient_key.pem` 是商户 API 证书私钥，用于商户请求签名；`pub_key.pem` 是微信支付公钥，用于验证微信的响应和回调。两者不可互换。商户证书序列号必须与当前 `apiclient_key.pem` 配套，公钥 ID 必须与 `pub_key.pem` 配套。
@@ -42,7 +41,7 @@ sudo journalctl -u ailunwen-school-api.service -n 100 --no-pager
 
 ## API
 
-- `POST /api/pay/wechat/native`：登录后提交 `{ "planId": "cny001_points1000" }` 创建 Native 订单；可带 `Idempotency-Key`。当前临时测试价为 0.01 元兑换 1000 积分，测试完成后须恢复正式价格。
+- `POST /api/pay/wechat/native`：登录后提交 `{ "planId": "cny100_points1000" }` 创建 Native 订单；可带 `Idempotency-Key`。默认价格为 100 元兑换 1000 积分。
 - `GET /api/pay/wechat/orders/:outTradeNo/status`：登录后查询本人订单的本地状态。
 - `POST /api/pay/wechat/notify`：微信支付异步通知，无 JWT，严格验签。
 
@@ -59,15 +58,13 @@ npm test
 npm run build:school
 ```
 
-仅在本机或测试环境可临时设置：
+需要进行真实小额支付测试时，在校园版环境变量中临时设置：
 
 ```env
-NODE_ENV=development
 WECHAT_PAY_TEST_MODE=true
-WECHAT_PAY_TEST_AMOUNT_FEN=1
 ```
 
-只要 `NODE_ENV=production`，测试金额覆盖会被强制忽略，订单仍使用服务器套餐的真实价格。
+开启后，服务端套餐目录和实际支付订单都会切换为 0.01 元兑换 1000 积分，在生产环境同样生效。测试完成后改回 `false` 并重启校园版 API，即恢复 100 元正式价格。已有订单仍按创建时保存的金额校验和入账。
 
 ## 日志与订单检查
 
