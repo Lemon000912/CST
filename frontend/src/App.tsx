@@ -2469,7 +2469,7 @@ export default function App({
   }, [exportPickMode, exportPickSessionId, sessions, exportPickSelected]);
 
   /** 整页刷新时重新挂载 App，惰性初始化会重新随机；同一次访问内切换会话不换句 */
-  const [emptyWelcome] = useState(() => pickWelcomeCopy());
+  const [emptyWelcome] = useState(() => pickWelcomeCopy(edition));
 
   useEffect(() => {
     void fetchPersonaList(edition).then((nextList) => {
@@ -3953,7 +3953,7 @@ export default function App({
         ].join(" ")}
       >
         <div className="qp-app-header-safe flex items-center gap-3 border-b border-[color:var(--t-br06)] px-3.5 py-3">
-          <AppLogo size="md" className="shrink-0" />
+          <AppLogo size="md" src={edition === "enterprise" ? "/CST.png" : undefined} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold text-[var(--t-text)]">{APP_NAME}</div>
           </div>
@@ -4213,7 +4213,7 @@ export default function App({
             {!active?.messages.length && (
               <div className="relative flex min-h-[min(52vh,520px)] flex-col items-center justify-center px-4 pb-8 pt-6 text-center sm:min-h-[48vh]">
                 <div className="qp-welcome-orb" aria-hidden />
-                <AppLogo size="xl" className="relative mb-5" />
+                <AppLogo size="xl" src={edition === "enterprise" ? "/CST.png" : undefined} className="relative mb-5" />
                 <h2 className="relative max-w-[min(92vw,560px)] text-[clamp(1.4rem,4.5vw,2rem)] font-semibold leading-snug tracking-tight text-[var(--t-text-heading)]">
                   {emptyWelcome.headline}
                 </h2>
@@ -4427,7 +4427,7 @@ export default function App({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
-                  rows={1}
+                  rows={4}
                   disabled={busy || uploadBusy || exportPickMode || billingDisabled}
                   placeholder={
                     billingDisabled
@@ -4438,7 +4438,7 @@ export default function App({
                           ? LOADING_UPLOAD
                           : "发消息…（可拖放文件）"
                   }
-                  className="max-h-40 min-h-[40px] w-full resize-none bg-transparent px-2.5 py-2 pl-9 pr-11 text-[13px] leading-snug text-[var(--t-text)] placeholder:text-[var(--t-placeholder)] focus:outline-none disabled:opacity-60"
+                  className="max-h-48 min-h-[6.5rem] w-full resize-none bg-transparent px-2.5 py-2.5 pl-10 pr-12 text-[13px] leading-snug text-[var(--t-text)] placeholder:text-[var(--t-placeholder)] focus:outline-none disabled:opacity-60"
                 />
                 <button
                   type="button"
@@ -4447,7 +4447,7 @@ export default function App({
                     if (uploadBusy || exportPickMode) return;
                     fileInputRef.current?.click();
                   }}
-                  className={`absolute bottom-1.5 left-1.5 z-20 flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`absolute bottom-2 left-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
                     attachments.length > 0
                       ? "border-[color:var(--t-accent-ring)] bg-[var(--t-accent-muted)] text-[var(--t-text)] ring-1 ring-[color:var(--t-accent-ring)]"
                       : "border-[color:var(--t-br08)] bg-[var(--t-icon-btn)] text-[var(--t-text-chrome)] hover:border-[color:var(--t-br12)] hover:bg-[var(--t-icon-btn-hover)] hover:text-[var(--t-text)]"
@@ -4467,7 +4467,7 @@ export default function App({
                   type="button"
                   disabled={busy ? false : !canSend}
                   onClick={() => (busy ? pause() : void send(input))}
-                  className={`absolute bottom-1.5 right-1.5 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
+                  className={`absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
                     busy
                       ? "bg-[var(--t-accent-muted)] text-[var(--t-text)] ring-1 ring-[color:var(--t-accent-ring)]"
                       : canSend ? "qp-btn-send-active" : "bg-[var(--t-muted)] text-[var(--t-text-muted)]"

@@ -9,10 +9,18 @@ const SIZE_CLASS: Record<Size, string> = {
   xl: "h-20 w-20",
 };
 
-export function AppLogo({ size = "sm", className = "" }: { size?: Size; className?: string }) {
+export function AppLogo({
+  size = "sm",
+  className = "",
+  src = "/logo.png",
+}: {
+  size?: Size;
+  className?: string;
+  src?: string;
+}) {
   return (
     <img
-      src="/logo.png"
+      src={src}
       alt={APP_NAME}
       draggable={false}
       className={`object-contain ${SIZE_CLASS[size]} ${className}`.trim()}

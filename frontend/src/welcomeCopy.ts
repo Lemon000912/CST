@@ -1,3 +1,5 @@
+import type { AppEdition } from "./edition";
+
 /** 空会话封面主标题（随机），风格接近 ChatGPT 欢迎语 */
 export const WELCOME_HEADLINES = [
   "今天我能帮你什么？",
@@ -23,8 +25,11 @@ export const WELCOME_SUBLINES = [
   "需要时可在侧栏配置大模型。",
 ];
 
-export function pickWelcomeCopy(): { headline: string; subline: string } {
+export function pickWelcomeCopy(edition: AppEdition = "school"): { headline: string; subline: string } {
   const hi = WELCOME_HEADLINES[Math.floor(Math.random() * WELCOME_HEADLINES.length)] ?? WELCOME_HEADLINES[0];
   const si = WELCOME_SUBLINES[Math.floor(Math.random() * WELCOME_SUBLINES.length)] ?? WELCOME_SUBLINES[0];
-  return { headline: hi, subline: si };
+  return {
+    headline: hi,
+    subline: edition === "enterprise" && si === "随便聊聊你的课题也行。" ? "给你生成研发PPT。" : si,
+  };
 }
