@@ -8,11 +8,11 @@ process.env.NODE_ENV = "test";
 process.env.WECHAT_OPEN_APP_ID = "wx-shared-app";
 process.env.WECHAT_OPEN_APP_SECRET = "shared-secret";
 process.env.WECHAT_OPEN_COOKIE_DOMAIN = "syncsee.example.test";
-process.env.WECHAT_OPEN_ENTERPRISE_CALLBACK_URI = "https://enterprise.syncsee.example.test/api/v1/auth/wechat/callback";
+process.env.WECHAT_OPEN_ENTERPRISE_CALLBACK_URI = "https://syncsee-enterprise.test/api/v1/auth/wechat/callback";
 process.env.SCHOOL_WECHAT_OPEN_REDIRECT_URI = "https://syncsee.example.test/api/v1/auth/wechat/callback";
 process.env.SCHOOL_WECHAT_OPEN_FRONTEND_URL = "https://syncsee.example.test/";
 process.env.ENTERPRISE_WECHAT_OPEN_REDIRECT_URI = "https://syncsee.example.test/api/v1/auth/wechat/callback";
-process.env.ENTERPRISE_WECHAT_OPEN_FRONTEND_URL = "https://enterprise.syncsee.example.test/";
+process.env.ENTERPRISE_WECHAT_OPEN_FRONTEND_URL = "https://syncsee-enterprise.test/";
 
 const { handleWechatCallback, handleWechatStart } = await import("../auth.js");
 
@@ -47,7 +47,7 @@ function responseCapture() {
   };
 }
 
-test("enterprise login starts on the shared callback domain with a parent-domain state cookie", async () => {
+test("enterprise login starts on the shared callback domain with a host-only state cookie", async () => {
   process.env.APP_EDITION = "enterprise";
   const response = responseCapture();
   await handleWechatStart({ query: { display: "embed" } }, response);
@@ -61,7 +61,7 @@ test("enterprise login starts on the shared callback domain with a parent-domain
   );
   assert.match(state, /^enterprise\.[A-Za-z0-9_-]{32}$/);
   assert.match(String(response.headers["Set-Cookie"]), /qp_wechat_oauth_state_enterprise=/);
-  assert.match(String(response.headers["Set-Cookie"]), /Domain=syncsee\.example\.test/);
+  assert.doesNotMatch(String(response.headers["Set-Cookie"]), /Domain=/);
 });
 
 test("the shared school callback relays enterprise state only to the configured enterprise callback", async () => {
@@ -73,7 +73,7 @@ test("the shared school callback relays enterprise state only to the configured 
   assert.equal(response.statusCode, 302);
   assert.equal(response.redirects.length, 1);
   const relayUrl = new URL(response.redirects[0]);
-  assert.equal(relayUrl.origin, "https://enterprise.syncsee.example.test");
+  assert.equal(relayUrl.origin, "https://syncsee-enterprise.test");
   assert.equal(relayUrl.pathname, "/api/v1/auth/wechat/callback");
   assert.equal(relayUrl.searchParams.get("code"), "temporary-code");
   assert.equal(relayUrl.searchParams.get("state"), state);

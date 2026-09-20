@@ -115,6 +115,19 @@ test("cross-subdomain enterprise login uses a bounded state and shared parent co
   assert.equal(getWechatOAuthStateCookieDomain(), "login.example.test");
 });
 
+test("enterprise login on an unrelated root domain uses a host-only state cookie", (t) => {
+  configuredEnv(t);
+  Object.assign(process.env, {
+    APP_EDITION: "enterprise",
+    ENTERPRISE_WECHAT_OPEN_REDIRECT_URI: "https://school.example.test/api/v1/auth/wechat/callback",
+    ENTERPRISE_WECHAT_OPEN_FRONTEND_URL: "https://enterprise-independent.test/",
+    WECHAT_OPEN_COOKIE_DOMAIN: "school.example.test",
+    WECHAT_OPEN_ENTERPRISE_CALLBACK_URI: "https://enterprise-independent.test/api/v1/auth/wechat/callback",
+  });
+
+  assert.equal(getWechatOAuthStateCookieDomain(), "");
+});
+
 test("enterprise callback relay is fixed by server configuration", (t) => {
   configuredEnv(t);
   process.env.WECHAT_OPEN_ENTERPRISE_CALLBACK_URI = "https://enterprise.example.test/api/v1/auth/wechat/callback";

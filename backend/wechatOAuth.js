@@ -120,15 +120,30 @@ export function getWechatOAuthStateCookieDomain() {
   const cookieDomain = editionEnv("WECHAT_OPEN_COOKIE_DOMAIN")
     .replace(/^\.+/, "")
     .toLowerCase();
-  if (!cookieDomain
-    || !hostMatchesCookieDomain(callbackHost, cookieDomain)
-    || !hostMatchesCookieDomain(frontendHost, cookieDomain)) {
-    throw new WechatOAuthError("跨域微信登录需要正确配置 WECHAT_OPEN_COOKIE_DOMAIN", {
-      code: "wechat-not-configured",
-      status: 503,
-    });
+  if (cookieDomain
+    && hostMatchesCookieDomain(callbackHost, cookieDomain)
+    && hostMatchesCookieDomain(frontendHost, cookieDomain)) {
+    return cookieDomain;
   }
-  return cookieDomain;
+
+  // The enterprise login starts on its own host. When the shared WeChat
+  // callback relays back to that same host, a host-only state cookie survives
+  // even if the school and enterprise sites use unrelated root domains.
+  if (getConfiguredAppEdition() === "enterprise") {
+    const relayUrl = env("WECHAT_OPEN_ENTERPRISE_CALLBACK_URI");
+    if (relayUrl) {
+      const relayHost = new URL(normalizedHttpUrl(
+        relayUrl,
+        "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI",
+      )).hostname.toLowerCase();
+      if (relayHost === frontendHost) return "";
+    }
+  }
+
+  throw new WechatOAuthError("跨域微信登录需要正确配置 WECHAT_OPEN_COOKIE_DOMAIN 或企业版回调中继", {
+    code: "wechat-not-configured",
+    status: 503,
+  });
 }
 
 export function buildWechatEnterpriseCallbackRelayUrl(params = {}) {
