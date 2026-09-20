@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { RECHARGE_PACKAGE } from "../recharge.js";
+import { getEffectiveRechargePackage, RECHARGE_PACKAGE } from "../recharge.js";
 import {
   alipayCanonicalize,
   decryptWechatResource,
@@ -9,14 +9,31 @@ import {
   verifyAlipayNotification,
 } from "../rechargeProviders.js";
 
-test("temporary recharge package is exactly 0.01 yuan for 1000 points", () => {
+test("official recharge package is exactly 100 yuan for 1000 points", () => {
   assert.deepEqual(RECHARGE_PACKAGE, {
-    id: "cny001_points1000",
-    amountFen: 1,
-    amountYuan: 0.01,
+    id: "cny100_points1000",
+    amountFen: 10_000,
+    amountYuan: 100,
     points: 1_000,
     pointUnits: 20_000,
   });
+});
+
+test("WECHAT_PAY_TEST_MODE switches the catalog to 0.01 yuan in production", () => {
+  const saved = process.env.WECHAT_PAY_TEST_MODE;
+  try {
+    process.env.WECHAT_PAY_TEST_MODE = "true";
+    assert.deepEqual(getEffectiveRechargePackage(), {
+      ...RECHARGE_PACKAGE,
+      amountFen: 1,
+      amountYuan: 0.01,
+    });
+    process.env.WECHAT_PAY_TEST_MODE = "false";
+    assert.equal(getEffectiveRechargePackage(), RECHARGE_PACKAGE);
+  } finally {
+    if (saved === undefined) delete process.env.WECHAT_PAY_TEST_MODE;
+    else process.env.WECHAT_PAY_TEST_MODE = saved;
+  }
 });
 
 test("CNY amounts are parsed without floating point rounding", () => {

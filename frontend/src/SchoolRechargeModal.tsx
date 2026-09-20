@@ -204,7 +204,7 @@ export default function SchoolRechargeModal({
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[13px] text-[var(--t-text-muted)]">充值套餐</span>
               <span className="text-[18px] font-semibold text-[var(--t-text-heading)]">
-                ¥{(activeCatalog?.package.amountYuan ?? 0.01).toFixed(2)}
+                ¥{(activeCatalog?.package.amountYuan ?? 100).toFixed(2)}
               </span>
             </div>
             <div className="mt-1 text-right text-[13px] font-medium text-[var(--t-text)]">
