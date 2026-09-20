@@ -10,12 +10,14 @@ const LABELS = {
   school_student: "本科生 / 课程作业",
   school_writer: "科普 / 科技写作",
   school_patent: "专利 / IP 检索",
-  enterprise_intern: "实习生 / 研究生",
-  enterprise_tech: "技术 / 研发",
-  enterprise_consultant: "顾问 / 顾问",
-  enterprise_other: "部门 / 其他",
-  enterprise_writer: "撰写 / 专利",
-  enterprise_patent: "专利 / IP 检索",
+  enterprise_intern: "实习生/研究生",
+  enterprise_tech: "技术/研发",
+  enterprise_consultant: "顾问/工程师",
+  enterprise_production: "部门/生产",
+  enterprise_quality: "部门/质检",
+  enterprise_supplier_sales: "供应商/销售",
+  enterprise_patent_writer: "撰写/专利",
+  enterprise_project_application: "撰写/项目申报",
 };
 
 const SKILLS = {
@@ -77,7 +79,13 @@ Object.assign(SKILLS, {
   enterprise_intern: SKILLS.researcher,
   enterprise_tech: SKILLS.engineer,
   enterprise_consultant: SKILLS.engineer,
-  enterprise_other: SKILLS.teacher,
+  enterprise_production: SKILLS.engineer,
+  enterprise_quality: SKILLS.engineer,
+  enterprise_supplier_sales: SKILLS.engineer,
+  enterprise_patent_writer: SKILLS.patent,
+  enterprise_project_application: SKILLS.writer,
+  // 兼容旧版企业端曾经保存或发送的身份 id。
+  enterprise_other: SKILLS.engineer,
   enterprise_writer: SKILLS.patent,
   enterprise_patent: SKILLS.patent,
 });

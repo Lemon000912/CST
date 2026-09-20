@@ -421,6 +421,7 @@ function IconGlobe({ className }: { className?: string }) {
 
 function ComposerToolbar({
   channel,
+  databaseFirst,
   sort,
   queryField,
   patentsOnly,
@@ -433,6 +434,7 @@ function ComposerToolbar({
   disabled,
 }: {
   channel: SearchChannel;
+  databaseFirst?: boolean;
   sort: PaperSortKey;
   queryField: ArxivSearchField;
   patentsOnly: boolean;
@@ -470,21 +472,24 @@ function ComposerToolbar({
     );
   };
 
+  const webSegment = seg(
+    "web",
+    "网页",
+    <IconGlobe className="h-3 w-3" />,
+    "全网网页检索；可选专利；不查论文库",
+  );
+  const databaseSegment = seg(
+    "database",
+    "数据库",
+    <IconDatabase className="h-3 w-3" />,
+    "自建库 / DOI / 文献库 + 并行全网检索；综述与网络回答合并输出",
+  );
+
   return (
     <div className="qp-composer-bar flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-[color:var(--t-br05)] bg-[var(--t-muted)] px-2 py-1">
       <div className="qp-seg-track qp-seg-track--compact w-[min(100%,11.5rem)] shrink-0" role="radiogroup" aria-label="检索来源">
-        {seg(
-          "web",
-          "网页",
-          <IconGlobe className="h-3 w-3" />,
-          "全网网页检索；可选专利；不查论文库",
-        )}
-        {seg(
-          "database",
-          "数据库",
-          <IconDatabase className="h-3 w-3" />,
-          "自建库 / DOI / 文献库 + 并行全网检索；综述与网络回答合并输出",
-        )}
+        {databaseFirst ? databaseSegment : webSegment}
+        {databaseFirst ? webSegment : databaseSegment}
       </div>
 
       {channel === "database" ? (
@@ -2385,7 +2390,9 @@ export default function App({
   const activeIdRef = useRef<string | null>(null);
   const [input, setInput] = useState("");
   const [queryField, setQueryField] = useState<ArxivSearchField>("ti");
-  const [searchChannel, setSearchChannel] = useState<SearchChannel>("web");
+  const [searchChannel, setSearchChannel] = useState<SearchChannel>(() =>
+    edition === "enterprise" ? "database" : "web",
+  );
   const [searchSort, setSearchSort] = useState<PaperSortKey>("relevance");
   /** 仅专利：OpenAlex 专利 + 专利网页，结果带 patentNumber */
   const [patentsOnlyEnabled, setPatentsOnlyEnabled] = useState(false);
@@ -4316,6 +4323,7 @@ export default function App({
             >
               <ComposerToolbar
                 channel={searchChannel}
+                databaseFirst={edition === "enterprise"}
                 sort={searchSort}
                 queryField={queryField}
                 patentsOnly={patentsOnlyEnabled}

@@ -2,7 +2,7 @@ import type { AppEdition } from "./edition";
 import { getAppEdition } from "./edition";
 
 const STORAGE_KEY = "paper-query-persona-v1";
-const PERSONA_VERSION = "v3";
+const PERSONA_VERSION = "v4";
 
 export type PersonaOption = { id: string; label: string };
 
@@ -16,12 +16,14 @@ export const SCHOOL_PERSONA_LIST: PersonaOption[] = [
 ];
 
 export const ENTERPRISE_PERSONA_LIST: PersonaOption[] = [
-  { id: "enterprise_intern", label: "实习生 / 研究生" },
-  { id: "enterprise_tech", label: "技术 / 研发" },
-  { id: "enterprise_consultant", label: "顾问 / 顾问" },
-  { id: "enterprise_other", label: "部门 / 其他" },
-  { id: "enterprise_writer", label: "撰写 / 专利" },
-  { id: "enterprise_patent", label: "专利 / IP 检索" },
+  { id: "enterprise_intern", label: "实习生/研究生" },
+  { id: "enterprise_tech", label: "技术/研发" },
+  { id: "enterprise_consultant", label: "顾问/工程师" },
+  { id: "enterprise_production", label: "部门/生产" },
+  { id: "enterprise_quality", label: "部门/质检" },
+  { id: "enterprise_supplier_sales", label: "供应商/销售" },
+  { id: "enterprise_patent_writer", label: "撰写/专利" },
+  { id: "enterprise_project_application", label: "撰写/项目申报" },
 ];
 
 /** 与后端 personaSkills.js 中的版本化 id 保持一致。 */
