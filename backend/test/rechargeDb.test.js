@@ -71,6 +71,10 @@ test("paid recharge credits wallet and ledger exactly once", async () => {
   assert.equal(first.replayed, false);
   assert.equal(first.order.status, "paid");
   assert.equal(first.order.billing.balanceUnits, 40_000);
+  assert.equal(first.order.balanceBeforeUnits, 20_000);
+  assert.equal(first.order.balanceBefore, "1000.00");
+  assert.equal(first.order.balanceAfterUnits, 40_000);
+  assert.equal(first.order.balanceAfter, "2000.00");
 
   const replay = await completeRechargeOrder({
     provider: "alipay",
@@ -80,6 +84,8 @@ test("paid recharge credits wallet and ledger exactly once", async () => {
   });
   assert.equal(replay.replayed, true);
   assert.equal(replay.order.billing.balanceUnits, 40_000);
+  assert.equal(replay.order.balanceBeforeUnits, 20_000);
+  assert.equal(replay.order.balanceAfterUnits, 40_000);
 
   const db = await getSqliteDb();
   const wallet = await db.get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [userId]);
@@ -88,6 +94,10 @@ test("paid recharge credits wallet and ledger exactly once", async () => {
   assert.equal(ledger.length, 1);
   assert.equal(Number(ledger[0].delta_units), RECHARGE_PACKAGE.pointUnits);
   assert.equal(ledger[0].idempotency_key, `recharge:${orderId}`);
+  const storedOrder = await db.get("SELECT balance_before_units, balance_after_units FROM point_recharge_orders WHERE id = ?", [orderId]);
+  assert.equal(Number(storedOrder.balance_before_units), 20_000);
+  assert.equal(Number(storedOrder.balance_after_units), 40_000);
+  assert.equal(Number(ledger[0].balance_after_units), Number(storedOrder.balance_after_units));
 });
 
 test("WeChat order amount comes from the server plan and its number matches the API-v3 format", async () => {
@@ -112,6 +122,8 @@ test("WeChat order amount comes from the server plan and its number matches the 
   assert.equal(providerRequest.amountFen, RECHARGE_PACKAGE.amountFen);
   assert.equal(order.amountFen, RECHARGE_PACKAGE.amountFen);
   assert.equal(order.status, "pending");
+  assert.equal(order.balanceBeforeUnits, null);
+  assert.equal(order.balanceAfterUnits, null);
 });
 
 test("a user cannot query another user's WeChat payment order", async () => {
@@ -137,12 +149,14 @@ test("wrong callback amount cannot mark a WeChat order paid", async () => {
       provider: "wechat",
       orderNo: order.orderNo,
       providerTransactionId: "WX-TRANSACTION-WRONG-AMOUNT",
-      amountFen: 1,
+      amountFen: 2,
     }),
     (error) => error?.code === "payment-amount-mismatch",
   );
   const unchanged = await getRechargeOrderByNo({ userId, orderNo: order.orderNo });
   assert.equal(unchanged.status, "pending");
+  assert.equal(unchanged.balanceBeforeUnits, null);
+  assert.equal(unchanged.balanceAfterUnits, null);
 });
 
 test("repeated WeChat success notification credits points exactly once", async () => {
@@ -168,19 +182,26 @@ test("repeated WeChat success notification credits points exactly once", async (
   assert.equal(replay.replayed, true);
   assert.equal(first.order.status, "paid");
   assert.equal(replay.order.status, "paid");
+  assert.equal(first.order.balanceBefore, "1000.00");
+  assert.equal(first.order.balanceAfter, "2000.00");
+  assert.equal(replay.order.balanceBefore, first.order.balanceBefore);
+  assert.equal(replay.order.balanceAfter, first.order.balanceAfter);
+  const fetched = await getRechargeOrderByNo({ userId, orderNo: order.orderNo });
+  assert.equal(fetched.balanceBefore, "1000.00");
+  assert.equal(fetched.balanceAfter, "2000.00");
   const db = await getSqliteDb();
   const ledger = await db.all("SELECT * FROM point_ledger WHERE user_id = ? AND entry_type = 'recharge'", [userId]);
   assert.equal(ledger.length, 1);
 });
 
-test("production ignores the one-fen WeChat test override", async () => {
+test("production uses the temporary package price regardless of the WeChat test override", async () => {
   await initDatabase();
   const userId = "wechat-production-amount-user";
   await createUserRecord(userId, "wechat_production_amount_user", "not-used-in-this-test");
   const savedNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
   process.env.WECHAT_PAY_TEST_MODE = "true";
-  process.env.WECHAT_PAY_TEST_AMOUNT_FEN = "1";
+  process.env.WECHAT_PAY_TEST_AMOUNT_FEN = "2";
   let charged;
   try {
     await createRechargeOrder({

@@ -42,7 +42,7 @@ sudo journalctl -u ailunwen-school-api.service -n 100 --no-pager
 
 ## API
 
-- `POST /api/pay/wechat/native`：登录后提交 `{ "planId": "cny100_points1000" }` 创建 Native 订单；可带 `Idempotency-Key`。
+- `POST /api/pay/wechat/native`：登录后提交 `{ "planId": "cny001_points1000" }` 创建 Native 订单；可带 `Idempotency-Key`。当前临时测试价为 0.01 元兑换 1000 积分，测试完成后须恢复正式价格。
 - `GET /api/pay/wechat/orders/:outTradeNo/status`：登录后查询本人订单的本地状态。
 - `POST /api/pay/wechat/notify`：微信支付异步通知，无 JWT，严格验签。
 

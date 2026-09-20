@@ -204,7 +204,7 @@ export default function SchoolRechargeModal({
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[13px] text-[var(--t-text-muted)]">充值套餐</span>
               <span className="text-[18px] font-semibold text-[var(--t-text-heading)]">
-                ¥{activeCatalog?.package.amountYuan ?? 100}
+                ¥{(activeCatalog?.package.amountYuan ?? 0.01).toFixed(2)}
               </span>
             </div>
             <div className="mt-1 text-right text-[13px] font-medium text-[var(--t-text)]">
@@ -254,6 +254,12 @@ export default function SchoolRechargeModal({
               <div className="text-4xl" aria-hidden>✓</div>
               <div className="mt-3 text-[16px] font-semibold text-emerald-500">充值成功</div>
               <div className="mt-1 text-[12px] text-[var(--t-text-muted)]">已到账 {order.points.toLocaleString()} 积分</div>
+              {order.balanceBefore != null && order.balanceAfter != null ? (
+                <div className="mt-3 rounded-lg bg-[var(--t-muted)] px-3 py-2 text-left text-[12px] text-[var(--t-text)]">
+                  <div>充值前余额：{formatPoints(order.balanceBefore)} 积分</div>
+                  <div>充值后余额：{formatPoints(order.balanceAfter)} 积分</div>
+                </div>
+              ) : null}
               <button type="button" onClick={onClose} className="qp-btn-primary mt-5 w-full justify-center py-2.5">完成</button>
             </div>
           ) : order.status === "failed" || order.status === "closed" ? (
@@ -280,7 +286,7 @@ export default function SchoolRechargeModal({
               ) : (
                 <div className="mx-auto flex h-[240px] w-[240px] items-center justify-center rounded-xl bg-white/5 text-[12px] text-[var(--t-text-muted)]">二维码生成中…</div>
               )}
-              <div className="mt-3 text-[13px] font-medium text-[var(--t-text)]">请使用{providerLabel}扫码支付 ¥{order.amountYuan}</div>
+              <div className="mt-3 text-[13px] font-medium text-[var(--t-text)]">请使用{providerLabel}扫码支付 ¥{order.amountYuan.toFixed(2)}</div>
               <div className="mt-1 text-[11px] font-medium text-amber-500">等待扫码</div>
               <div className="mt-1 text-[11px] text-[var(--t-text-muted)]">支付完成后页面会自动更新，请勿重复付款</div>
               {order.codeUrl ? (

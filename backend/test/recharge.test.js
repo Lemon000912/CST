@@ -9,11 +9,11 @@ import {
   verifyAlipayNotification,
 } from "../rechargeProviders.js";
 
-test("recharge package is exactly 100 yuan for 1000 points", () => {
+test("temporary recharge package is exactly 0.01 yuan for 1000 points", () => {
   assert.deepEqual(RECHARGE_PACKAGE, {
-    id: "cny100_points1000",
-    amountFen: 10_000,
-    amountYuan: 100,
+    id: "cny001_points1000",
+    amountFen: 1,
+    amountYuan: 0.01,
     points: 1_000,
     pointUnits: 20_000,
   });

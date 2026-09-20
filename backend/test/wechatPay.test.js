@@ -232,9 +232,9 @@ test("Native routes require login, accept only planId, and protect order ownersh
     id: "order-id",
     orderNo: "WX20260910101530AB12CD34",
     provider: "wechat",
-    packageId: "cny100_points1000",
-    amountFen: 10_000,
-    amountYuan: 100,
+    packageId: "cny001_points1000",
+    amountFen: 1,
+    amountYuan: 0.01,
     points: 1_000,
     pointUnits: 20_000,
     status: "pending",
@@ -254,19 +254,19 @@ test("Native routes require login, accept only planId, and protect order ownersh
     const unauthenticated = await fetch(`${baseUrl}/api/pay/wechat/native`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planId: "cny100_points1000" }),
+      body: JSON.stringify({ planId: "cny001_points1000" }),
     });
     assert.equal(unauthenticated.status, 401);
 
     const created = await fetch(`${baseUrl}/api/pay/wechat/native`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer owner" },
-      body: JSON.stringify({ planId: "cny100_points1000", amount: 1 }),
+      body: JSON.stringify({ planId: "cny001_points1000", amount: 10000 }),
     });
     assert.equal(created.status, 201);
-    assert.equal((await created.json()).amount, 10_000);
+    assert.equal((await created.json()).amount, 1);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].planId, "cny100_points1000");
+    assert.equal(calls[0].planId, "cny001_points1000");
     assert.equal(calls[0].provider, "wechat");
     assert.equal("amount" in calls[0], false);
 

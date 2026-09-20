@@ -33,6 +33,10 @@ export type RechargeOrder = {
   points: number;
   pointUnits: number;
   status: "creating" | "pending" | "paid" | "failed" | "closed";
+  balanceBeforeUnits?: number | null;
+  balanceBefore?: number | null;
+  balanceAfterUnits?: number | null;
+  balanceAfter?: number | null;
   codeUrl?: string | null;
   qrCodeDataUrl?: string | null;
   failureCode?: string | null;

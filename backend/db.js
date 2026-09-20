@@ -584,6 +584,8 @@ export async function initDatabase() {
           idempotency_key TEXT NOT NULL,
           amount_fen BIGINT NOT NULL CHECK (amount_fen > 0),
           point_units BIGINT NOT NULL CHECK (point_units > 0),
+          balance_before_units BIGINT,
+          balance_after_units BIGINT,
           status TEXT NOT NULL CHECK (status IN ('creating', 'pending', 'paid', 'failed', 'closed')),
           code_url TEXT,
           provider_order_id TEXT,
@@ -598,6 +600,8 @@ export async function initDatabase() {
         )
       `);
       await billingClient.query(`ALTER TABLE point_recharge_orders ADD COLUMN IF NOT EXISTS description TEXT`);
+      await billingClient.query(`ALTER TABLE point_recharge_orders ADD COLUMN IF NOT EXISTS balance_before_units BIGINT`);
+      await billingClient.query(`ALTER TABLE point_recharge_orders ADD COLUMN IF NOT EXISTS balance_after_units BIGINT`);
       await billingClient.query(`
         CREATE INDEX IF NOT EXISTS point_recharge_orders_user_created
         ON point_recharge_orders(user_id, created_at DESC)
@@ -836,6 +840,8 @@ export async function initDatabase() {
         idempotency_key TEXT NOT NULL,
         amount_fen INTEGER NOT NULL CHECK (amount_fen > 0),
         point_units INTEGER NOT NULL CHECK (point_units > 0),
+        balance_before_units INTEGER,
+        balance_after_units INTEGER,
         status TEXT NOT NULL CHECK (status IN ('creating', 'pending', 'paid', 'failed', 'closed')),
         code_url TEXT,
         provider_order_id TEXT,
@@ -866,6 +872,13 @@ export async function initDatabase() {
       await db.exec(`ALTER TABLE point_recharge_orders ADD COLUMN description TEXT`);
     } catch (_) {
       /* Existing database already has the payment description column. */
+    }
+    for (const column of ["balance_before_units", "balance_after_units"]) {
+      try {
+        await db.exec(`ALTER TABLE point_recharge_orders ADD COLUMN ${column} INTEGER`);
+      } catch (_) {
+        /* Existing database already has this recharge balance column. */
+      }
     }
     // papers 表（本地文献库）
     await db.exec(`

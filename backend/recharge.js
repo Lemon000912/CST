@@ -8,9 +8,9 @@ import {
 } from "./rechargeProviders.js";
 
 export const RECHARGE_PACKAGE = Object.freeze({
-  id: "cny100_points1000",
-  amountFen: 10_000,
-  amountYuan: 100,
+  id: "cny001_points1000",
+  amountFen: 1,
+  amountYuan: 0.01,
   points: 1_000,
   pointUnits: 1_000 * POINT_UNITS,
 });
@@ -57,6 +57,10 @@ function publicOrder(row, balance = undefined) {
     amountYuan: integer(row.amount_fen, "amountFen") / 100,
     points: integer(row.point_units, "pointUnits") / POINT_UNITS,
     pointUnits: integer(row.point_units, "pointUnits"),
+    balanceBeforeUnits: row.balance_before_units == null ? null : integer(row.balance_before_units, "balanceBeforeUnits"),
+    balanceBefore: row.balance_before_units == null ? null : formatPointUnits(integer(row.balance_before_units, "balanceBeforeUnits")),
+    balanceAfterUnits: row.balance_after_units == null ? null : integer(row.balance_after_units, "balanceAfterUnits"),
+    balanceAfter: row.balance_after_units == null ? null : formatPointUnits(integer(row.balance_after_units, "balanceAfterUnits")),
     status,
     codeUrl: status === "creating" || status === "pending" ? row.code_url || null : null,
     failureCode: row.failure_code || null,
@@ -412,9 +416,10 @@ export async function completeRechargeOrder({ provider, orderNo, providerTransac
       await tx.run(
         `UPDATE point_recharge_orders
          SET status = 'paid', provider_transaction_id = $1, paid_at = $2, updated_at = $2,
+             balance_before_units = $4, balance_after_units = $5,
              code_url = NULL, failure_code = NULL
          WHERE id = $3`,
-        [normalizedTransactionId, now, row.id],
+        [normalizedTransactionId, now, row.id, previousBalanceUnits, nextBalanceUnits],
       );
       await tx.run("UPDATE point_wallets SET balance_units = $1, updated_at = $2 WHERE user_id = $3", [nextBalanceUnits, now, row.user_id]);
       await tx.run(
@@ -427,9 +432,10 @@ export async function completeRechargeOrder({ provider, orderNo, providerTransac
       await tx.run(
         `UPDATE point_recharge_orders
          SET status = 'paid', provider_transaction_id = ?, paid_at = ?, updated_at = ?,
+             balance_before_units = ?, balance_after_units = ?,
              code_url = NULL, failure_code = NULL
          WHERE id = ?`,
-        [normalizedTransactionId, now, now, row.id],
+        [normalizedTransactionId, now, now, previousBalanceUnits, nextBalanceUnits, row.id],
       );
       await tx.run("UPDATE point_wallets SET balance_units = ?, updated_at = ? WHERE user_id = ?", [nextBalanceUnits, now, row.user_id]);
       await tx.run(
