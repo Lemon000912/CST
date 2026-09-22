@@ -19,6 +19,16 @@ export type FlowchartArtifact = {
   title?: string;
 };
 
+function decodeSvgBase64(base64: string): string {
+  try {
+    const binary = window.atob(base64);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
 type Props = {
   artifact: FlowchartArtifact;
   className?: string;
@@ -216,16 +226,19 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
         });
         const { svg } = await mermaid.render(`pq-flow-${uid}`, artifact.mermaid.trim());
         if (cancelled) return;
-        el.innerHTML = svg;
-        setSvgHtml(sanitizeSvg(svg));
+        const safeSvg = sanitizeSvg(svg);
+        el.innerHTML = safeSvg;
+        setSvgHtml(safeSvg);
       } catch (e) {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "流程图渲染失败");
           if (artifact.svgBase64) {
-            const fallback = `<img alt="工艺流程" src="data:image/svg+xml;base64,${artifact.svgBase64}" class="max-w-full h-auto" />`;
-            el.innerHTML = fallback;
-            setSvgHtml(sanitizeSvg(fallback));
-            setErr(null);
+            const fallbackSvg = sanitizeSvg(decodeSvgBase64(artifact.svgBase64));
+            if (fallbackSvg) {
+              el.innerHTML = fallbackSvg;
+              setSvgHtml(fallbackSvg);
+              setErr(null);
+            }
           }
         }
       } finally {
