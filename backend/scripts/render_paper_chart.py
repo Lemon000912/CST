@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -10,7 +11,50 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib import gridspec  # noqa: E402
+from matplotlib import font_manager, gridspec  # noqa: E402
+
+
+def _configure_cjk_font() -> None:
+    """Register an installed CJK font explicitly before setting Matplotlib rcParams."""
+    candidates = []
+    configured = str(os.environ.get("MATPLOTLIB_FONT_FILE", "")).strip()
+    if configured:
+        candidates.append(configured)
+    candidates.extend(
+        [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+        ]
+    )
+
+    registered_names = []
+    for raw_path in candidates:
+        path = Path(raw_path).expanduser()
+        if not path.is_file():
+            continue
+        try:
+            font_manager.fontManager.addfont(str(path))
+            name = font_manager.FontProperties(fname=str(path)).get_name()
+            if name and name not in registered_names:
+                registered_names.append(name)
+        except Exception as exc:
+            print(f"CJK font registration failed for {path}: {exc}", file=sys.stderr)
+
+    # Keep the explicit registered family first; the remaining names are useful
+    # on hosts where the font is already indexed by fontconfig/Matplotlib.
+    font_names = registered_names + [
+        "Noto Sans CJK SC",
+        "Microsoft YaHei",
+        "SimHei",
+        "PingFang SC",
+        "DejaVu Sans",
+    ]
+    plt.rcParams["font.sans-serif"] = list(dict.fromkeys(font_names))
+    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _short(s: str, n: int = 22) -> str:
@@ -28,8 +72,7 @@ def main() -> int:
     out_path = Path(sys.argv[2])
     spec = json.loads(in_path.read_text(encoding="utf-8"))
 
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "PingFang SC", "Noto Sans CJK SC", "DejaVu Sans"]
-    plt.rcParams["axes.unicode_minus"] = False
+    _configure_cjk_font()
 
     title = str(spec.get("title") or "文献数值图").strip()
     x_lab = str(spec.get("x_axis", {}).get("label") or "x").strip()

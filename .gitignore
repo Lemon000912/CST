@@ -24,3 +24,4 @@ backend/data/pdf-source-cache/
 .env.*.local
 *.pem
 apiclient_key.pem
+backend/scripts/__pycache__/render_paper_chart.cpython-313.pyc
