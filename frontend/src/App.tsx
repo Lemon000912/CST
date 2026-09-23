@@ -2042,12 +2042,7 @@ function AssistantBlock({
       )) : null}
       {!msg.error && channelSupportsPaperChart(msg.meta?.channel) && msg.papers && msg.papers.length > 0 && onMatplotlibChart ? (
         <div className="mt-4 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-3">
-          <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">文献数值图（可点击散点 + Matplotlib PNG）</p>
-          <p className="mb-2 text-[10px] leading-relaxed text-[var(--t-text-dim)]">
-            检索成功后会<strong>自动尝试</strong>作图：优先用 LLM 结合<strong>摘要 + 综述</strong>抽取同含义、同单位的数据；仍失败时会从摘要中识别常见单位（如 %、eV、MPa、GPa、°C、nm 等）生成后备散点图（至少需要两个可追溯数值点）。也可填「作图意图」后点按钮重试。散点图下表列出各点横纵坐标对应的 DOI（`doi_x` /
-            `doi_y`）。若本机已安装 Python3 与{" "}
-            <code className="rounded bg-[var(--t-elevated)] px-0.5">matplotlib</code> 优先使用 Matplotlib PNG；否则使用纯 JS SVG 渲染。
-          </p>
+          <p className="mb-2 text-[11px] font-semibold text-[var(--t-text)]">文献数值图（可点击散点，查看论文ID）</p>
           {msg.meta?.paperChartError ? (
             <p className="mb-2 rounded-lg border border-[color:var(--t-error)]/35 bg-[color:var(--t-error)]/08 px-2 py-1.5 text-[10px] leading-relaxed text-[var(--t-error)]">
               {msg.meta.paperChartError}
@@ -2061,7 +2056,7 @@ function AssistantBlock({
                 value={chartHint}
                 onChange={(e) => setChartHint(e.target.value)}
                 placeholder="如：横轴温度、纵轴效率；或留空由模型根据摘录推断"
-                className="mt-0.5 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-surface)] px-2 py-1.5 text-[11px] text-[var(--t-text)]"
+                className="mt-0.5 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-surface)] px-2 py-1.5 text-[13px] text-[var(--t-text)]"
               />
             </label>
             <button
@@ -2073,7 +2068,13 @@ function AssistantBlock({
               {chartBusy ? LOADING_CHART : msg.meta?.paperChart ? "重新生成图表" : "生成图表"}
             </button>
           </div>
-          {msg.meta?.paperChart && (msg.meta.paperChart.pngBase64 || msg.meta.paperChart.svgBase64) ? (
+          {msg.meta?.paperChart && (
+            msg.meta.paperChart.pngBase64 ||
+            msg.meta.paperChart.svgBase64 ||
+            (msg.meta.paperChart.spec &&
+              typeof msg.meta.paperChart.spec === "object" &&
+              !Array.isArray(msg.meta.paperChart.spec))
+          ) ? (
             <div className="mt-3 border-t border-[color:var(--t-br06)] pt-3">
               <p className="mb-2 text-[11px] font-medium text-[var(--t-text)]">
                 {msg.meta.paperChart.title}
@@ -2452,8 +2453,12 @@ export default function App({
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
+  const [sessionSaveEpoch, setSessionSaveEpoch] = useState(0);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverSaveInflightRef = useRef<Promise<void> | null>(null);
+  const serverSaveQueuedRef = useRef(false);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const [draftSession, setDraftSession] = useState<ChatSession>(() => createSession());
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
@@ -2680,7 +2685,21 @@ export default function App({
         return;
       }
       const local = loadSessions(getAuthProfile()?.userId, edition);
-      const remote = await fetchChatSessionsFromServer();
+      let remote = null;
+      // A transient GET failure must not be treated as an empty server history.
+      // Retry before allowing any server PUT; otherwise a local snapshot could
+      // overwrite the good remote snapshot with an unconditional save.
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          remote = await fetchChatSessionsFromServer();
+        } catch (error) {
+          console.warn("[App] chat session hydration failed", error);
+        }
+        if (remote) break;
+        if (attempt < 2) {
+          await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));
+        }
+      }
       if (cancelled) return;
       if (remote) {
         if (remote.sessions.length > 0 || local.length > 0) {
@@ -2714,11 +2733,16 @@ export default function App({
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }
-    if (!getAuthToken()) return;
+    if (!getAuthToken() || !sessionSyncState) return;
     if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     serverSaveTimerRef.current = setTimeout(() => {
       // Guard: don't start a new PUT while one is already in flight
-      if (serverSaveInflightRef.current) return;
+      if (serverSaveInflightRef.current) {
+        // A newer render replaced this timer while the previous PUT was still
+        // running. Queue a fresh save instead of silently dropping that state.
+        serverSaveQueuedRef.current = true;
+        return;
+      }
       const baseRevision = sessionSyncState?.revision ?? null;
       const payload = sessionsPayloadForServer(persistedSessions);
       const doSave = async (): Promise<void> => {
@@ -2736,7 +2760,7 @@ export default function App({
             serverRevision: result.revision,
           });
           const serverSessions = Array.isArray(result.sessions) ? result.sessions : [];
-          const merged = mergeChatSessions(serverSessions, sessions);
+          const merged = mergeChatSessions(serverSessions, sessionsRef.current);
           const persistedMerged = removeEmptySessions(merged);
           setSessions(persistedMerged);
           saveSessions(persistedMerged, getAuthProfile()?.userId, edition);
@@ -2758,12 +2782,16 @@ export default function App({
       };
       serverSaveInflightRef.current = doSave().finally(() => {
         serverSaveInflightRef.current = null;
+        if (serverSaveQueuedRef.current) {
+          serverSaveQueuedRef.current = false;
+          setSessionSaveEpoch((epoch) => epoch + 1);
+        }
       });
     }, 1200);
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
     };
-  }, [edition, sessions, sessionsHydrated, sessionSyncState]);
+  }, [edition, sessions, sessionsHydrated, sessionSyncState, sessionSaveEpoch]);
 
   useLayoutEffect(() => {
     setActiveId((id) => {
@@ -4320,6 +4348,7 @@ export default function App({
                       active?.id != null && m.id === active.messages[active.messages.length - 1]?.id ? (
                         <RhinoAnimation
                           animate={busy}
+                          animateSrc={edition === "enterprise" ? "/CST.png" : undefined}
                           className="h-full w-full object-contain mix-blend-multiply"
                         />
                       ) : (

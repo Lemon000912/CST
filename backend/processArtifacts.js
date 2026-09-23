@@ -114,25 +114,20 @@ export function extractRecipeLines(md) {
  * @returns {ProcessStep[]}
  */
 export function collectProcessSteps(plan, markdown = "") {
-  const out = [];
-  const seen = new Set();
-  const push = (s) => {
-    if (!s) return;
-    const k = s.action.slice(0, 100);
-    if (seen.has(k)) return;
-    seen.add(k);
-    out.push(s);
-  };
-
+  const structured = [];
   if (plan && Array.isArray(plan.steps)) {
     for (let i = 0; i < plan.steps.length; i++) {
-      push(normalizeProcessStep(plan.steps[i], i));
+      const step = normalizeProcessStep(plan.steps[i], i);
+      if (step) structured.push(step);
     }
   }
 
-  for (const s of extractStepsFromMarkdown(markdown)) push(s);
-
-  return out.map((s, i) => ({ ...s, step_no: s.step_no ?? i + 1 })).slice(0, 24);
+  // The structured plan and synthesis markdown describe the same workflow.
+  // Merging both sources can duplicate a complete numbered sequence (1..N,
+  // then 1..N again) whenever Markdown formatting makes text-based dedupe miss.
+  // Treat structured steps as canonical and use Markdown only as a fallback.
+  const steps = structured.length ? structured : extractStepsFromMarkdown(markdown);
+  return steps.map((s, i) => ({ ...s, step_no: s.step_no ?? i + 1 })).slice(0, 24);
 }
 
 /**
@@ -179,48 +174,38 @@ export function buildMermaidFlowchart(steps, opts = {}) {
     return { firstId, lastId };
   };
 
-  // A long single chain makes Mermaid choose a very wide layout, which then
-  // gets visually compressed in the chat panel. Keep short workflows in one
-  // explicit top-to-bottom group, and split longer workflows into several
-  // top-to-bottom stages connected vertically.
-  const useStages = list.length > 8;
-  let firstStepId = "";
-  if (!useStages) {
-    if (title) {
-      lines.push(`  subgraph main["${mermaidLabel(title)}"]`);
-      lines.push("    direction TB");
-    }
-    const chain = addStepChain(0, list.length);
-    firstStepId = chain.firstId;
-    if (title) lines.push("  end");
-  } else {
-    const stageSize = 5;
-    let previousLastId = "";
-    for (let start = 0, stage = 1; start < list.length; start += stageSize, stage += 1) {
-      const end = Math.min(start + stageSize, list.length);
-      const stageTitle = `工艺阶段 ${stage}（步骤 ${start + 1}-${end}）`;
-      lines.push(`  subgraph phase${stage}["${mermaidLabel(stageTitle)}"]`);
-      lines.push("    direction TB");
-      const chain = addStepChain(start, end);
-      lines.push("  end");
-      if (!firstStepId) firstStepId = chain.firstId;
-      if (previousLastId) lines.push(`  ${previousLastId} --> ${chain.firstId}`);
-      previousLastId = chain.lastId;
-    }
-  }
+  // Keep long workflows readable: their composition sits in a horizontal
+  // group above one uninterrupted vertical step chain. Short flows remain a
+  // compact vertical group. A long flow without extracted recipe data still
+  // stays vertical rather than inventing a composition section.
+  const useCompositionLayout = list.length > 8;
+  const recipes = (opts.recipeLines ?? []).filter((line) => String(line ?? "").trim());
+  const hasComposition = useCompositionLayout && recipes.length > 0;
 
-  const recipes = opts.recipeLines ?? [];
-  if (recipes.length) {
+  if (hasComposition) {
     lines.push(`  subgraph recipe["配方 / 组分"]`);
     lines.push("    direction TB");
-    lines.push(`    R0["${mermaidLabel(recipes[0])}"]`);
-    for (let i = 1; i < recipes.length; i++) {
-      lines.push(`    R${i}["${mermaidLabel(recipes[i])}"]`);
-      lines.push(`    R${i - 1} --> R${i}`);
+    const recipeColumns = Math.min(5, recipes.length);
+    for (let start = 0, row = 1; start < recipes.length; start += recipeColumns, row += 1) {
+      const end = Math.min(start + recipeColumns, recipes.length);
+      lines.push(`    subgraph recipeRow${row}[""]`);
+      lines.push("      direction LR");
+      for (let i = start; i < end; i++) {
+        lines.push(`      R${i}["${mermaidLabel(recipes[i])}"]`);
+        if (i > start) lines.push(`      R${i - 1} ~~~ R${i}`);
+      }
+      lines.push("    end");
     }
     lines.push(`  end`);
-    lines.push(`  R${recipes.length - 1} --> ${firstStepId}`);
   }
+
+  if (title) {
+    lines.push(`  subgraph main["${mermaidLabel(title)}"]`);
+    lines.push("    direction TB");
+  }
+  const chain = addStepChain(0, list.length);
+  if (title) lines.push("  end");
+  if (hasComposition) lines.push(`  recipe --> ${chain.firstId}`);
 
   return lines.join("\n");
 }

@@ -4,7 +4,6 @@ import { getAppEdition } from "./edition";
 
 /** Legacy key used when no userId is available (anonymous / pre-auth). */
 const KEY = "paper-query-sessions-v1";
-const MAX_SESSIONS = 30;
 
 /**
  * Returns the localStorage key for the given user.
@@ -31,7 +30,7 @@ export function clearUserSessions(userId: string, edition: AppEdition = getAppEd
   }
 }
 
-/** 写入 localStorage 前精简体积（图表 PNG 等） */
+/** 写入本地和服务端会话前移除可由 spec 重新渲染的图表静态图片。 */
 export function slimSessionForStorage(s: ChatSession): ChatSession {
   return {
     ...s,
@@ -44,9 +43,9 @@ export function slimSessionForStorage(s: ChatSession): ChatSession {
       if (meta.paperChart) {
         meta.paperChart = {
           ...meta.paperChart,
+          // PNG/SVG 会显著膨胀会话体积；交互图表可直接由 spec + papers 恢复。
           pngBase64: null,
-          spec: null,
-          note: meta.paperChart.note || "图表数据已精简存储",
+          svgBase64: null,
         };
       }
       return { ...m, meta };
@@ -54,13 +53,8 @@ export function slimSessionForStorage(s: ChatSession): ChatSession {
   };
 }
 
-function trimSessions(sessions: ChatSession[]): ChatSession[] {
-  if (sessions.length <= MAX_SESSIONS) return sessions;
-  return sessions.slice(sessions.length - MAX_SESSIONS);
-}
-
 function progressiveTrim(sessions: ChatSession[]): ChatSession[] {
-  let out = trimSessions(sessions.map(slimSessionForStorage));
+  let out = sessions.map(slimSessionForStorage);
   for (let pass = 0; pass < 4; pass++) {
     try {
       JSON.stringify(out);
@@ -94,10 +88,12 @@ function progressiveTrim(sessions: ChatSession[]): ChatSession[] {
           return { ...m, meta };
         }),
       }));
-      if (pass === 3) out = out.slice(-10);
     }
   }
-  return out.slice(-5);
+  // Never silently discard whole conversations as a serialization fallback.
+  // saveSessions will leave the previous durable snapshot untouched if this
+  // payload still cannot be serialized.
+  return out;
 }
 
 export function mergeChatSessions(local: ChatSession[], remote: ChatSession[]): ChatSession[] {
@@ -144,12 +140,8 @@ export function saveSessions(
     localStorage.setItem(storageKey, JSON.stringify(trimmed));
   } catch (e) {
     console.warn("[storage] saveSessions failed:", e);
-    try {
-      const fallback = progressiveTrim(sessions).slice(-8);
-      localStorage.setItem(storageKey, JSON.stringify(fallback));
-    } catch (e2) {
-      console.error("[storage] saveSessions fallback failed, 保留内存中的会话直至下次成功保存", e2);
-    }
+    // Do not replace a valid prior snapshot with an incomplete subset.
+    console.error("[storage] saveSessions failed; previous saved conversations were preserved", e);
   }
 }
 
