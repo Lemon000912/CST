@@ -19,6 +19,27 @@ export type FlowchartArtifact = {
   title?: string;
 };
 
+function decodeSvgBase64(base64: string): string {
+  try {
+    const binary = window.atob(base64);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function applySvgFontSize(svg: string, fontSize: number): string {
+  if (!svg) return "";
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = doc.documentElement;
+  if (!root || root.nodeName.toLowerCase() !== "svg") return "";
+  root.querySelectorAll("text").forEach((el) => {
+    el.setAttribute("font-size", `${fontSize}px`);
+  });
+  return new XMLSerializer().serializeToString(root);
+}
+
 type Props = {
   artifact: FlowchartArtifact;
   className?: string;
@@ -186,6 +207,7 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
   const [busy, setBusy] = useState(true);
   const [svgHtml, setSvgHtml] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [fontSize, setFontSize] = useState(16);
 
   const flowTitle =
     artifact.title?.trim() ||
@@ -212,20 +234,35 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
           startOnLoad: false,
           theme: "neutral",
           securityLevel: "strict",
-          flowchart: { curve: "basis", htmlLabels: true },
+          fontSize,
+          themeVariables: {
+            fontSize: `${fontSize}px`,
+            fontFamily: "Microsoft YaHei, PingFang SC, sans-serif",
+          },
+          flowchart: {
+            curve: "basis",
+            htmlLabels: true,
+            useMaxWidth: false,
+            wrappingWidth: 220,
+          },
         });
         const { svg } = await mermaid.render(`pq-flow-${uid}`, artifact.mermaid.trim());
         if (cancelled) return;
-        el.innerHTML = svg;
-        setSvgHtml(sanitizeSvg(svg));
+        const safeSvg = sanitizeSvg(svg);
+        el.innerHTML = safeSvg;
+        setSvgHtml(safeSvg);
       } catch (e) {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "流程图渲染失败");
           if (artifact.svgBase64) {
-            const fallback = `<img alt="工艺流程" src="data:image/svg+xml;base64,${artifact.svgBase64}" class="max-w-full h-auto" />`;
-            el.innerHTML = fallback;
-            setSvgHtml(sanitizeSvg(fallback));
-            setErr(null);
+            const fallbackSvg = sanitizeSvg(
+              applySvgFontSize(decodeSvgBase64(artifact.svgBase64), fontSize),
+            );
+            if (fallbackSvg) {
+              el.innerHTML = fallbackSvg;
+              setSvgHtml(fallbackSvg);
+              setErr(null);
+            }
           }
         }
       } finally {
@@ -236,7 +273,7 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [artifact.mermaid, artifact.svgBase64, uid]);
+  }, [artifact.mermaid, artifact.svgBase64, fontSize, uid]);
 
   return (
     <>
@@ -249,6 +286,28 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
           {artifact.steps?.length ? `（${artifact.steps.length} 步）` : ""}
           · 点击收起
         </summary>
+        <div
+          className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[color:var(--t-br06)] bg-[var(--t-surface)] px-2 py-1.5 text-[10px] text-[var(--t-text-dim)]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <label htmlFor={`flow-font-size-${uid}`} className="shrink-0 font-medium text-[var(--t-text-label)]">
+            图片字体
+          </label>
+          <input
+            id={`flow-font-size-${uid}`}
+            type="range"
+            min={12}
+            max={28}
+            step={1}
+            value={fontSize}
+            onChange={(e) => setFontSize(Number(e.target.value))}
+            className="h-1.5 w-32 accent-[var(--t-accent)] sm:w-40"
+            aria-label="流程图字体大小"
+          />
+          <output htmlFor={`flow-font-size-${uid}`} className="w-10 text-right tabular-nums text-[var(--t-text)]">
+            {fontSize}px
+          </output>
+        </div>
         <div className="mt-2 overflow-x-auto">
           {busy ? (
             <p className="text-[11px] text-[var(--t-text-dim)]">正在绘制流程图…</p>
@@ -270,7 +329,7 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
                 openLightbox();
               }
             }}
-            className={`mermaid-wrap group relative flex justify-center rounded-lg [&_svg]:max-w-full ${
+            className={`mermaid-wrap group relative flex justify-center rounded-lg [&_svg]:h-auto [&_svg]:max-w-none ${
               svgHtml
                 ? "cursor-zoom-in border border-transparent transition hover:border-[color:var(--t-br10)] hover:bg-[var(--t-elevated)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--t-accent)]/40"
                 : ""

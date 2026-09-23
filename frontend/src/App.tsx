@@ -4048,9 +4048,7 @@ export default function App({
               <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)]">
                 积分 {pointBalance ? formatPoints(pointBalance.balance) : balanceError ? "加载失败" : "加载中"}
               </div>
-            ) : (
-              <div className="mt-0.5 text-[10px] font-medium text-[var(--t-text-muted)]">企业版 · 无积分限制</div>
-            )}
+            ) : null}
             {pointsEnabled ? (
               <button
                 type="button"

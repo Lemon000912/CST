@@ -158,30 +158,68 @@ export function buildMermaidFlowchart(steps, opts = {}) {
 
   const lines = ["flowchart TD"];
   const title = String(opts.title ?? "工艺流程").trim();
-  if (title) lines.push(`  subgraph main["${mermaidLabel(title)}"]`);
 
-  for (let i = 0; i < list.length; i++) {
-    const s = list[i];
-    const id = `S${i + 1}`;
-    let label = `${s.step_no ?? i + 1}. ${s.action}`;
+  const stepLabel = (s, index) => {
+    let label = `${s.step_no ?? index + 1}. ${s.action}`;
     const extra = [formatInOut(s.inputs), formatInOut(s.outputs)].filter(Boolean).join(" → ");
     if (extra) label += ` (${extra})`;
-    lines.push(`    ${id}["${mermaidLabel(label)}"]`);
-    if (i > 0) lines.push(`    S${i} --> ${id}`);
-  }
+    return mermaidLabel(label);
+  };
 
-  if (title) lines.push("  end");
+  const addStepChain = (from, to, indent = "    ") => {
+    let firstId = "";
+    let lastId = "";
+    for (let i = from; i < to; i++) {
+      const id = `S${i + 1}`;
+      if (!firstId) firstId = id;
+      lastId = id;
+      lines.push(`${indent}${id}["${stepLabel(list[i], i)}"]`);
+      if (i > from) lines.push(`${indent}S${i} --> ${id}`);
+    }
+    return { firstId, lastId };
+  };
+
+  // A long single chain makes Mermaid choose a very wide layout, which then
+  // gets visually compressed in the chat panel. Keep short workflows in one
+  // explicit top-to-bottom group, and split longer workflows into several
+  // top-to-bottom stages connected vertically.
+  const useStages = list.length > 8;
+  let firstStepId = "";
+  if (!useStages) {
+    if (title) {
+      lines.push(`  subgraph main["${mermaidLabel(title)}"]`);
+      lines.push("    direction TB");
+    }
+    const chain = addStepChain(0, list.length);
+    firstStepId = chain.firstId;
+    if (title) lines.push("  end");
+  } else {
+    const stageSize = 5;
+    let previousLastId = "";
+    for (let start = 0, stage = 1; start < list.length; start += stageSize, stage += 1) {
+      const end = Math.min(start + stageSize, list.length);
+      const stageTitle = `工艺阶段 ${stage}（步骤 ${start + 1}-${end}）`;
+      lines.push(`  subgraph phase${stage}["${mermaidLabel(stageTitle)}"]`);
+      lines.push("    direction TB");
+      const chain = addStepChain(start, end);
+      lines.push("  end");
+      if (!firstStepId) firstStepId = chain.firstId;
+      if (previousLastId) lines.push(`  ${previousLastId} --> ${chain.firstId}`);
+      previousLastId = chain.lastId;
+    }
+  }
 
   const recipes = opts.recipeLines ?? [];
   if (recipes.length) {
     lines.push(`  subgraph recipe["配方 / 组分"]`);
+    lines.push("    direction TB");
     lines.push(`    R0["${mermaidLabel(recipes[0])}"]`);
     for (let i = 1; i < recipes.length; i++) {
       lines.push(`    R${i}["${mermaidLabel(recipes[i])}"]`);
       lines.push(`    R${i - 1} --> R${i}`);
     }
     lines.push(`  end`);
-    lines.push(`  recipe --> S1`);
+    lines.push(`  R${recipes.length - 1} --> ${firstStepId}`);
   }
 
   return lines.join("\n");
