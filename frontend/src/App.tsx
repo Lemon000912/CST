@@ -2404,7 +2404,10 @@ function LlmRewriteSettingsModal({
                 data-lpignore="true"
                 value={editingProvider.model}
                 onChange={(e) => updateProvider(editingProvider.id, "model", e.target.value)}
-                placeholder={editingIndex === 0 ? "deepseek-v4-flash" : "例如 gpt-4o-mini"}
+                placeholder={
+                  ["qwen3.7-max", "gpt5.5", "deepseek-v4-flash", "deepseek-v4-flash"][editingIndex] ??
+                  ""
+                }
                 className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-2.5 py-2 text-[12px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent"
               />
             </div>
