@@ -2240,14 +2240,27 @@ function AssistantBlock({
   );
 }
 
+type LlmProviderDraft = {
+  id: number;
+  url: string;
+  key: string;
+  model: string;
+};
+
+function createLlmProviderDrafts(url: string, key: string, model: string): LlmProviderDraft[] {
+  return [
+    { id: 1, url, key, model },
+    { id: 2, url: "", key: "", model: "" },
+    { id: 3, url: "", key: "", model: "" },
+    { id: 4, url: "", key: "", model: "" },
+  ];
+}
+
 function LlmRewriteSettingsModal({
   open,
   urlDraft,
   keyDraft,
   modelDraft,
-  onChangeUrl,
-  onChangeKey,
-  onChangeModel,
   onSave,
   onClear,
   onClose,
@@ -2256,13 +2269,21 @@ function LlmRewriteSettingsModal({
   urlDraft: string;
   keyDraft: string;
   modelDraft: string;
-  onChangeUrl: (v: string) => void;
-  onChangeKey: (v: string) => void;
-  onChangeModel: (v: string) => void;
-  onSave: () => void;
+  onSave: (providers: LlmProviderDraft[]) => void;
   onClear: () => void;
   onClose: () => void;
 }) {
+  const [providers, setProviders] = useState<LlmProviderDraft[]>(() =>
+    createLlmProviderDrafts(urlDraft, keyDraft, modelDraft),
+  );
+  const [editingProviderId, setEditingProviderId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setProviders(createLlmProviderDrafts(urlDraft, keyDraft, modelDraft));
+    setEditingProviderId(null);
+  }, [open, urlDraft, keyDraft, modelDraft]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -2271,6 +2292,12 @@ function LlmRewriteSettingsModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  const updateProvider = (id: number, field: "url" | "key" | "model", value: string) => {
+    setProviders((current) => current.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
+  };
+  const editingProvider = providers.find((item) => item.id === editingProviderId) ?? null;
+  const editingIndex = editingProvider ? providers.findIndex((item) => item.id === editingProvider.id) : -1;
 
   if (!open) return null;
 
@@ -2285,65 +2312,107 @@ function LlmRewriteSettingsModal({
       }}
     >
       <div
-        className="w-full max-w-[min(520px,100%)] rounded-2xl border border-[color:var(--t-br10)] bg-[var(--t-modal)] p-4 shadow-2xl shadow-[var(--t-modal-shadow)]"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-[min(780px,100%)] overflow-y-auto rounded-2xl border border-[color:var(--t-br10)] bg-[var(--t-modal)] p-4 shadow-2xl shadow-[var(--t-modal-shadow)] sm:p-5"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <h2 id="llm-settings-dialog-title" className="text-[15px] font-semibold text-[var(--t-text-card-title)]">
-          查询重写（LLM）
-        </h2>
-        <p className="mt-2 text-[11px] leading-relaxed text-[var(--t-text-faint)]">
-          用于检索前的<strong className="text-[var(--t-text-muted)]">查询重写</strong>，以及检索完成后的<strong className="text-[var(--t-text-muted)]">文献综述</strong>（基于检索到的摘要，回答中标注 DOI / arXiv）。以下三项仅保存在本机（localStorage），检索时通过请求头传给同源后端；不会写入对话导出
-          JSON。须为 <span className="font-mono text-[var(--t-text-dim)]">POST …/chat/completions</span> 的兼容接口。未填 URL 时由服务端{" "}
-          <span className="font-mono text-[var(--t-text-dim)]">LLM_CHAT_COMPLETIONS_URL</span> 决定；若也未配置则默认{" "}
-          <span className="font-mono text-[var(--t-text-dim)]">api.deepseek.com</span>（模型默认 deepseek-v4-flash，即 DeepSeek-V4-Flash）。可改为 OpenAI、通义、本地 Ollama 等，请保持
-          Key 与 URL 一致。
-        </p>
-        <label className="mt-3 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
-          Chat Completions URL（可选）
-        </label>
-        <input
-          type="text"
-          name="llm-chat-completions-url"
-          autoComplete="off"
-          data-1p-ignore="true"
-          data-lpignore="true"
-          value={urlDraft}
-          onChange={(e) => onChangeUrl(e.target.value)}
-          placeholder="留空则用 DeepSeek；或填 https://api.openai.com/v1/chat/completions 等"
-          className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-3 py-2 font-mono text-[12px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent border-[color:var(--t-br10)]"
-        />
-        <label className="mt-3 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
-          API Key
-        </label>
-        <PasswordInputWithToggle
-          name="llm-api-key"
-          autoComplete="new-password"
-          data-1p-ignore="true"
-          data-lpignore="true"
-          value={keyDraft}
-          onChange={(e) => onChangeKey(e.target.value)}
-          placeholder="sk-…"
-          wrapperClassName="mt-1"
-          className="w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-3 py-2 font-mono text-[13px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent border-[color:var(--t-br10)]"
-        />
-        <label className="mt-3 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
-          模型（可选）
-        </label>
-        <input
-          type="text"
-          name="llm-model-id"
-          autoComplete="off"
-          data-1p-ignore="true"
-          data-lpignore="true"
-          value={modelDraft}
-          onChange={(e) => onChangeModel(e.target.value)}
-          placeholder="默认 deepseek-v4-flash（可填 deepseek-v4-pro、gpt-4o-mini…）"
-          className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-3 py-2 text-[13px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent border-[color:var(--t-br10)]"
-        />
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="llm-settings-dialog-title" className="text-[15px] font-semibold text-[var(--t-text-card-title)]">
+              查询重写（LLM）
+            </h2>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--t-text-faint)]">
+              用于检索前的<strong className="text-[var(--t-text-muted)]">查询重写</strong>，以及检索完成后的<strong className="text-[var(--t-text-muted)]">文献综述</strong>（基于检索到的摘要，回答中标注 DOI / arXiv）。以下三项仅保存在本机（localStorage），检索时通过请求头传给同源后端；不会写入对话导出 JSON。须为 <span className="font-mono text-[var(--t-text-dim)]">POST …/chat/completions</span> 的兼容接口。未填 URL 时由服务端 <span className="font-mono text-[var(--t-text-dim)]">LLM_CHAT_COMPLETIONS_URL</span> 决定；若也未配置则默认 <span className="font-mono text-[var(--t-text-dim)]">api.deepseek.com</span>（模型默认 deepseek-v4-flash，即 DeepSeek-V4-Flash）。可改为 OpenAI、通义、本地 Ollama 等，请保持 Key 与 URL 一致。
+            </p>
+          </div>
+        </div>
+        <div className="mx-auto mt-4 grid w-full max-w-[640px] grid-cols-4 gap-2">
+          {providers.map((provider, index) => (
+            <button
+              key={provider.id}
+              type="button"
+              onClick={() => setEditingProviderId(provider.id)}
+              className={`min-w-0 rounded-xl border px-2 py-3 text-center transition hover:border-[color:var(--t-accent-ring)] hover:bg-[var(--t-llm-row-hover-bg)] ${index === 0 ? "border-[color:var(--t-accent-ring)] bg-[var(--t-llm-row-hover-bg)]/45" : "border-[color:var(--t-br08)] bg-[var(--t-field)]"}`}
+              aria-label={`配置模型 ${provider.id}`}
+            >
+              <span className="block text-[12px] font-semibold text-[var(--t-text-card-title)]">模型 {provider.id}</span>
+            </button>
+          ))}
+        </div>
+        {editingProvider ? (
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-black/20 px-4 py-8"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="llm-provider-dialog-title"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setEditingProviderId(null);
+            }}
+          >
+            <div
+              className="w-full max-w-[min(480px,100%)] rounded-xl border border-[color:var(--t-br10)] bg-[var(--t-modal)] p-4 shadow-2xl shadow-[var(--t-modal-shadow)]"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="llm-provider-dialog-title" className="text-[13px] font-semibold text-[var(--t-text-card-title)]">
+                  模型 {editingProvider.id} 配置
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingProviderId(null)}
+                  className="rounded-md px-2 py-1 text-[11px] text-[var(--t-text-close)] hover:text-[var(--t-text-close-hover)]"
+                >
+                  关闭
+                </button>
+              </div>
+              <label className="mt-3 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
+                Chat Completions URL
+              </label>
+              <input
+                type="text"
+                name={`llm-chat-completions-url-${editingProvider.id}`}
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                value={editingProvider.url}
+                onChange={(e) => updateProvider(editingProvider.id, "url", e.target.value)}
+                placeholder={editingIndex === 0 ? "https://api.deepseek.com/v1/chat/completions" : "https://api.openai.com/v1/chat/completions"}
+                className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-2.5 py-2 font-mono text-[11px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent"
+              />
+              <label className="mt-2.5 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
+                API Key
+              </label>
+              <PasswordInputWithToggle
+                name={`llm-api-key-${editingProvider.id}`}
+                autoComplete="new-password"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                value={editingProvider.key}
+                onChange={(e) => updateProvider(editingProvider.id, "key", e.target.value)}
+                placeholder="sk-…"
+                wrapperClassName="mt-1"
+                className="w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-2.5 py-2 font-mono text-[12px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent"
+              />
+              <label className="mt-2.5 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">
+                模型名称
+              </label>
+              <input
+                type="text"
+                name={`llm-model-id-${editingProvider.id}`}
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                value={editingProvider.model}
+                onChange={(e) => updateProvider(editingProvider.id, "model", e.target.value)}
+                placeholder={editingIndex === 0 ? "deepseek-v4-flash" : "例如 gpt-4o-mini"}
+                className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-2.5 py-2 text-[12px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent"
+              />
+            </div>
+          </div>
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={onSave}
+            onClick={() => onSave(providers)}
             className="qp-btn-accent rounded-lg px-4 py-2 text-[13px] shadow-md"
           >
             保存
@@ -3870,13 +3939,14 @@ export default function App({
         urlDraft={urlDraft}
         keyDraft={keyDraft}
         modelDraft={modelDraft}
-        onChangeUrl={setUrlDraft}
-        onChangeKey={setKeyDraft}
-        onChangeModel={setModelDraft}
-        onSave={() => {
-          setLlmChatCompletionsUrl(urlDraft);
-          setOpenAiKey(keyDraft);
-          setOpenAiModel(modelDraft);
+        onSave={(providers) => {
+          const primary = providers[0];
+          setLlmChatCompletionsUrl(primary?.url ?? "");
+          setOpenAiKey(primary?.key ?? "");
+          setOpenAiModel(primary?.model ?? "");
+          setUrlDraft(primary?.url ?? "");
+          setKeyDraft(primary?.key ?? "");
+          setModelDraft(primary?.model ?? "");
           setLlmClientHint(!!(getOpenAiKey() || getLlmChatCompletionsUrl()));
           setApiKeyModalOpen(false);
         }}
