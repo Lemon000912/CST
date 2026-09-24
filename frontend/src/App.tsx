@@ -1370,6 +1370,11 @@ function AssistantBlock({
   const webSynthesisStreaming = /^synth:streaming$/i.test(webNoSynthNote);
   const webSynthesisPending = webSynthesisWaiting || webSynthesisStreaming;
   const initialRequestPending = /^synth:requesting$/i.test(webNoSynthNote);
+  const databaseSynthesisWaiting =
+    msg.meta?.channel !== "web" &&
+    webSynthesisWaiting &&
+    n > 0 &&
+    !hasSynthesisText;
   const synthesisInterrupted = /^synth:interrupted$/i.test(webNoSynthNote);
   const isAttachmentSynthesis = synthesisMode.startsWith("attachment_");
   const isDbHybridAnswer =
@@ -1567,6 +1572,19 @@ function AssistantBlock({
         ) : showWebDualPane ? null : (
           <ReactMarkdown>{intro}</ReactMarkdown>
         )}
+        {databaseSynthesisWaiting ? (
+          <div
+            className="mt-3 flex items-center gap-2.5 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-3 py-2.5 text-[11px] text-[var(--t-text-muted)]"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <LoadingSpinner className="h-3.5 w-3.5 shrink-0 border-[var(--t-accent)] border-t-transparent" />
+            <span>
+              检索已完成，找到 <strong className="text-[var(--t-text)]">{n}</strong> 条文献；正在生成正文，请稍候…
+            </span>
+          </div>
+        ) : null}
         {!msg.error && (hasConclusionBlock || (showWebDualPane && !hasWebSynthesis)) ? (
           <div className={showWebDualPane ? "mt-1" : "mt-4 border-t border-[color:var(--t-br06)] pt-4"}>
             {hasAbstractSynth || (showWebDualPane && !hasWebSynthesis) ? (
@@ -4596,7 +4614,7 @@ export default function App({
               {pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
                 : "企业版 · 搜索、图表与 PDF 不使用积分"}
-              {willAttachConvoContext ? " · 含本对话上文" : ""}
+              {willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
           </div>
