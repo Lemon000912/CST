@@ -418,7 +418,7 @@ export default function LoginScreen({
                   setPhone(value);
                   setSmsNotice(null);
                 }}
-                placeholder={isSchool && mode === "login" ? "11位手机号，管理员可输入 admin" : "11位手机号"}
+                placeholder={isSchool && mode === "login" ? "11位手机号" : "11位手机号"}
                 required
                 aria-required="true"
                 pattern="1[3-9][0-9]{9}"
