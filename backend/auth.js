@@ -280,6 +280,13 @@ export async function requireAdmin(req, res, next) {
 
 export function validateUsernameForRegister(raw) {
   const key = normalizeUsernameKey(raw);
+  if (getConfiguredAppEdition() === "enterprise") {
+    const length = Array.from(key).length;
+    if (length < 2 || length > 64 || /[\u0000-\u001f\u007f]/.test(key)) {
+      return { ok: false, error: "公司名称须为 2～64 个字符" };
+    }
+    return { ok: true, username: key };
+  }
   if (!USERNAME_RE.test(key)) {
     return {
       ok: false,
@@ -691,7 +698,7 @@ export async function handleRegister(req, res) {
  */
 export async function handleLogin(req, res) {
   try {
-    const identifier = String(req.body?.username ?? "").toLowerCase().trim().slice(0, 64);
+    const identifier = String(req.body?.username ?? "").toLowerCase().trim().slice(0, 128);
     if (!identifier) return res.status(400).json({ error: "请输入手机号或管理员账号" });
     const password = String(req.body?.password ?? "");
     if (!password) return res.status(400).json({ error: "请输入密码" });

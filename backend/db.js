@@ -1861,7 +1861,7 @@ export async function findUserByEmail(email) {
 }
 
 export function normalizeUsernameKey(raw) {
-  return String(raw ?? "").toLowerCase().trim().replace(/[^a-z0-9_]/g, "").slice(0, 32);
+  return String(raw ?? "").toLowerCase().trim();
 }
 
 // ==================== 缺失的补充函数 ====================

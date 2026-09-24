@@ -110,7 +110,6 @@ export default function LoginScreen({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [smsCode, setSmsCode] = useState("");
   const [smsBusy, setSmsBusy] = useState(false);
@@ -177,7 +176,6 @@ export default function LoginScreen({
         setWechatNeedsAccountDetails(false);
         setUsername("");
         setPassword("");
-        setEmail("");
         setPhone("");
         setSmsCode("");
         setSmsNotice(null);
@@ -236,7 +234,7 @@ export default function LoginScreen({
       && wechatNeedsAccountDetails
       && ((isSchool ? !phone.trim() : !username.trim()) || password.length < 8)
     ) {
-      setErr(isSchool ? "请设置至少 8 位登录密码" : "请设置新账号用户名和至少 8 位密码");
+      setErr(isSchool ? "请设置至少 8 位登录密码" : "请填写公司名称并设置至少 8 位密码");
       return;
     }
     if (mode === "reset" && password.length < 8) {
@@ -270,12 +268,12 @@ export default function LoginScreen({
         setSmsNotice("密码已重置，请使用新密码登录");
         return;
       } else if (mode === "register") {
-        await apiRegister(accountName, password, isSchool ? undefined : email, phone, smsCode);
+        await apiRegister(accountName, password, undefined, phone, smsCode);
       } else {
         const result = await apiBindWechatPhone({
           username: accountName,
           password,
-          email: isSchool ? undefined : email,
+          email: undefined,
           phone,
           smsCode,
         });
@@ -283,7 +281,7 @@ export default function LoginScreen({
           setWechatNeedsAccountDetails(true);
           setSmsNotice(isSchool
             ? "手机号验证成功。该号码尚未注册，请设置登录密码完成注册"
-            : "手机号验证成功。该号码尚未注册，请设置用户名和密码完成注册");
+            : "手机号验证成功。该号码尚未注册，请设置公司名称和密码完成注册");
           return;
         }
       }
@@ -317,7 +315,7 @@ export default function LoginScreen({
       <div className="qp-welcome-orb opacity-40" aria-hidden />
       <div className="qp-login-card">
         <div className="mb-6 text-center">
-          <AppLogo size="lg" className="mx-auto mb-3" />
+          <AppLogo size="lg" src={edition === "enterprise" ? "/CST.png" : undefined} className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
             {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : "企业版"}
@@ -390,27 +388,14 @@ export default function LoginScreen({
           {!isSchool && (mode === "login" || mode === "register" || (mode === "wechat" && wechatNeedsAccountDetails)) && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">
-                {mode === "wechat" ? "设置新账号用户名" : "用户名"}
+                {mode === "wechat" ? "设置公司名称" : mode === "register" ? "公司名称" : "用户名"}
               </label>
               <input
                 type="text"
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="小写字母、数字、下划线，2～32 位"
-                className="qp-field"
-              />
-            </div>
-          )}
-          {!isSchool && (mode === "register" || (mode === "wechat" && wechatNeedsAccountDetails)) && (
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-[var(--t-text-label)]">邮箱（可选）</label>
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@email.com"
+                placeholder={mode === "login" ? "请输入用户名" : "请输入公司名称"}
                 className="qp-field"
               />
             </div>
@@ -446,7 +431,7 @@ export default function LoginScreen({
             <p className="rounded-lg bg-[#07c160]/10 px-3 py-2 text-[11px] text-[var(--t-text-muted)]">
               {isSchool
                 ? "手机号已验证且尚未注册，请设置登录密码；创建后将自动绑定微信并发放一次注册积分。"
-                : "手机号已验证且尚未注册，请设置账号信息；创建后将自动绑定微信并发放一次注册积分。"}
+                : "手机号已验证且尚未注册，请设置公司名称和密码；创建后将自动绑定微信并发放一次注册积分。"}
             </p>
           ) : null}
           {mode !== "login" && !(mode === "wechat" && wechatNeedsAccountDetails) && (
@@ -618,7 +603,6 @@ export default function LoginScreen({
                   setSmsCode("123456");
                   setUsername("");
                   setPassword("");
-                  setEmail("");
                   setSmsNotice("本地预览模式：手机号和验证码为演示数据");
                   setErr(null);
                   setMode("wechat");

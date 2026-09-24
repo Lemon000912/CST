@@ -109,8 +109,6 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-const CUSTOMER_SERVICE_PHONE = "4008 525 311";
-
 function AiAssistantWechatModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
@@ -149,16 +147,11 @@ function AiAssistantWechatModal({ open, onClose }: { open: boolean; onClose: () 
             ×
           </button>
         </div>
-        <div className="mx-auto mt-5 flex aspect-square w-full max-w-[240px] items-center justify-center rounded-lg border border-dashed border-[color:var(--t-br12)] bg-[var(--t-muted)] p-5 text-center">
-          <div>
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--t-br10)] bg-[var(--t-field)] text-[18px] text-[var(--t-text-muted)]" aria-hidden>
-              +
-            </div>
-            <p className="mt-3 text-[12px] font-medium text-[var(--t-text)]">二维码位置</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--t-text-muted)]">二维码上传后将在这里显示</p>
-          </div>
-        </div>
-        <p className="mt-4 text-center text-[11px] text-[var(--t-text-muted)]">如需人工协助，请拨打 {CUSTOMER_SERVICE_PHONE}</p>
+        <img
+          src="/ai-assistant-wechat.png"
+          alt="AI 助理微信二维码"
+          className="mx-auto mt-5 max-h-[65vh] max-w-full rounded-lg object-contain"
+        />
       </div>
     </div>
   );
@@ -4134,17 +4127,7 @@ export default function App({
             ) : null}
           </div>
         </div>
-        <div className="grid grid-cols-[1fr_auto] items-center gap-2 border-b border-t border-[color:var(--t-br06)] px-2.5 py-2">
-          <div className="min-w-0">
-            <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">客服电话</div>
-            <a
-              href="tel:4008525311"
-              className="mt-0.5 block text-[11px] font-semibold tabular-nums text-[var(--t-text)] hover:text-[var(--t-prose-link)]"
-              aria-label={`拨打客服电话 ${CUSTOMER_SERVICE_PHONE}`}
-            >
-              {CUSTOMER_SERVICE_PHONE}
-            </a>
-          </div>
+        <div className="flex justify-end border-b border-t border-[color:var(--t-br06)] px-2.5 py-2">
           <button
             type="button"
             onClick={() => setAiAssistantWechatOpen(true)}

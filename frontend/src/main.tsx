@@ -1,8 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import AuthGate from "./AuthGate";
+import { APP_EDITION } from "./edition";
 import { ThemeProvider } from "./theme";
 import "./index.css";
+
+if (APP_EDITION === "enterprise") {
+  const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (favicon) favicon.href = "/CST.png";
+}
 
 // 错误日志上报功能
 const API_BASE_URL = '/api/v1';
