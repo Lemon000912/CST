@@ -174,13 +174,10 @@ export function buildMermaidFlowchart(steps, opts = {}) {
     return { firstId, lastId };
   };
 
-  // Keep long workflows readable: their composition sits in a horizontal
-  // group above one uninterrupted vertical step chain. Short flows remain a
-  // compact vertical group. A long flow without extracted recipe data still
-  // stays vertical rather than inventing a composition section.
-  const useCompositionLayout = list.length > 8;
+  // Put extracted composition above the process steps at every workflow size.
+  // Without recipe data, keep the flow as a simple uninterrupted vertical chain.
   const recipes = (opts.recipeLines ?? []).filter((line) => String(line ?? "").trim());
-  const hasComposition = useCompositionLayout && recipes.length > 0;
+  const hasComposition = recipes.length > 0;
 
   if (hasComposition) {
     lines.push(`  subgraph recipe["配方 / 组分"]`);

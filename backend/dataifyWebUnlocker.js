@@ -6,7 +6,7 @@
 
 import { fetchWithTimeout } from "./fetchWithTimeout.js";
 
-/** @returns {null | { apiKey: string; requestUrl: string; jsRender: string; country: string; type: string; followRedirect: string; isJson: string; timeoutMs: number; mode: "off" | "fallback" | "always" }} */
+/** @returns {null | { apiKey: string; requestUrl: string; jsRender: string; country: string; format: string; followRedirect: string; timeoutMs: number; mode: "off" | "fallback" | "always" }} */
 export function getDataifyWebUnlockerConfig() {
   const apiKey = String(process.env.DATAIFY_API_KEY ?? "").trim();
   if (!apiKey) return null;
@@ -30,9 +30,10 @@ export function getDataifyWebUnlockerConfig() {
       "https://webunlocker.dataify.com/request",
     jsRender: String(process.env.DATAIFY_WEBUNLOCKER_JS_RENDER ?? "True").trim() || "True",
     country: String(process.env.DATAIFY_WEBUNLOCKER_COUNTRY ?? "us").trim() || "us",
-    type: String(process.env.DATAIFY_WEBUNLOCKER_TYPE ?? "html").trim() || "html",
+    format:
+      String(process.env.DATAIFY_WEBUNLOCKER_FORMAT ?? process.env.DATAIFY_WEBUNLOCKER_TYPE ?? "html").trim() ||
+      "html",
     followRedirect: String(process.env.DATAIFY_WEBUNLOCKER_FOLLOW_REDIRECT ?? "True").trim() || "True",
-    isJson: String(process.env.DATAIFY_WEBUNLOCKER_ISJSON ?? "1").trim() || "1",
     timeoutMs,
     mode,
   };
@@ -46,20 +47,15 @@ export async function fetchDataifyWebUnlockerHtml(pageUrl, cfg) {
   const u = String(pageUrl ?? "").trim();
   if (!u) return { ok: false, error: "empty_url", html: "", finalUrl: "" };
 
-  const body = {
+  // The official Web Unlocker examples use form-urlencoded fields. JSON
+  // requests may reach the service but are not the documented API contract.
+  const body = new URLSearchParams({
     url: u,
-    type: cfg.type,
-    js_render: cfg.jsRender,
-    block_resources: "",
-    clean_content: "",
     country: cfg.country,
-    headers: "",
-    cookies: "",
-    wait: "",
-    wait_for: "",
+    js_render: cfg.jsRender,
+    format: cfg.format,
     follow_redirect: cfg.followRedirect,
-    isjson: cfg.isJson,
-  };
+  });
 
   try {
     const res = await fetchWithTimeout(
@@ -68,11 +64,11 @@ export async function fetchDataifyWebUnlockerHtml(pageUrl, cfg) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${cfg.apiKey}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json",
           "User-Agent": "QuantumPinnacle/1.0",
         },
-        body: JSON.stringify(body),
+        body: body.toString(),
       },
       cfg.timeoutMs,
     );
@@ -89,7 +85,7 @@ export async function fetchDataifyWebUnlockerHtml(pageUrl, cfg) {
     try {
       json = JSON.parse(text);
     } catch {
-      if (text.length > 200 && /<html[\s>]/i.test(text)) {
+      if (text.length > 80 && /(?:<!doctype\s+html|<html[\s>])/i.test(text)) {
         return { ok: true, error: null, html: text, finalUrl: u };
       }
       return { ok: false, error: "dataify_non_json", html: "", finalUrl: u };
@@ -97,7 +93,10 @@ export async function fetchDataifyWebUnlockerHtml(pageUrl, cfg) {
     const o = /** @type {Record<string, unknown>} */ (json);
     const code = o.code;
     if (typeof code === "number" && code !== 200 && code !== 0) {
-      const msg = String(o.message ?? o.msg ?? "").slice(0, 120);
+      // Dataify often returns the diagnostic in `data` (for example: 未实名)
+      // instead of `message`; preserve it so configuration/account problems
+      // are actionable from the application logs.
+      const msg = String(o.message ?? o.msg ?? o.data ?? "").slice(0, 120);
       return { ok: false, error: `dataify_code_${code}:${msg}`, html: "", finalUrl: u };
     }
     const html = String(o.html ?? o.data ?? o.body ?? "").trim();

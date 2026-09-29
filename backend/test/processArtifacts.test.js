@@ -37,6 +37,18 @@ test("long process flowcharts put horizontal recipe components above vertical st
   assert.doesNotMatch(mermaid, /subgraph phase/);
 });
 
+test("short process flowcharts also put extracted recipe components above the steps", () => {
+  const mermaid = buildMermaidFlowchart(steps(3), {
+    title: "短流程",
+    recipeLines: ["原料 A", "溶剂 B"],
+  });
+
+  assert.match(mermaid, /subgraph recipe\["配方 \/ 组分"\]/);
+  assert.match(mermaid, /recipe --> S1/);
+  assert.match(mermaid, /subgraph main/);
+  assert.match(mermaid, /S2 --> S3/);
+});
+
 test("large composition groups wrap after five components per row", () => {
   const recipes = Array.from({ length: 12 }, (_, i) => `组分 ${i + 1}`);
   const mermaid = buildMermaidFlowchart(steps(14), { recipeLines: recipes });

@@ -41,10 +41,16 @@ const res = await fetch(url, {
 const text = await res.text();
 console.log("URL:", url);
 console.log("HTTP", res.status);
+let apiFailed = false;
 try {
-  console.log(JSON.stringify(JSON.parse(text), null, 2));
+  const json = JSON.parse(text);
+  console.log(JSON.stringify(json, null, 2));
+  apiFailed = typeof json?.code === "number" && json.code !== 0 && json.code !== 200;
+  if (apiFailed) {
+    console.error("Dataify API error:", String(json?.message ?? json?.msg ?? json?.data ?? "unknown error"));
+  }
 } catch {
   console.log(text);
 }
 
-if (!res.ok) process.exit(1);
+if (!res.ok || apiFailed) process.exit(1);

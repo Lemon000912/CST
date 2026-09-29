@@ -2,7 +2,7 @@ import type { AppEdition } from "./edition";
 import { getAppEdition } from "./edition";
 
 const STORAGE_KEY = "paper-query-persona-v1";
-const PERSONA_VERSION = "v4";
+const PERSONA_VERSION = "v5";
 
 export type PersonaOption = { id: string; label: string };
 
@@ -17,25 +17,30 @@ export const SCHOOL_PERSONA_LIST: PersonaOption[] = [
 
 export const ENTERPRISE_PERSONA_LIST: PersonaOption[] = [
   { id: "enterprise_intern", label: "实习生/研究生" },
-  { id: "enterprise_tech", label: "技术/研发" },
-  { id: "enterprise_consultant", label: "顾问/工程师" },
+  { id: "enterprise_consultant", label: "顾问/工程师或专家" },
+  { id: "enterprise_patent_officer", label: "专利/专利员" },
+  { id: "enterprise_verification", label: "效验/审核或交叉核验" },
   { id: "enterprise_production", label: "部门/生产" },
   { id: "enterprise_quality", label: "部门/质检" },
+  { id: "enterprise_tech", label: "技术/研发" },
   { id: "enterprise_supplier_sales", label: "供应商/销售" },
-  { id: "enterprise_patent_writer", label: "撰写/专利" },
   { id: "enterprise_project_application", label: "撰写/项目申报" },
 ];
 
 /** 与后端 personaSkills.js 中的版本化 id 保持一致。 */
 export const DEFAULT_PERSONA_LIST = SCHOOL_PERSONA_LIST;
 
-const LEGACY_TO_SCHOOL: Record<string, string> = {
+const LEGACY_TO_PERSONA: Record<string, string> = {
   researcher: "school_researcher",
   engineer: "school_engineer",
   teacher: "school_teacher",
   student: "school_student",
   writer: "school_writer",
   patent: "school_patent",
+  enterprise_patent_writer: "enterprise_patent_officer",
+  enterprise_patent: "enterprise_patent_officer",
+  enterprise_writer: "enterprise_patent_officer",
+  enterprise_other: "enterprise_production",
 };
 
 function listForEdition(edition: AppEdition): PersonaOption[] {
@@ -49,7 +54,7 @@ export function getPersonaListForEdition(edition: AppEdition): PersonaOption[] {
 const ALLOWED = new Set([
   ...SCHOOL_PERSONA_LIST.map((p) => p.id),
   ...ENTERPRISE_PERSONA_LIST.map((p) => p.id),
-  ...Object.keys(LEGACY_TO_SCHOOL),
+  ...Object.keys(LEGACY_TO_PERSONA),
 ]);
 
 /** 检查并清理过期的 localStorage 数据。 */
@@ -71,7 +76,7 @@ export function getPersonaId(edition: AppEdition = getAppEdition()): string {
   const options = listForEdition(edition);
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const migrated = raw ? LEGACY_TO_SCHOOL[raw] ?? raw : "";
+    const migrated = raw ? LEGACY_TO_PERSONA[raw] ?? raw : "";
     if (ALLOWED.has(migrated) && options.some((p) => p.id === migrated)) return migrated;
   } catch {
     /* ignore */

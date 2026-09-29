@@ -341,16 +341,6 @@ export function ProcessFlowchartPanel({ artifact, className = "" }: Props) {
               </span>
             ) : null}
           </div>
-          {artifact.recipeLines?.length ? (
-            <div className="mt-3 border-t border-[color:var(--t-br06)] pt-2">
-              <p className="mb-1 text-[10px] font-medium text-[var(--t-text-label)]">配方 / 组分摘录</p>
-              <ul className="list-inside list-disc text-[11px] text-[var(--t-text-card-body)]">
-                {artifact.recipeLines.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       </details>
       <FlowchartLightbox
