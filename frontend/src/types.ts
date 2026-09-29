@@ -105,6 +105,9 @@ export type Paper = {
   paper_id?: string;
   /** 专利公开号/申请号（网页渠道专利补充等） */
   patentNumber?: string | null;
+  /** 公开专利检索入口标识及展示名称 */
+  patentSource?: string;
+  patentSourceLabel?: string;
   doi?: string | null;
   venue?: string | null;
   year?: number | null;

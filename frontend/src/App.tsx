@@ -637,6 +637,7 @@ function PaperCard({
 }) {
   const [oaBusy, setOaBusy] = useState(false);
   const [oaErr, setOaErr] = useState<string | null>(null);
+  const [patentSourceCopied, setPatentSourceCopied] = useState(false);
   const abs =
     p.summary.length > maxExcerptChars ? `${p.summary.slice(0, maxExcerptChars)}…` : p.summary;
   const authors =
@@ -710,6 +711,11 @@ function PaperCard({
                   {patentPill.label}
                 </span>
               ) : null}
+              {p.patentSourceLabel ? (
+                <span className={pillClass} title={`公开入口：${p.patentSourceLabel}`}>
+                  来源：{p.patentSourceLabel}
+                </span>
+              ) : null}
               {urlPill ? (
                 <a href={pageUrl} target="_blank" rel="noreferrer" title={urlPill.title} className={pillClass}>
                   {urlPill.label}
@@ -726,18 +732,32 @@ function PaperCard({
           {abs}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <a
-            className="qp-btn-accent inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium"
-            href={p.absUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {isWebSrc
-              ? "打开网址"
-              : p.source === "ddg_patent" || p.source === "openalex_patent"
-                ? "专利来源"
-                : "摘要页"}
-          </a>
+          {p.source === "ddg_patent" || p.source === "openalex_patent" ? (
+            p.absUrl ? (
+              <button
+                type="button"
+                className="qp-btn-accent inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium"
+                title="复制专利来源地址，不离开当前页面"
+                onClick={() => {
+                  void navigator.clipboard.writeText(p.absUrl).then(
+                    () => setPatentSourceCopied(true),
+                    () => setPatentSourceCopied(false),
+                  );
+                }}
+              >
+                {patentSourceCopied ? "已复制来源地址" : "复制来源地址"}
+              </button>
+            ) : null
+          ) : (
+            <a
+              className="qp-btn-accent inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium"
+              href={p.absUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {isWebSrc ? "打开网址" : "摘要页"}
+            </a>
+          )}
           {pdfHref || p.pdfSourceId || p.sourceId ? (
             <>
               <button

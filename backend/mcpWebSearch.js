@@ -966,24 +966,105 @@ async function _bingFallback(query, max, signal) {
 }
 
 export async function fetchPatentPapers(query, max, opts = {}) {
-  var cfg = getMcpWebSearchConfig();
-  if (cfg) {
-    var braveCheck = argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env);
-    if (braveCheck) {
-      return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true, signal: opts.signal });
+  const q = String(query || "").trim();
+  if (!q) return { papers: [], note: "empty-query" };
+  const resultLimit = Math.max(1, Math.floor(Number(max) || 20));
+  const cfg = getMcpWebSearchConfig();
+  const publicSources = getPublicPatentSources();
+  const perTaskLimit = Math.max(1, Math.ceil(resultLimit / (publicSources.length + 1)));
+  const genericTask = (async () => {
+    if (!cfg) {
+      return await fetchDuckDuckGoSearch(`${q} patent`, perTaskLimit, { forPatent: true, signal: opts.signal });
     }
-    const out = await fetchMcpWebPapers(String(query || "").trim() + " patent", max, opts);
-    const papers = (out.papers ?? []).map(function (p) {
+    const braveCheck = argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env);
+    if (braveCheck) {
+      return await fetchDuckDuckGoSearch(`${q} patent`, perTaskLimit, { forPatent: true, signal: opts.signal });
+    }
+    const out = await fetchMcpWebPapers(`${q} patent`, perTaskLimit, opts);
+    return { papers: out.papers ?? [], note: out.note, toolName: out.toolName };
+  })();
+
+  /**
+   * 公开专利入口没有统一、稳定的免鉴权 API，使用公开站点域名限定检索，
+   * 结果仍由本应用统一解析和展示，不把用户导航到外部站点。
+   */
+  const scopedTasks = publicSources.map(async (source) => {
+    const scopedQuery = `${q} patent site:${source.domain}`;
+    const result = cfg && !(argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env))
+      ? await fetchMcpWebPapers(scopedQuery, perTaskLimit, opts)
+      : await fetchDuckDuckGoSearch(scopedQuery, perTaskLimit, {
+          forPatent: true,
+          signal: opts.signal,
+        });
+    const papers = (result.papers ?? []).map((p) => {
       const row = {
         ...p,
         source: "ddg_patent",
-        venue: "Patent (Web)",
+        venue: `Patent (${source.label})`,
+        patentSource: source.id,
+        patentSourceLabel: source.label,
       };
       const pn = extractPatentNumberFromPaper(row);
       if (pn) row.patentNumber = pn;
       return row;
+    }).filter((row) => {
+      const url = String(row.absUrl ?? "").toLowerCase();
+      const title = String(row.title ?? "");
+      const patentNo = String(row.patentNumber ?? "");
+      const onExpectedDomain = url.includes(source.domain);
+      const looksLikePatent = Boolean(patentNo) || /\b(?:patent|公开号|申请号|专利)\b/i.test(`${title} ${row.summary ?? ""}`);
+      return onExpectedDomain && looksLikePatent;
     });
-    return { papers: papers, note: out.note, toolName: out.toolName };
+    return { papers, toolName: result.toolName, source };
+  });
+
+  const settled = await Promise.allSettled([genericTask, ...scopedTasks]);
+  const results = [];
+  const seen = new Set();
+  const tools = [];
+  const notes = [];
+  const resultPools = [];
+  for (const item of settled) {
+    if (item.status !== "fulfilled") continue;
+    const value = item.value;
+    resultPools.push((value.papers ?? []).filter((paper) => {
+      const url = String(paper.absUrl ?? "").toLowerCase();
+      const text = `${paper.title ?? ""} ${paper.summary ?? ""} ${paper.patentNumber ?? ""}`;
+      return Boolean(paper.patentNumber) || /patent|专利|公开号|申请号/i.test(text) || /patents?\.|espacenet\.|freepatentsonline\.|lens\.org/i.test(url);
+    }));
+    if (value.toolName) tools.push(value.toolName);
+    if (value.source?.id && value.papers?.length) notes.push(`${value.source.id}:${value.papers.length}`);
   }
-  return await fetchDuckDuckGoSearch(String(query || "").trim() + " patent", max, { forPatent: true, signal: opts.signal });
+  for (let i = 0; results.length < resultLimit; i += 1) {
+    let added = false;
+    for (const pool of resultPools) {
+      const p = pool[i];
+      if (!p) continue;
+      const key = String(p.absUrl ?? p.paper_id ?? "").split("#")[0].toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      results.push(p);
+      added = true;
+      if (results.length >= resultLimit) break;
+    }
+    if (!added) break;
+  }
+  return {
+    papers: results,
+    note: notes.length ? `public:${notes.join(",")}` : "patent_search",
+    toolName: tools.length ? [...new Set(tools)].join("+") : "patent-public-search",
+  };
+}
+
+const PUBLIC_PATENT_SOURCES = {
+  cnipa: { id: "cnipa", label: "CNIPA 中国国家知识产权局", domain: "cnipa.gov.cn" },
+  uspto: { id: "uspto", label: "USPTO 美国专利商标局", domain: "uspto.gov" },
+  espacenet: { id: "espacenet", label: "Espacenet 欧洲专利局", domain: "espacenet.com" },
+  jplatpat: { id: "jplatpat", label: "J-PlatPat 日本专利", domain: "j-platpat.inpit.go.jp" },
+};
+
+export function getPublicPatentSources() {
+  const raw = String(process.env.PATENT_PUBLIC_SOURCES ?? "cnipa,uspto,espacenet").trim().toLowerCase();
+  const ids = raw.split(/[,;\s]+/).filter(Boolean);
+  return [...new Set(ids)].map((id) => PUBLIC_PATENT_SOURCES[id]).filter(Boolean);
 }
