@@ -931,6 +931,7 @@ export async function fetchDuckDuckGoSearch(query, max, opts) {
       }
       return { papers: [], note: "no-dd-results" };
     }
+    const ddgCap = resolveWebSourceCap(max, 16);
     var papers = _ddgToPapers(items, sourceLabel, ddgCap);
     return { papers: papers, note: "ddg_ok", toolName: toolSuffix };
   } catch (e) {
