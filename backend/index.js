@@ -7,12 +7,17 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import QRCode from "qrcode";
 import { getConfiguredAppEdition, isEnterpriseAppEdition } from "./appEdition.js";
+import { applyFetchConnectTimeout } from "./netTuning.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV_PATH = path.resolve(__dirname, "..", ".env");
 /** 无论从哪里启动 node，都先读项目根目录 .env，再读 cwd 下的 .env（可覆盖） */
 dotenv.config({ path: ROOT_ENV_PATH });
 dotenv.config();
+{
+  const net = await applyFetchConnectTimeout();
+  console.log("[net] fetch connect timeout:", net.applied ? `${net.timeout}ms` : `node default (${net.reason})`);
+}
 
 const APP_EDITION = getConfiguredAppEdition();
 console.log("[env] APP_EDITION:", APP_EDITION);
