@@ -657,6 +657,86 @@ function _ddgToPapers(items, sourceLabel, maxPapers = 20) {
   return papers;
 }
 
+/**
+ * Google Patents 的公开检索接口。它不需要 API key，适合作为专利检索的
+ * 稳定兜底源；通用搜索引擎在中文关键词下经常返回百科或普通网页。
+ */
+export async function fetchGooglePatentsSearch(query, max = 20, opts = {}) {
+  const q = String(query ?? "").trim();
+  if (!q) return { papers: [], note: "empty-query", toolName: "google-patents" };
+  const cap = Math.min(35, Math.max(1, Number(max) || 20));
+  const country = String(opts.country ?? "").trim().toUpperCase();
+  const toolName = country === "CN" ? "google-patents-cn" : "google-patents";
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(opts.signal?.reason);
+  const timeout = setTimeout(
+    () => controller.abort(new Error("google-patents-timeout")),
+    Math.min(20_000, Math.max(5_000, Number(process.env.GOOGLE_PATENTS_TIMEOUT_MS) || 12_000)),
+  );
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const searchUrl = new URLSearchParams({ q });
+    if (country) searchUrl.set("country", country);
+    const endpoint = `https://patents.google.com/xhr/query?url=${encodeURIComponent(searchUrl.toString())}`;
+    const response = await fetch(endpoint, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": _ddgUA,
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return { papers: [], note: `http-${response.status}`, toolName };
+    const payload = await response.json();
+    const clusters = Array.isArray(payload?.results?.cluster) ? payload.results.cluster : [];
+    const raw = clusters.flatMap((cluster) => Array.isArray(cluster?.result) ? cluster.result : []);
+    const papers = [];
+    const seen = new Set();
+    for (const item of raw) {
+      const patent = item?.patent ?? {};
+      const number = String(patent.publication_number ?? "").trim();
+      if (!number || seen.has(number.toLowerCase())) continue;
+      seen.add(number.toLowerCase());
+      const title = String(patent.title ?? `Patent ${number}`)
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&hellip;/gi, "…")
+        .replace(/&amp;/gi, "&")
+        .replace(/\s+/g, " ")
+        .trim();
+      const summary = String(patent.snippet ?? "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&hellip;/gi, "…")
+        .replace(/&amp;/gi, "&")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 1200);
+      const absUrl = `https://patents.google.com/patent/${encodeURIComponent(number)}/en`;
+      papers.push({
+        paper_id: `ddg_patent:google:${number}`,
+        title,
+        abstract: summary,
+        summary: summary || title,
+        year: Number(String(patent.publication_date ?? "").slice(0, 4)) || null,
+        venue: country === "CN" ? "中国专利 (Google Patents CN)" : "Patent (Google Patents)",
+        authors: String(patent.inventor ?? "").trim() ? [String(patent.inventor).trim()] : [],
+        absUrl,
+        pdfUrl: absUrl,
+        source: "ddg_patent",
+        patentNumber: number,
+        patentSource: country === "CN" ? "google_patents_cn" : "google_patents",
+        patentSourceLabel: country === "CN" ? "中国专利公开（CN 检索）" : "Google Patents",
+      });
+      if (papers.length >= cap) break;
+    }
+    return { papers, note: papers.length ? `${toolName}_ok` : `${toolName}_empty`, toolName };
+  } catch (error) {
+    if (opts.signal?.aborted) throw error;
+    return { papers: [], note: `${toolName}_error:${String(error?.message || error).slice(0, 80)}`, toolName };
+  } finally {
+    clearTimeout(timeout);
+    opts.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 /** 合并去重时优先保留高质量源（CORE > Tavily > Dataify > Wikipedia > SearX > MCP > …） */
 const WEB_MERGE_SOURCE_RANK = {
   core: 1,
@@ -985,6 +1065,13 @@ export async function fetchPatentPapers(query, max, opts = {}) {
     return { papers: out.papers ?? [], note: out.note, toolName: out.toolName };
   })();
 
+  // Google Patents 是专利专用源，始终并行请求，避免 Bing/DDG 把中文技术词
+  // 误判成普通网页后在专利过滤阶段变成 0 条。
+  const googlePatentsTasks = [
+    fetchGooglePatentsSearch(q, perTaskLimit, opts),
+    fetchGooglePatentsSearch(q, perTaskLimit, { ...opts, country: "CN" }),
+  ];
+
   /**
    * 公开专利入口没有统一、稳定的免鉴权 API，使用公开站点域名限定检索，
    * 结果仍由本应用统一解析和展示，不把用户导航到外部站点。
@@ -1019,7 +1106,7 @@ export async function fetchPatentPapers(query, max, opts = {}) {
     return { papers, toolName: result.toolName, source };
   });
 
-  const settled = await Promise.allSettled([genericTask, ...scopedTasks]);
+  const settled = await Promise.allSettled([...googlePatentsTasks, genericTask, ...scopedTasks]);
   const results = [];
   const seen = new Set();
   const tools = [];

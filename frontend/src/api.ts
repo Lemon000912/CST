@@ -363,6 +363,8 @@ type SearchResponse = {
   artifacts?: SearchResultMeta["artifacts"];
   /** 与请求体 patentsOnly 一致；仅专利检索时后端为 true */
   patentsOnly?: boolean;
+  /** 网页检索时是否同时检索专利 */
+  includePatents?: boolean;
   billing?: BillingReceipt | null;
   billingReceipt?: BillingReceipt | null;
   parentOperationId?: string;
@@ -407,6 +409,8 @@ export async function searchPapersV1(
     useMcpWeb?: boolean;
     /** 为 true 时仅返回专利条目（OpenAlex 专利 + 专利网页），并尽量补全 patentNumber；默认不生成综述除非 includeSynthesis 显式为 true */
     patentsOnly?: boolean;
+    /** 网页频道中是否将专利与网页结果合并；未传时沿用服务端配置 */
+    includePatents?: boolean;
     /** 深度：下载 PDF（默认全部返回篇数，可用 maxPapers 限制）→ MinerU → 三模型各抽关键词 → deepSynthesis */
     deepMine?: boolean | { enabled?: boolean; maxPapers?: number; maxPdfMb?: number };
     /** 为 false 时不附加本机「不满意」偏好（默认 true） */
@@ -449,6 +453,7 @@ export async function searchPapersV1(
         ? opts.includeSynthesis === true
         : opts.includeSynthesis !== false,
       useMcpWeb: opts.useMcpWeb !== false,
+      ...(opts.includePatents != null ? { includePatents: opts.includePatents } : {}),
       ...(opts.patentsOnly ? { patentsOnly: true } : {}),
       ...(deepBody ? { deepMine: deepBody } : {}),
       ...(outputAvoidance ? { outputAvoidance } : {}),
@@ -485,7 +490,7 @@ export async function searchPapersV1(
 // PDF 旁路事件与 synthesis token 独立交错，不改变回答事件顺序和来源数组。
 
 export type StreamSearchEvent =
-  | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; latencySearch?: number; persona?: string; personaLabel?: string; parentOperationId?: string }
+  | { type: "papers"; papers: Paper[]; effectiveQuery?: string; rewriteNote?: string; queryIntent?: SearchResultMeta["queryIntent"]; sourcesUsed?: string[]; channel?: SearchChannel; sort?: PaperSortKey; field?: string; patentsOnly?: boolean; includePatents?: boolean; latencySearch?: number; persona?: string; personaLabel?: string; parentOperationId?: string }
   | { type: "pdf_source_ready"; source: Paper; status?: SearchResultMeta["pdfCrawlStatus"]; total?: number; completed?: number; failed?: number }
   | { type: "pdf_crawl_status"; status: SearchResultMeta["pdfCrawlStatus"]; total: number; completed: number; failed: number }
   | { type: "synthesis_token"; token: string }
@@ -541,6 +546,7 @@ export async function* searchPapersV1Stream(
         ? opts.includeSynthesis === true
         : opts.includeSynthesis !== false,
       useMcpWeb: opts.useMcpWeb !== false,
+      ...(opts.includePatents != null ? { includePatents: opts.includePatents } : {}),
       ...(opts.patentsOnly ? { patentsOnly: true } : {}),
       ...(deepBody ? { deepMine: deepBody } : {}),
       ...(outputAvoidance ? { outputAvoidance } : {}),

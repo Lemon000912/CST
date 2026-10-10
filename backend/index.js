@@ -2016,6 +2016,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     const llmChatUrl = String(req.headers["x-llm-chat-url"] ?? "").trim().slice(0, 2048);
     const useMcpWeb = req.body?.useMcpWeb !== false;
     const patentsOnly = req.body?.patentsOnly === true;
+    const includePatents = channel === "web" && req.body?.includePatents != null
+      ? req.body.includePatents === true
+      : undefined;
     const personaId = normalizePersonaId(req.headers["x-persona"] ?? req.body?.persona);
     const personaSkill = getPersonaSkill(personaId);
     const personaLabel = listPersonas().find((p) => p.id === personaId)?.label ?? personaId;
@@ -2044,7 +2047,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       () => runPaperSearch({
         rawQuery: searchCoreQuery,
         conversationContext: conversationContext || undefined,
-        channel, field, sort, max, useLlmRewrite, useMcpWeb, patentsOnly,
+        channel, field, sort, max, useLlmRewrite, useMcpWeb, patentsOnly, includePatents,
         openaiApiKey: openaiApiKey || undefined,
         openaiModel: openaiModel || undefined,
         llmChatCompletionsUrl: llmChatUrl || undefined,
@@ -2065,6 +2068,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
             sort: partial.sort ?? sort,
             field,
             patentsOnly,
+            includePatents,
             latencySearch: Date.now() - t0,
             persona: personaId,
             personaLabel,
@@ -2093,6 +2097,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       sort: result.sort,
       field,
       patentsOnly,
+      includePatents,
       latencySearch: Date.now() - t0,
       persona: personaId,
       personaLabel,
@@ -2558,6 +2563,9 @@ app.post("/api/v1/search", async (req, res) => {
       .slice(0, 2048);
     const useMcpWeb = req.body?.useMcpWeb !== false;
     const patentsOnly = req.body?.patentsOnly === true;
+    const includePatents = channel === "web" && req.body?.includePatents != null
+      ? req.body.includePatents === true
+      : undefined;
 
     const personaId = normalizePersonaId(req.headers["x-persona"] ?? req.body?.persona);
     const personaSkill = getPersonaSkill(personaId);
@@ -2591,6 +2599,7 @@ app.post("/api/v1/search", async (req, res) => {
       useLlmRewrite,
       useMcpWeb,
       patentsOnly,
+      includePatents,
       openaiApiKey: openaiApiKey || undefined,
       openaiModel: openaiModel || undefined,
       llmChatCompletionsUrl: llmChatUrl || undefined,
@@ -2633,6 +2642,7 @@ app.post("/api/v1/search", async (req, res) => {
         useLlmRewrite: secondUseLlm,
         useMcpWeb,
         patentsOnly,
+        includePatents,
         openaiApiKey: openaiApiKey || undefined,
         openaiModel: openaiModel || undefined,
         llmChatCompletionsUrl: llmChatUrl || undefined,
@@ -2874,6 +2884,7 @@ app.post("/api/v1/search", async (req, res) => {
         field,
         sort,
         patentsOnly,
+        includePatents,
         effectiveQuery: result.effectiveQuery,
         sources: result.sourcesUsed,
         attachmentChars: attachmentContext.length,
@@ -2916,6 +2927,7 @@ app.post("/api/v1/search", async (req, res) => {
       sort: result.sort,
       field,
       patentsOnly,
+      includePatents,
       latencyMs: result.latencyMs,
       arxivSortUsed: result.arxivSortUsed,
       synthesis,

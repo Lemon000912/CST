@@ -75,7 +75,7 @@ function isWebPatentIntelPaper(p) {
  * @param {number} max
  */
 /** 网页/专利渠道：合并型号（如 SPU-361）、中文关键词与英文检索式 */
-function buildWebPatentSearchQuery(rawQuery, effectiveQuery) {
+export function buildWebPatentSearchQuery(rawQuery, effectiveQuery) {
   const parts = [];
   const eq = String(effectiveQuery ?? "").trim();
   const raw = extractCoreSearchQuery(rawQuery) || String(rawQuery ?? "").trim();
@@ -537,7 +537,9 @@ async function runWebIntelSearch(opts) {
   const effectiveQuery = String(opts.effectiveQuery ?? "").trim();
   const max = Math.max(1, Number(opts.max) || 80);
   const useMcpWeb = opts.useMcpWeb !== false;
-  const includePatents = opts.includePatents !== false && isWebChannelPatentsEnabled();
+  const includePatents = opts.includePatents == null
+    ? isWebChannelPatentsEnabled()
+    : opts.includePatents === true;
   const sourcesUsed = [];
   const performanceTrace = opts.performanceTrace;
 
@@ -794,6 +796,9 @@ export async function runPaperSearch(opts) {
   const sort = opts.sort || "relevance";
   const useLlm = opts.useLlmRewrite !== false;
   const patentsOnly = opts.patentsOnly === true;
+  const includePatents = opts.includePatents == null
+    ? (channel === "web" ? isWebChannelPatentsEnabled() : true)
+    : opts.includePatents === true;
   const performanceTrace = opts.performanceTrace;
 
   const fullRawQuery = String(opts.rawQuery ?? "").trim();
@@ -927,6 +932,7 @@ export async function runPaperSearch(opts) {
     field,
     po: patentsOnly ? 1 : 0,
     wi: channel === "web" && !patentsOnly ? 1 : 0,
+    ip: includePatents ? 1 : 0,
     personaSkill: opts.personaSkill?.slice(0, 30),
   });
   const cached = searchCache.get(cacheKey);
@@ -954,7 +960,7 @@ export async function runPaperSearch(opts) {
   if (channel === "web" && !patentsOnly) {
     /** 网页渠道：仅全网 SERP + 可选专利；不查 arXiv/Crossref/Scopus/本地论文库 */
     sourcesUsed.push(
-      isWebChannelPatentsEnabled() ? "mode:web_patent_intel" : "mode:web_only",
+      includePatents ? "mode:web_patent_intel" : "mode:web_only",
     );
     const webIntel = await runWebIntelSearch({
       fullRawQuery: fullContextQuery,
@@ -962,7 +968,7 @@ export async function runPaperSearch(opts) {
       effectiveQuery,
       max,
       useMcpWeb,
-      includePatents: isWebChannelPatentsEnabled(),
+      includePatents,
       performanceTrace,
       signal,
     });
@@ -1127,7 +1133,7 @@ export async function runPaperSearch(opts) {
     });
 
     // 专利 + 全网网页：默认合并（useMcpWeb 为 false 时跳过外呼，便于离线/合规场景）
-    if (useMcpWeb !== false) {
+    if (useMcpWeb !== false && includePatents) {
       // OpenAlex 专利 API（独立调用，结果标记为 openalex_patent）
       supplementalTasks.push({
         name: "openalex_patents",
@@ -1181,7 +1187,7 @@ export async function runPaperSearch(opts) {
         effectiveQuery,
         max,
         useMcpWeb: true,
-        includePatents: false,
+        includePatents,
         performanceTrace,
         signal,
       });
@@ -1211,14 +1217,15 @@ export async function runPaperSearch(opts) {
     /** 仅专利：不查论文索引、Europe PMC、网页 SERP；只并联 OpenAlex 专利 + DDG/MCP 专利 */
     let patentSearchOnly = [];
     const poTasks = [];
+    const patentQuery = buildWebPatentSearchQuery(rawQuery, effectiveQuery);
     if (useMcpWeb !== false) {
       poTasks.push({
         name: "openalex_patents",
-        promise: fetchOpenAlexPatents(effectiveQuery, 45),
+        promise: fetchOpenAlexPatents(patentQuery, 45),
       });
       poTasks.push({
         name: "patents",
-        promise: fetchPatentPapers(effectiveQuery, 45, { signal }),
+        promise: fetchPatentPapers(patentQuery, 45, { signal }),
       });
     }
     const poResults = await raceWithTimeout(poTasks, 25000, { signal });
@@ -1274,6 +1281,7 @@ export async function runPaperSearch(opts) {
   merged = strictRecommendFilterAndRank(merged, mergedTokens, max, {
     preferenceCount: normalizePreferenceKeywords(opts.preferenceKeywords).length,
     channel,
+    includePatents,
     rawQuery: opts.rawQuery,
     effectiveQuery,
     semanticIntent: queryIntent,

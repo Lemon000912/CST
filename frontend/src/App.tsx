@@ -307,7 +307,15 @@ function buildSearchResultIntro(
 ): string {
   if (msg.error) return msg.content;
   const isWeb = msg.meta?.channel === "web";
+  const isPatentsOnly = msg.meta?.patentsOnly === true;
   if (n === 0) {
+    if (isPatentsOnly) {
+      const sourceFailure = (msg.meta?.sourcesUsed ?? []).some((source) => /_error$/i.test(source));
+      const failureNote = sourceFailure
+        ? "部分专利数据源请求失败，结果可能不完整；可稍后重试，或检查服务器网络与数据源配置。"
+        : "可补充材料、工艺、用途、申请人或专利号，并尝试中英文关键词。";
+      return `未检索到匹配专利（不代表不存在相关专利）。${failureNote}${tail}`;
+    }
     if (isWeb) {
       return `未检索到相关网页来源（当前为**网页渠道**，不查数据库论文）。可换关键词、补充公司名/股票代码，或检查 Wikipedia/CORE 与 \`.env\` 中 \`WEB_SOURCES\` 是否正常。${scope}${tail}`;
     }
@@ -409,6 +417,247 @@ function IconGlobe({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="9" />
       <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
     </svg>
+  );
+}
+
+type EnterpriseKnowledgeBase = {
+  id: string;
+  name: string;
+  description: string;
+  industry: string;
+  documents: string;
+  updatedAt: string;
+  accent: string;
+  initials: string;
+  status?: string;
+};
+
+const ENTERPRISE_KNOWLEDGE_BASES: EnterpriseKnowledgeBase[] = [
+  {
+    id: "battery",
+    name: "新能源电池材料库",
+    description: "电池材料、工艺参数、专利与实验报告",
+    industry: "新能源 · 材料",
+    documents: "12.8 万篇",
+    updatedAt: "今日更新",
+    accent: "#2563eb",
+    initials: "电",
+    status: "推荐",
+  },
+  {
+    id: "semiconductor",
+    name: "先进半导体知识库",
+    description: "芯片制造、封装测试与设备维护文档",
+    industry: "半导体 · 制造",
+    documents: "8.6 万篇",
+    updatedAt: "昨日更新",
+    accent: "#7c3aed",
+    initials: "芯",
+  },
+  {
+    id: "chemical",
+    name: "化工工艺与安全库",
+    description: "化工工艺、SOP、风险评估与事故案例",
+    industry: "化工 · 安全",
+    documents: "6.2 万篇",
+    updatedAt: "3 天前更新",
+    accent: "#059669",
+    initials: "化",
+  },
+  {
+    id: "equipment",
+    name: "高端装备制造库",
+    description: "装备设计、零部件选型和质量标准",
+    industry: "装备 · 工业",
+    documents: "4.9 万篇",
+    updatedAt: "本周更新",
+    accent: "#d97706",
+    initials: "装",
+  },
+  {
+    id: "pharma",
+    name: "医药研发知识库",
+    description: "药物研发、临床试验与注册申报资料",
+    industry: "医药 · 健康",
+    documents: "10.4 万篇",
+    updatedAt: "昨日更新",
+    accent: "#db2777",
+    initials: "药",
+  },
+  {
+    id: "energy",
+    name: "能源与储能资料库",
+    description: "储能系统、能源管理与行业研究报告",
+    industry: "能源 · 储能",
+    documents: "7.1 万篇",
+    updatedAt: "本周更新",
+    accent: "#0891b2",
+    initials: "能",
+  },
+];
+
+function OtherKnowledgeBaseModal({
+  open,
+  onClose,
+  onSelect,
+  currentId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect?: (knowledgeBase: EnterpriseKnowledgeBase) => void;
+  currentId?: string | null;
+}) {
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    setSelectedId(currentId ?? null);
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose, currentId]);
+
+  if (!open) return null;
+  const filtered = ENTERPRISE_KNOWLEDGE_BASES.filter((item) =>
+    `${item.name}${item.description}${item.industry}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const selected = ENTERPRISE_KNOWLEDGE_BASES.find((item) => item.id === selectedId) ?? null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-[var(--t-overlay)] px-3 py-5 backdrop-blur-sm sm:px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="other-knowledge-base-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="flex max-h-[min(760px,calc(100vh-40px))] w-full max-w-[860px] flex-col overflow-hidden rounded-2xl border border-[color:var(--t-br10)] bg-[var(--t-modal)] shadow-2xl shadow-[var(--t-modal-shadow)]">
+        <div className="border-b border-[color:var(--t-br06)] px-5 pb-4 pt-5 sm:px-7 sm:pt-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--t-accent-muted)] text-[var(--t-accent)]">
+                <IconDatabase className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="other-knowledge-base-title" className="text-[17px] font-semibold text-[var(--t-text-heading)]">
+                  其他企业知识库
+                </h2>
+                <p className="mt-1 text-[12px] leading-relaxed text-[var(--t-text-muted)]">
+                  选择一个企业专属知识库，切换后将优先从该库检索资料。
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (selected) onSelect?.(selected);
+                onClose();
+              }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-[var(--t-text-close)] transition hover:bg-[var(--t-muted)] hover:text-[var(--t-text-close-hover)]"
+              aria-label="关闭其他企业知识库"
+            >
+              ×
+            </button>
+          </div>
+          <label className="relative mt-5 block">
+            <span className="sr-only">搜索企业知识库</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索企业、行业或资料类型"
+              className="w-full rounded-xl border border-[color:var(--t-br10)] bg-[var(--t-field)] px-3.5 py-2.5 text-[13px] text-[var(--t-text)] outline-none transition placeholder:text-[var(--t-placeholder-input)] focus:border-[color:var(--t-accent-ring)]"
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-[var(--t-text-caption)]">
+              {filtered.length} 个知识库
+            </span>
+          </label>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+          {filtered.length ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((item) => {
+                const selectedCard = selectedId === item.id;
+                return (
+                  <button
+                    type="button"
+                    key={item.id}
+                    onClick={() => setSelectedId(item.id)}
+                    className={`group relative min-h-[166px] rounded-xl border p-4 text-left transition ${
+                      selectedCard
+                        ? "border-[color:var(--t-accent)] bg-[var(--t-accent-muted)] shadow-sm"
+                        : "border-[color:var(--t-br08)] bg-[var(--t-field)] hover:border-[color:var(--t-br12)] hover:bg-[var(--t-muted)]"
+                    }`}
+                    aria-pressed={selectedCard}
+                  >
+                    {item.status ? (
+                      <span className="absolute right-3 top-3 rounded-full bg-[var(--t-accent-muted)] px-2 py-0.5 text-[10px] font-semibold text-[var(--t-accent)]">
+                        {item.status}
+                      </span>
+                    ) : null}
+                    <span
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[14px] font-bold text-white shadow-sm"
+                      style={{ backgroundColor: item.accent }}
+                    >
+                      {item.initials}
+                    </span>
+                    <span className="mt-3 block truncate text-[13px] font-semibold text-[var(--t-text-card-title)] group-hover:text-[var(--t-text-card-title-hover)]">
+                      {item.name}
+                    </span>
+                    <span className="mt-1 block min-h-[34px] text-[11px] leading-relaxed text-[var(--t-text-card-body)]">
+                      {item.description}
+                    </span>
+                    <span className="mt-3 flex items-center justify-between gap-2 text-[10px] text-[var(--t-text-muted)]">
+                      <span>{item.industry}</span>
+                      <span>{item.documents}</span>
+                    </span>
+                    <span className="mt-1 block text-[10px] text-[var(--t-text-caption)]">{item.updatedAt}</span>
+                    {selectedCard ? (
+                      <span className="absolute bottom-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--t-accent)] text-[11px] font-bold text-white" aria-hidden>
+                        ✓
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex min-h-[220px] items-center justify-center text-center text-[13px] text-[var(--t-text-muted)]">
+              没有找到匹配的企业知识库
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-[color:var(--t-br06)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="text-[11px] text-[var(--t-text-muted)]">
+            {selected ? <>已选择：<span className="font-semibold text-[var(--t-text)]">{selected.name}</span></> : "请选择一个知识库开始检索"}
+          </p>
+          <div className="flex gap-2 sm:shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-[color:var(--t-br10)] px-4 py-2 text-[12px] font-medium text-[var(--t-text-muted)] transition hover:bg-[var(--t-muted)] hover:text-[var(--t-text)] sm:flex-none"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={!selected}
+              className="flex-1 rounded-lg bg-[var(--t-accent)] px-4 py-2 text-[12px] font-semibold text-white transition hover:bg-[var(--t-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+            >
+              进入知识库
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -539,7 +788,7 @@ function ComposerToolbar({
       <div className="ml-auto flex shrink-0 items-center gap-2 text-[10px] text-[var(--t-text-muted)]">
         <label
           className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap hover:text-[var(--t-text)]"
-          title="专利号 + 标题链接"
+          title="将专利与当前频道的结果一起检索，并在回答中补充专利依据"
         >
           <input
             type="checkbox"
@@ -548,7 +797,6 @@ function ComposerToolbar({
             onChange={(e) => {
               const v = e.target.checked;
               onPatentsOnly(v);
-              if (v) onDeepMine(false);
             }}
             disabled={disabled}
           />
@@ -565,9 +813,8 @@ function ComposerToolbar({
             onChange={(e) => {
               const v = e.target.checked;
               onDeepMine(v);
-              if (v) onPatentsOnly(false);
             }}
-            disabled={disabled || patentsOnly}
+            disabled={disabled}
           />
           <span>深度</span>
         </label>
@@ -962,6 +1209,8 @@ function formatSourceUsedTag(tag: string): string {
   if (tag === "scopus") return "Scopus（爱思唯尔）";
   if (tag === "mode:web_patent_intel") return "模式：网页+专利";
   if (tag === "mode:web_only") return "模式：仅全网网页";
+  if (tag === "openalex_patents_error") return "OpenAlex 专利源请求失败（可能超时）";
+  if (tag === "patents_error") return "专利网页源请求失败";
   if (tag.startsWith("semantic:")) return "语义理解";
   if (tag.startsWith("embed:")) return "向量重排";
   if (tag.startsWith("web:")) return `网页（${tag.slice(4)}）`;
@@ -1309,11 +1558,13 @@ function AssistantBlock({
   const { theme } = useTheme();
   const n = msg.papers?.length ?? 0;
   const scope =
-    msg.meta?.channel === "web" && !msg.error
-      ? `\n\n*范围：全网网页（非 arXiv / 数据库论文）*`
-      : msg.arxivField && !msg.error
-        ? `\n\n*字段：${fieldScopeHint(msg.arxivField)}*`
-        : "";
+    msg.meta?.patentsOnly
+      ? ""
+      : msg.meta?.channel === "web" && !msg.error
+        ? `\n\n*范围：全网网页（非 arXiv / 数据库论文）*`
+        : msg.arxivField && !msg.error
+          ? `\n\n*字段：${fieldScopeHint(msg.arxivField)}*`
+          : "";
   const ch = channelLabel(msg.meta?.channel);
   const sl = sortLabel(msg.meta?.sort);
   const personaBit =
@@ -2502,8 +2753,8 @@ export default function App({
     edition === "enterprise" ? "database" : "web",
   );
   const [searchSort, setSearchSort] = useState<PaperSortKey>("relevance");
-  /** 仅专利：OpenAlex 专利 + 专利网页，结果带 patentNumber */
-  const [patentsOnlyEnabled, setPatentsOnlyEnabled] = useState(false);
+  /** 网页频道：是否把专利并入网页结果；数据库频道：是否只检索专利 */
+  const [patentsOnlyEnabled, setPatentsOnlyEnabled] = useState(() => edition !== "enterprise");
   /** 勾选后：服务端对命中 PDF 逐篇下载 → MinerU → 三模型抽词 → 深度综合（耗时长） */
   const [deepMineEnabled, setDeepMineEnabled] = useState(false);
   /** 深度解析发送后短暂提示，数秒后自动消失 */
@@ -2554,6 +2805,8 @@ export default function App({
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [studentVerificationOpen, setStudentVerificationOpen] = useState(false);
   const [aiAssistantWechatOpen, setAiAssistantWechatOpen] = useState(false);
+  const [otherKnowledgeBaseOpen, setOtherKnowledgeBaseOpen] = useState(false);
+  const [activeKnowledgeBase, setActiveKnowledgeBase] = useState<EnterpriseKnowledgeBase | null>(null);
   const [studentVerification, setStudentVerification] = useState<StudentVerification>({ verified: false, status: null });
   const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
 
@@ -3139,7 +3392,9 @@ export default function App({
       field: session.messages[assistantIndex]?.arxivField,
       channel: session.messages[assistantIndex]?.meta?.channel,
       sort: session.messages[assistantIndex]?.meta?.sort,
-      patentsOnly: Boolean(session.messages[assistantIndex]?.meta?.patentsOnly),
+      patentsOnly: session.messages[assistantIndex]?.meta?.channel === "web"
+        ? session.messages[assistantIndex]?.meta?.includePatents !== false
+        : Boolean(session.messages[assistantIndex]?.meta?.patentsOnly),
       deepMine: Boolean(session.messages[assistantIndex]?.meta?.deepMine?.enabled),
       priorMessages: session.messages.slice(0, assistantIndex - 1),
     });
@@ -3489,8 +3744,10 @@ export default function App({
     const fieldAtSend = overrides?.field ?? queryField;
     const channelAtSend = overrides?.channel ?? searchChannel;
     const sortAtSend = overrides?.sort ?? searchSort;
-    const patentsAtSend = overrides?.patentsOnly ?? patentsOnlyEnabled;
-    const deepMineAtSend = (overrides?.deepMine ?? deepMineEnabled) && !patentsAtSend;
+    const patentOptionAtSend = overrides?.patentsOnly ?? patentsOnlyEnabled;
+    const patentsAtSend = false;
+    const includePatentsAtSend = patentOptionAtSend;
+    const deepMineAtSend = overrides?.deepMine ?? deepMineEnabled;
 
     const userDisplay = (q || "（仅上传文件作为上下文）") + attachLine;
     const userMsg: ChatMessage = { id: uid(), role: "user", content: userDisplay };
@@ -3505,6 +3762,7 @@ export default function App({
         channel: channelAtSend,
         sort: sortAtSend,
         patentsOnly: patentsAtSend,
+        includePatents: includePatentsAtSend,
         synthesis: null,
         synthesisNote: "synth:requesting",
         deepMine: deepMineAtSend ? { enabled: true } : null,
@@ -3526,7 +3784,7 @@ export default function App({
     setInput("");
     setBusy(true);
     pauseRequestedRef.current = false;
-    if (deepMineEnabled && !patentsOnlyEnabled) {
+    if (deepMineEnabled && !patentsAtSend) {
       setDeepMineToast("已启用深度解析：将逐篇下载 PDF 并解析，可能需较长时间");
     }
     const attachmentContext =
@@ -3559,6 +3817,7 @@ export default function App({
         attachmentFilename,
         conversationContext: conversationContext || undefined,
         ...(patentsAtSend ? { patentsOnly: true } : {}),
+        includePatents: includePatentsAtSend,
         ...(deepMineAtSend ? { deepMine: { maxPdfMb: 20 } } : {}),
         signal: abortController.signal,
       };
@@ -3642,6 +3901,7 @@ export default function App({
               sort: event.sort ?? sortAtSend,
               latencyMs: event.latencySearch,
               patentsOnly: event.patentsOnly ?? false,
+              includePatents: event.includePatents ?? false,
               synthesis: null,
               synthesisNote: "synth:pending",
               synthesisPlan: null,
@@ -3928,6 +4188,12 @@ export default function App({
       <AiAssistantWechatModal
         open={aiAssistantWechatOpen}
         onClose={() => setAiAssistantWechatOpen(false)}
+      />
+      <OtherKnowledgeBaseModal
+        open={otherKnowledgeBaseOpen}
+        onClose={() => setOtherKnowledgeBaseOpen(false)}
+        onSelect={setActiveKnowledgeBase}
+        currentId={activeKnowledgeBase?.id}
       />
       {pointsEnabled ? (
         <>
@@ -4303,12 +4569,13 @@ export default function App({
           {!pointsEnabled ? (
             <button
               type="button"
+              onClick={() => setOtherKnowledgeBaseOpen(true)}
               className="absolute left-3 hidden h-8 items-center gap-1.5 rounded-md border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-2.5 text-[11px] font-medium text-[var(--t-text-muted)] transition hover:border-[color:var(--t-accent-ring)] hover:bg-[var(--t-accent-muted)] hover:text-[var(--t-text)] lg:inline-flex"
               aria-label="其他数据库"
-              title="其他数据库"
+              title={activeKnowledgeBase ? `当前知识库：${activeKnowledgeBase.name}` : "其他数据库"}
             >
               <IconDatabase className="h-3.5 w-3.5" />
-              <span>其他数据库</span>
+              <span className="max-w-[170px] truncate">{activeKnowledgeBase ? activeKnowledgeBase.name : "其他数据库"}</span>
             </button>
           ) : null}
           <div className="min-w-0 flex-1 text-center">
@@ -4420,7 +4687,7 @@ export default function App({
                   <LoadingIndicator
                     label={getMainSearchLoadingText({
                       channel: searchChannel,
-                      patentsOnly: patentsOnlyEnabled,
+                      patentsOnly: searchChannel === "database" && patentsOnlyEnabled,
                       deepMine: deepMineEnabled,
                     })}
                   />
@@ -4449,7 +4716,10 @@ export default function App({
                 queryField={queryField}
                 patentsOnly={patentsOnlyEnabled}
                 deepMine={deepMineEnabled}
-                onChannel={setSearchChannel}
+                onChannel={(next) => {
+                  setSearchChannel(next);
+                  setPatentsOnlyEnabled(next === "web");
+                }}
                 onSort={setSearchSort}
                 onQueryField={setQueryField}
                 onPatentsOnly={setPatentsOnlyEnabled}

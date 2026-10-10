@@ -204,6 +204,8 @@ export type SearchResultMeta = {
   sort?: PaperSortKey;
   /** 仅专利检索模式（与请求 patentsOnly 一致） */
   patentsOnly?: boolean;
+  /** 网页模式中是否将专利并入网页结果 */
+  includePatents?: boolean;
   latencyMs?: number;
   /** 服务端请求级分阶段耗时，便于定位检索、网页抓取和模型调用瓶颈。 */
   performanceTrace?: PerformanceTrace | null;
