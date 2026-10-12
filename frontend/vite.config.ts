@@ -10,17 +10,23 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, repoRoot, "");
   const edition = mode === "enterprise" || env.VITE_APP_EDITION === "enterprise"
     ? "enterprise"
-    : "school";
+    : mode === "finance" || env.VITE_APP_EDITION === "finance"
+      ? "finance"
+      : "school";
   const apiPort = String(
     edition === "enterprise"
       ? env.ENTERPRISE_API_PORT ?? "8788"
-      : env.SCHOOL_API_PORT ?? env.PORT ?? "8787",
-  ).trim() || (edition === "enterprise" ? "8788" : "8787");
+      : edition === "finance"
+        ? env.FINANCE_API_PORT ?? "8789"
+        : env.SCHOOL_API_PORT ?? env.PORT ?? "8787",
+  ).trim() || (edition === "enterprise" ? "8788" : edition === "finance" ? "8789" : "8787");
   const devPort = Number(
     edition === "enterprise"
       ? env.ENTERPRISE_DEV_PORT ?? 5176
-      : env.SCHOOL_DEV_PORT ?? env.VITE_DEV_PORT ?? 5175,
-  ) || (edition === "enterprise" ? 5176 : 5175);
+      : edition === "finance"
+        ? env.FINANCE_DEV_PORT ?? 5177
+        : env.SCHOOL_DEV_PORT ?? env.VITE_DEV_PORT ?? 5175,
+  ) || (edition === "enterprise" ? 5176 : edition === "finance" ? 5177 : 5175);
   const apiProxy = {
     "/api": {
       target: `http://127.0.0.1:${apiPort}`,
@@ -33,7 +39,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: __dirname,
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: "edition-html-title",
+        transformIndexHtml(html) {
+          const appTitle = edition === "finance" ? "数智通 金融" : "犀材探索";
+          return html.replace(/<title>.*?<\/title>/, `<title>${appTitle}</title>`);
+        },
+      },
+    ],
     define: {
       "import.meta.env.VITE_APP_EDITION": JSON.stringify(edition),
     },

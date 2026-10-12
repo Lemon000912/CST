@@ -2,7 +2,7 @@ import type { AppEdition } from "./edition";
 import { getAppEdition } from "./edition";
 
 const STORAGE_KEY = "paper-query-persona-v1";
-const PERSONA_VERSION = "v5";
+const PERSONA_VERSION = "v6";
 
 export type PersonaOption = { id: string; label: string };
 
@@ -27,6 +27,15 @@ export const ENTERPRISE_PERSONA_LIST: PersonaOption[] = [
   { id: "enterprise_project_application", label: "撰写/项目申报" },
 ];
 
+export const FINANCE_PERSONA_LIST: PersonaOption[] = [
+  { id: "finance_industry_researcher", label: "行研/研究员" },
+  { id: "finance_industry_manager", label: "行研/总经理" },
+  { id: "finance_product_manager", label: "产品/产品经理" },
+  { id: "finance_project_manager", label: "产品/项目经理" },
+  { id: "finance_research_sales", label: "调研/销售" },
+  { id: "finance_report_assistant", label: "报告/助理（研究员）" },
+];
+
 /** 与后端 personaSkills.js 中的版本化 id 保持一致。 */
 export const DEFAULT_PERSONA_LIST = SCHOOL_PERSONA_LIST;
 
@@ -44,7 +53,11 @@ const LEGACY_TO_PERSONA: Record<string, string> = {
 };
 
 function listForEdition(edition: AppEdition): PersonaOption[] {
-  return edition === "enterprise" ? ENTERPRISE_PERSONA_LIST : SCHOOL_PERSONA_LIST;
+  return edition === "enterprise"
+    ? ENTERPRISE_PERSONA_LIST
+    : edition === "finance"
+      ? FINANCE_PERSONA_LIST
+      : SCHOOL_PERSONA_LIST;
 }
 
 export function getPersonaListForEdition(edition: AppEdition): PersonaOption[] {
@@ -54,6 +67,7 @@ export function getPersonaListForEdition(edition: AppEdition): PersonaOption[] {
 const ALLOWED = new Set([
   ...SCHOOL_PERSONA_LIST.map((p) => p.id),
   ...ENTERPRISE_PERSONA_LIST.map((p) => p.id),
+  ...FINANCE_PERSONA_LIST.map((p) => p.id),
   ...Object.keys(LEGACY_TO_PERSONA),
 ]);
 

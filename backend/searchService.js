@@ -10,7 +10,7 @@ import {
   extractConversationContext,
   clampQueryForExternalApi,
 } from "./searchQueryNormalize.js";
-import { fetchMergedWebPapers, fetchPatentPapers, fetchBingWebSearch } from "./mcpWebSearch.js";
+import { fetchMergedWebPapers, fetchFinanceWebPapers, fetchPatentPapers, fetchBingWebSearch } from "./mcpWebSearch.js";
 import { fetchOpenAlexWorks, fetchOpenAlexPatents } from "./openalex.js";
 import { fetchEuropePmcWorks } from "./europePmc.js";
 import { fetchScopusWorks } from "./scopusElsevier.js";
@@ -55,6 +55,7 @@ const WEB_PAGE_SOURCES = new Set([
   "wikipedia_web",
   "core",
   "entity_seed",
+  "finance_web",
 ]);
 
 /** 网页渠道：可展示的网页条目（必须有 http(s) 链接） */
@@ -147,6 +148,7 @@ function dedupeKey(p) {
       p.source === "mojeek_web" ||
       p.source === "wikipedia_web" ||
       p.source === "core" ||
+      p.source === "finance_web" ||
       p.source === "ddg_patent" ||
       p.source === "openalex_patent") &&
     p.absUrl
@@ -172,6 +174,7 @@ function scoreSource(x) {
   if (x.source === "qwant_web") return 2.12;
   if (x.source === "ddg_web") return 2.1;
   if (x.source === "mojeek_web") return 2.08;
+  if (x.source === "finance_web") return 2.4;
   if (x.source === "ddg_patent") return 2.2;
   if (x.source === "openalex") return 1.05;
   /** OpenAlex 专利索引 */
@@ -526,7 +529,7 @@ function applySort(merged, sort) {
 
 /**
  * 全网多路检索（多 query 并行 + 二轮跟进 + 实体种子），网页渠道与数据库渠道的网页补充共用。
- * @param {{ fullRawQuery: string; rawQuery: string; effectiveQuery: string; max: number; useMcpWeb?: boolean; includePatents?: boolean }} opts
+ * @param {{ fullRawQuery: string; rawQuery: string; effectiveQuery: string; max: number; useMcpWeb?: boolean; includePatents?: boolean; financeWebSources?: string[] }} opts
  * @returns {Promise<{ papers: object[]; patents: object[]; sourcesUsed: string[] }>}
  */
 async function runWebIntelSearch(opts) {
@@ -540,6 +543,11 @@ async function runWebIntelSearch(opts) {
   const includePatents = opts.includePatents == null
     ? isWebChannelPatentsEnabled()
     : opts.includePatents === true;
+  const financeWebSources = [...new Set(
+    (Array.isArray(opts.financeWebSources) ? opts.financeWebSources : [])
+      .map((source) => String(source ?? "").trim().toLowerCase())
+      .filter((source) => source === "eastmoney" || source === "wind"),
+  )];
   const sourcesUsed = [];
   const performanceTrace = opts.performanceTrace;
 
@@ -605,6 +613,24 @@ async function runWebIntelSearch(opts) {
     });
   });
 
+  for (const source of financeWebSources) {
+    webTasks.push({
+      name: `finance_${source}`,
+      promise: traceAsync(
+        performanceTrace,
+        `search.web.finance.${source}`,
+        { queryChars: webPrimary.length },
+        () => fetchFinanceWebPapers(webPrimary, perWebQ, source, {
+          chineseQuery: webSearchQ,
+          performanceTrace,
+          tracePrefix: `search.web.finance.${source}.source`,
+          signal,
+        }),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+      ),
+    });
+  }
+
   const webLayer = await traceAsync(
     performanceTrace,
     "search.web.round1.wait",
@@ -648,6 +674,18 @@ async function runWebIntelSearch(opts) {
       if (wp.length) {
         webPaperBuckets.push(wp);
         sourcesUsed.push(wv.toolName ? `web:${wv.toolName}(${wp.length})` : `web(${wp.length})`);
+      }
+      continue;
+    }
+    if (r.name.startsWith("finance_")) {
+      const value = r.value;
+      const papers = Array.isArray(value?.papers) ? value.papers : [];
+      const source = r.name.slice("finance_".length);
+      if (papers.length) {
+        webPaperBuckets.push(papers);
+        sourcesUsed.push(`finance:${source}(${papers.length})`);
+      } else {
+        sourcesUsed.push(`finance:${source}:empty`);
       }
     }
   }
@@ -933,6 +971,11 @@ export async function runPaperSearch(opts) {
     po: patentsOnly ? 1 : 0,
     wi: channel === "web" && !patentsOnly ? 1 : 0,
     ip: includePatents ? 1 : 0,
+    financeWebSources: (Array.isArray(opts.financeWebSources) ? opts.financeWebSources : [])
+      .map((source) => String(source ?? "").trim().toLowerCase())
+      .filter((source) => source === "eastmoney" || source === "wind")
+      .sort()
+      .join(","),
     personaSkill: opts.personaSkill?.slice(0, 30),
   });
   const cached = searchCache.get(cacheKey);
@@ -969,6 +1012,7 @@ export async function runPaperSearch(opts) {
       max,
       useMcpWeb,
       includePatents,
+      financeWebSources: opts.financeWebSources,
       performanceTrace,
       signal,
     });
@@ -1188,6 +1232,7 @@ export async function runPaperSearch(opts) {
         max,
         useMcpWeb: true,
         includePatents,
+        financeWebSources: opts.financeWebSources,
         performanceTrace,
         signal,
       });

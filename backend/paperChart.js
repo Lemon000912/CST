@@ -35,7 +35,8 @@ function paperSnippet(p) {
     src === "qwant_web" ||
     src === "mojeek_web" ||
     src === "wikipedia_web" ||
-    src === "core"
+    src === "core" ||
+    src === "finance_web"
   ) {
     idLine = absU ? `URL: ${absU.slice(0, 200)}` : "网页文献";
   } else if (src === "openalex_patent") {

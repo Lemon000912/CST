@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCHOOL_DOMAIN="${SCHOOL_DOMAIN:-}"
 ENTERPRISE_DOMAIN="${ENTERPRISE_DOMAIN:-}"
+FINANCE_DOMAIN="${FINANCE_DOMAIN:-}"
 SECRETS_DIR="${AILUNWEN_SECRETS_DIR:-/home/ubuntu/ailunwen-secrets}"
 
-if [[ -z "$SCHOOL_DOMAIN" || -z "$ENTERPRISE_DOMAIN" ]]; then
-  echo "请设置 SCHOOL_DOMAIN 和 ENTERPRISE_DOMAIN 后重试。"
-  echo "示例: SCHOOL_DOMAIN=school.example.com ENTERPRISE_DOMAIN=enterprise.example.com npm run install:editions"
+if [[ -z "$SCHOOL_DOMAIN" || -z "$ENTERPRISE_DOMAIN" || -z "$FINANCE_DOMAIN" ]]; then
+  echo "请设置 SCHOOL_DOMAIN、ENTERPRISE_DOMAIN 和 FINANCE_DOMAIN 后重试。"
+  echo "示例: SCHOOL_DOMAIN=school.example.com ENTERPRISE_DOMAIN=enterprise.example.com FINANCE_DOMAIN=finance.example.com npm run install:editions"
   exit 1
 fi
 
@@ -24,9 +25,10 @@ sudo sed \
   -e "s|__ROOT__|$ROOT|g" \
   -e "s|__SCHOOL_DOMAIN__|$SCHOOL_DOMAIN|g" \
   -e "s|__ENTERPRISE_DOMAIN__|$ENTERPRISE_DOMAIN|g" \
+  -e "s|__FINANCE_DOMAIN__|$FINANCE_DOMAIN|g" \
   "$ROOT/deploy/apache-ailunwen-editions.conf" | sudo tee "$APACHE_TARGET" >/dev/null
 
-for edition in school enterprise; do
+for edition in school enterprise finance; do
   template="$ROOT/deploy/ailunwen-${edition}-api.service"
   target="/etc/systemd/system/ailunwen-${edition}-api.service"
   sudo sed \
@@ -56,11 +58,13 @@ fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now ailunwen-school-api.service
 sudo systemctl enable --now ailunwen-enterprise-api.service
+sudo systemctl enable --now ailunwen-finance-api.service
 sudo systemctl enable --now ailunwen-pdf-sync.service
 sudo systemctl enable apache2
 sudo systemctl reload apache2
 
-echo "双版本部署完成："
+echo "三版本部署完成："
 echo "  校园版: http://$SCHOOL_DOMAIN"
 echo "  企业版: http://$ENTERPRISE_DOMAIN"
-echo "请分别配置 HTTPS，并检查微信开放平台的两个回调域名。"
+echo "  数智通金融: http://$FINANCE_DOMAIN"
+echo "请分别配置 HTTPS，并检查各版本的微信回调域名与中继配置。"

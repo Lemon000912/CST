@@ -15,6 +15,7 @@ const WEB_SOURCES = new Set([
   "wikipedia_web",
   "core",
   "entity_seed",
+  "finance_web",
 ]);
 
 function isWebPaper(p) {

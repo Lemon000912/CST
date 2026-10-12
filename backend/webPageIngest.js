@@ -16,6 +16,7 @@ const WEB_SOURCES = new Set([
   "mojeek_web",
   "wikipedia_web",
   "core",
+  "finance_web",
 ]);
 
 function isWebPaper(p) {

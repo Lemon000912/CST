@@ -465,13 +465,43 @@ export async function initDatabase() {
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_chat_sessions_by_edition (
           user_id TEXT NOT NULL,
-          edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise')),
+          edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise', 'finance')),
           sessions_json TEXT NOT NULL,
           updated_at BIGINT NOT NULL,
           revision BIGINT NOT NULL DEFAULT 0,
           schema_version INTEGER NOT NULL DEFAULT 1,
           PRIMARY KEY (user_id, edition)
         )
+      `);
+      // Existing installations were created with a two-edition CHECK constraint.
+      // Replace only CHECK constraints mentioning edition so finance sessions can
+      // be stored without changing any user data.
+      await pgPool.query(`
+        DO $$
+        DECLARE c RECORD;
+        BEGIN
+          FOR c IN
+            SELECT conname, pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint
+            WHERE conrelid = 'user_chat_sessions_by_edition'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) ILIKE '%edition%'
+          LOOP
+            IF c.definition NOT ILIKE '%finance%' THEN
+              EXECUTE format('ALTER TABLE user_chat_sessions_by_edition DROP CONSTRAINT %I', c.conname);
+            END IF;
+          END LOOP;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'user_chat_sessions_by_edition'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) ILIKE '%finance%'
+          ) THEN
+            ALTER TABLE user_chat_sessions_by_edition
+              ADD CONSTRAINT user_chat_sessions_by_edition_edition_check
+              CHECK (edition IN ('school', 'enterprise', 'finance'));
+          END IF;
+        END $$;
       `);
       await pgPool.query(`
         INSERT INTO user_chat_sessions_by_edition
@@ -772,7 +802,7 @@ export async function initDatabase() {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS user_chat_sessions_by_edition (
         user_id TEXT NOT NULL,
-        edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise')),
+        edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise', 'finance')),
         sessions_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
         revision INTEGER NOT NULL DEFAULT 0,
@@ -780,6 +810,31 @@ export async function initDatabase() {
         PRIMARY KEY (user_id, edition)
       )
     `);
+    const editionTable = await db.get(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+      ["user_chat_sessions_by_edition"],
+    );
+    if (editionTable?.sql && !String(editionTable.sql).toLowerCase().includes("'finance'")) {
+      await db._transaction(async (tx) => {
+        await tx.exec(`
+          CREATE TABLE user_chat_sessions_by_edition__finance (
+            user_id TEXT NOT NULL,
+            edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise', 'finance')),
+            sessions_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (user_id, edition)
+          )
+        `);
+        await tx.exec(`INSERT INTO user_chat_sessions_by_edition__finance
+          (user_id, edition, sessions_json, updated_at, revision, schema_version)
+          SELECT user_id, edition, sessions_json, updated_at, revision, schema_version
+          FROM user_chat_sessions_by_edition`);
+        await tx.exec("DROP TABLE user_chat_sessions_by_edition");
+        await tx.exec("ALTER TABLE user_chat_sessions_by_edition__finance RENAME TO user_chat_sessions_by_edition");
+      });
+    }
     await db.exec(`
       INSERT OR IGNORE INTO user_chat_sessions_by_edition
         (user_id, edition, sessions_json, updated_at, revision, schema_version)
@@ -2070,7 +2125,7 @@ export async function countPdfDownloadsSince(userId, sinceMs) {
 /** 读取用户聊天会话（后端持久化，重启不丢） */
 export async function getUserChatSessions(userId, edition = "school") {
   if (!userId || userId === "anonymous") return null;
-  const normalizedEdition = edition === "enterprise" ? "enterprise" : "school";
+  const normalizedEdition = edition === "enterprise" || edition === "finance" ? edition : "school";
   try {
     if (pgPool) {
       const r = await pgPool.query(
@@ -2120,7 +2175,7 @@ export async function saveUserChatSessions(
   edition = "school",
 ) {
   if (!userId || userId === "anonymous") return { ok: false };
-  const normalizedEdition = edition === "enterprise" ? "enterprise" : "school";
+  const normalizedEdition = edition === "enterprise" || edition === "finance" ? edition : "school";
   const serverTs = Date.now();
   const isConditional = typeof baseRevision === "number" && Number.isFinite(baseRevision) && baseRevision >= 0;
   try {

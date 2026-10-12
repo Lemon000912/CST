@@ -98,9 +98,10 @@ import type {
 // Vite replaces this value per edition. The enterprise build eliminates the
 // dynamic import entirely, so payment UI and QR code code exist only in the
 // school frontend artifact.
-const loadSchoolRechargeModule = import.meta.env.VITE_APP_EDITION === "enterprise"
-  ? null
-  : () => import("./SchoolRechargeModal");
+const loadSchoolRechargeModule =
+  import.meta.env.VITE_APP_EDITION === "enterprise" || import.meta.env.VITE_APP_EDITION === "finance"
+    ? null
+    : () => import("./SchoolRechargeModal");
 const SchoolRechargeModal = loadSchoolRechargeModule
   ? lazy(loadSchoolRechargeModule)
   : null;
@@ -854,7 +855,8 @@ function isWebSourcePaper(p: Paper): boolean {
     p.source === "dataify_web" ||
     p.source === "tavily_web" ||
     p.source === "wikipedia_web" ||
-    p.source === "core"
+    p.source === "core" ||
+    p.source === "finance_web"
   );
 }
 
@@ -895,10 +897,13 @@ function PaperCard({
     p.source === "dataify_web" ||
     p.source === "tavily_web" ||
     p.source === "wikipedia_web" ||
-    p.source === "core";
+    p.source === "core" ||
+    p.source === "finance_web";
   const src = p.source
     ? p.source === "scopus"
       ? " · Scopus（爱思唯尔）"
+      : p.source === "finance_web"
+        ? ` · ${p.venue || "金融网站"}`
       : isWebSrc
         ? " · 网页"
         : p.source === "ddg_patent" || p.source === "openalex_patent"
@@ -1214,6 +1219,8 @@ function formatSourceUsedTag(tag: string): string {
   if (tag.startsWith("semantic:")) return "语义理解";
   if (tag.startsWith("embed:")) return "向量重排";
   if (tag.startsWith("web:")) return `网页（${tag.slice(4)}）`;
+  if (tag.startsWith("finance:eastmoney")) return "东方财富网";
+  if (tag.startsWith("finance:wind")) return "万得";
   if (
     tag === "ddg_web" ||
     tag === "mcp_web" ||
@@ -4189,12 +4196,14 @@ export default function App({
         open={aiAssistantWechatOpen}
         onClose={() => setAiAssistantWechatOpen(false)}
       />
-      <OtherKnowledgeBaseModal
-        open={otherKnowledgeBaseOpen}
-        onClose={() => setOtherKnowledgeBaseOpen(false)}
-        onSelect={setActiveKnowledgeBase}
-        currentId={activeKnowledgeBase?.id}
-      />
+      {edition !== "finance" ? (
+        <OtherKnowledgeBaseModal
+          open={otherKnowledgeBaseOpen}
+          onClose={() => setOtherKnowledgeBaseOpen(false)}
+          onSelect={setActiveKnowledgeBase}
+          currentId={activeKnowledgeBase?.id}
+        />
+      ) : null}
       {pointsEnabled ? (
         <>
           {SchoolRechargeModal ? (
@@ -4351,7 +4360,7 @@ export default function App({
         ].join(" ")}
       >
         <div className="qp-app-header-safe flex items-center gap-3 border-b border-[color:var(--t-br06)] px-3.5 py-3">
-          <AppLogo size="md" src={edition === "enterprise" ? "/CST.png" : undefined} className="shrink-0" />
+          <AppLogo size="md" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold text-[var(--t-text)]">{APP_NAME}</div>
           </div>
@@ -4566,7 +4575,7 @@ export default function App({
           >
             <IconMenu className="h-5 w-5" />
           </button>
-          {!pointsEnabled ? (
+          {!pointsEnabled && edition !== "finance" ? (
             <button
               type="button"
               onClick={() => setOtherKnowledgeBaseOpen(true)}
@@ -4591,7 +4600,7 @@ export default function App({
               {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
             </button>
           ) : (
-            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">企业版</span>
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{edition === "finance" ? "数智通 金融" : "企业版"}</span>
           )}
         </header>
 
@@ -4600,7 +4609,7 @@ export default function App({
             {!active?.messages.length && (
               <div className="relative flex min-h-[min(52vh,520px)] flex-col items-center justify-center px-4 pb-8 pt-6 text-center sm:min-h-[48vh]">
                 <div className="qp-welcome-orb" aria-hidden />
-                <AppLogo size="xl" src={edition === "enterprise" ? "/CST.png" : undefined} className="relative mb-5" />
+                <AppLogo size="xl" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="relative mb-5" />
                 <h2 className="relative max-w-[min(92vw,560px)] text-[clamp(1.4rem,4.5vw,2rem)] font-semibold leading-snug tracking-tight text-[var(--t-text-heading)]">
                   {emptyWelcome.headline}
                 </h2>
@@ -4639,7 +4648,7 @@ export default function App({
                       active?.id != null && m.id === active.messages[active.messages.length - 1]?.id ? (
                         <RhinoAnimation
                           animate={busy}
-                          animateSrc={edition === "enterprise" ? "/CST.png" : undefined}
+                          animateSrc={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined}
                           className="h-full w-full object-contain mix-blend-multiply"
                         />
                       ) : (
@@ -4886,7 +4895,9 @@ export default function App({
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
               {pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
-                : "企业版 · 搜索、图表与 PDF 不使用积分"}
+                : edition === "finance"
+                  ? "数智通金融 · 搜索、图表与 PDF 不使用积分"
+                  : "企业版 · 搜索、图表与 PDF 不使用积分"}
               {willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>

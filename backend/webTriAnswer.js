@@ -45,7 +45,8 @@ function isWebPaper(p) {
     s === "qwant_web" ||
     s === "mojeek_web" ||
     s === "wikipedia_web" ||
-    s === "core"
+    s === "core" ||
+    s === "finance_web"
   );
 }
 

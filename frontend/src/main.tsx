@@ -5,9 +5,9 @@ import { APP_EDITION } from "./edition";
 import { ThemeProvider } from "./theme";
 import "./index.css";
 
-if (APP_EDITION === "enterprise") {
+if (APP_EDITION === "enterprise" || APP_EDITION === "finance") {
   const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (favicon) favicon.href = "/CST.png";
+  if (favicon) favicon.href = APP_EDITION === "finance" ? "/finance-logo.png" : "/CST.png";
 }
 
 // 错误日志上报功能

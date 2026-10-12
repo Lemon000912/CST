@@ -126,6 +126,7 @@ export type Paper = {
     | "semantic_scholar"
     | "wikipedia_web"
     | "core"
+    | "finance_web"
     | "scopus";
   oa_status?: string | null;
   isReferencedByCount?: number | null;

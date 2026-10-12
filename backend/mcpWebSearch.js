@@ -959,6 +959,47 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   return { papers, note, toolName };
 }
 
+const FINANCE_WEB_TARGETS = Object.freeze({
+  eastmoney: { domain: "eastmoney.com", label: "东方财富网" },
+  wind: { domain: "wind.com.cn", label: "万得" },
+});
+
+export const FINANCE_WEB_SOURCE_IDS = Object.freeze(Object.keys(FINANCE_WEB_TARGETS));
+
+/** 在现有公开网页搜索引擎上执行站点限定查询，不访问需要授权的 Wind 终端接口。 */
+export async function fetchFinanceWebPapers(query, max, source, opts = {}) {
+  const target = FINANCE_WEB_TARGETS[String(source ?? "").trim().toLowerCase()];
+  const q = String(query ?? "").trim();
+  if (!target || !q) return { papers: [], note: "invalid-finance-source", toolName: null };
+
+  // This dedicated source query must not inherit broad SERP fallback output
+  // such as cn.bing pages without the site constraint; keep only verified hosts.
+  const result = await fetchMergedWebPapers(`${q} site:${target.domain}`, max, {
+    ...opts,
+    chineseQuery: `${q} site:${target.domain}`,
+  });
+  const papers = (result?.papers ?? []).filter((paper) => {
+    try {
+      const hostname = new URL(String(paper?.absUrl ?? "")).hostname.toLowerCase();
+      return hostname === target.domain || hostname.endsWith(`.${target.domain}`);
+    } catch {
+      return false;
+    }
+  }).map((paper) => ({
+    ...paper,
+    source: "finance_web",
+    venue: target.label,
+    webProviderLabel: target.label,
+  }));
+
+  return {
+    ...result,
+    papers: papers.slice(0, Math.max(1, Math.floor(Number(max) || 20))),
+    note: `${source}:${papers.length ? "ok" : result?.note || "empty"}(${papers.length})`,
+    toolName: result?.toolName || "finance-site-search",
+  };
+}
+
 /**
  * @param {string} query
  * @param {number} max

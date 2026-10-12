@@ -1,8 +1,11 @@
-export type AppEdition = "school" | "enterprise";
+export type AppEdition = "school" | "enterprise" | "finance";
 
-export const APP_EDITION: AppEdition = import.meta.env.VITE_APP_EDITION === "enterprise"
+const rawEdition = String(import.meta.env.VITE_APP_EDITION ?? "").trim().toLowerCase();
+export const APP_EDITION: AppEdition = rawEdition === "enterprise"
   ? "enterprise"
-  : "school";
+  : rawEdition === "finance"
+    ? "finance"
+    : "school";
 
 export function getAppEdition(): AppEdition {
   return APP_EDITION;

@@ -1,7 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchDuckDuckGoSearch, fetchGooglePatentsSearch } from "../mcpWebSearch.js";
+import { fetchDuckDuckGoSearch, fetchFinanceWebPapers, fetchGooglePatentsSearch } from "../mcpWebSearch.js";
+
+test("finance site search limits results to the requested public domain", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalSources = process.env.WEB_SOURCES;
+  const originalFastPath = process.env.WEB_BING_FAST_PATH;
+  const originalFallback = process.env.WEB_CN_BING_FALLBACK;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (originalSources === undefined) delete process.env.WEB_SOURCES;
+    else process.env.WEB_SOURCES = originalSources;
+    if (originalFastPath === undefined) delete process.env.WEB_BING_FAST_PATH;
+    else process.env.WEB_BING_FAST_PATH = originalFastPath;
+    if (originalFallback === undefined) delete process.env.WEB_CN_BING_FALLBACK;
+    else process.env.WEB_CN_BING_FALLBACK = originalFallback;
+  });
+
+  process.env.WEB_SOURCES = "ddg";
+  process.env.WEB_BING_FAST_PATH = "0";
+  process.env.WEB_CN_BING_FALLBACK = "0";
+  const requestedQueries = [];
+  globalThis.fetch = async (url) => {
+    requestedQueries.push(new URL(String(url)).searchParams.get("q"));
+    return new Response([
+      '<div class="result"><a rel="nofollow" class="result-link" href="https://quote.eastmoney.com/company">东方财富公司页</a><td class="result-snippet">公司公告与财务信息</td></div>',
+      '<div class="result"><a rel="nofollow" class="result-link" href="https://www.wind.com.cn/company">万得公司页</a><td class="result-snippet">行业研究与数据</td></div>',
+    ].join(""), { status: 200, headers: { "content-type": "text/html" } });
+  };
+
+  const eastmoney = await fetchFinanceWebPapers("平安银行 财报", 5, "eastmoney");
+  const wind = await fetchFinanceWebPapers("平安银行 财报", 5, "wind");
+  assert.ok(requestedQueries.every((query) => query.includes("site:")));
+  assert.equal(eastmoney.papers.length, 1);
+  assert.equal(eastmoney.papers[0].source, "finance_web");
+  assert.equal(eastmoney.papers[0].venue, "东方财富网");
+  assert.match(eastmoney.papers[0].absUrl, /eastmoney\.com/);
+  assert.equal(wind.papers.length, 1);
+  assert.equal(wind.papers[0].venue, "万得");
+  assert.match(wind.papers[0].absUrl, /wind\.com\.cn/);
+});
 
 test("DuckDuckGo results are converted without an undefined result cap", async () => {
   const originalFetch = globalThis.fetch;

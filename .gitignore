@@ -3,6 +3,7 @@ node_modules
 dist
 dist-school
 dist-enterprise
+dist-finance
 *.db
 *.db-wal
 *.db-shm

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { getConfiguredAppEdition } from "./appEdition.js";
+import { APP_EDITIONS, getConfiguredAppEdition, isBusinessAppEdition } from "./appEdition.js";
 
 const AUTHORIZE_URL = "https://open.weixin.qq.com/connect/qrconnect";
 const API_ORIGIN = "https://api.weixin.qq.com";
@@ -97,7 +97,7 @@ function requireWechatOAuthConfig() {
 
 export function createWechatOAuthState(edition = getConfiguredAppEdition()) {
   const normalizedEdition = String(edition ?? "").trim().toLowerCase();
-  if (normalizedEdition !== "school" && normalizedEdition !== "enterprise") {
+  if (!APP_EDITIONS.includes(normalizedEdition)) {
     throw new WechatOAuthError("微信登录版本无效", {
       code: "wechat-not-configured",
       status: 503,
@@ -107,7 +107,7 @@ export function createWechatOAuthState(edition = getConfiguredAppEdition()) {
 }
 
 export function getWechatOAuthStateEdition(state) {
-  const match = /^(school|enterprise)\.([A-Za-z0-9_-]{32})$/.exec(String(state ?? ""));
+  const match = /^(school|enterprise|finance)\.([A-Za-z0-9_-]{32})$/.exec(String(state ?? ""));
   return match?.[1] ?? null;
 }
 
@@ -126,37 +126,48 @@ export function getWechatOAuthStateCookieDomain() {
     return cookieDomain;
   }
 
-  // The enterprise login starts on its own host. When the shared WeChat
-  // callback relays back to that same host, a host-only state cookie survives
-  // even if the school and enterprise sites use unrelated root domains.
-  if (getConfiguredAppEdition() === "enterprise") {
-    const relayUrl = env("WECHAT_OPEN_ENTERPRISE_CALLBACK_URI");
+  // Business editions can use a shared school callback and relay back to their
+  // own host when they do not share a cookie domain with the school site.
+  if (isBusinessAppEdition(getConfiguredAppEdition())) {
+    const edition = getConfiguredAppEdition();
+    const relayUrl = getBusinessRelayUrl(edition);
     if (relayUrl) {
       const relayHost = new URL(normalizedHttpUrl(
         relayUrl,
-        "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI",
+        edition === "finance" ? "WECHAT_OPEN_FINANCE_CALLBACK_URI" : "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI",
       )).hostname.toLowerCase();
       if (relayHost === frontendHost) return "";
     }
   }
 
-  throw new WechatOAuthError("跨域微信登录需要正确配置 WECHAT_OPEN_COOKIE_DOMAIN 或企业版回调中继", {
+  throw new WechatOAuthError("跨域微信登录需要正确配置 WECHAT_OPEN_COOKIE_DOMAIN 或业务版回调中继", {
     code: "wechat-not-configured",
     status: 503,
   });
 }
 
 export function buildWechatEnterpriseCallbackRelayUrl(params = {}) {
-  const configuredUrl = env("WECHAT_OPEN_ENTERPRISE_CALLBACK_URI");
+  return buildWechatBusinessCallbackRelayUrl("enterprise", params);
+}
+
+export function buildWechatBusinessCallbackRelayUrl(edition, params = {}) {
+  const normalizedEdition = String(edition ?? "").trim().toLowerCase();
+  if (!isBusinessAppEdition(normalizedEdition)) {
+    throw new WechatOAuthError("业务版微信回调版本无效", { code: "wechat-not-configured", status: 503 });
+  }
+  const relayEnv = normalizedEdition === "finance"
+    ? "WECHAT_OPEN_FINANCE_CALLBACK_URI"
+    : "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI";
+  const configuredUrl = getBusinessRelayUrl(normalizedEdition);
   if (!configuredUrl) {
-    throw new WechatOAuthError("微信登录未配置：WECHAT_OPEN_ENTERPRISE_CALLBACK_URI", {
+    throw new WechatOAuthError(`微信登录未配置：${relayEnv}`, {
       code: "wechat-not-configured",
       status: 503,
     });
   }
-  const url = new URL(normalizedHttpUrl(configuredUrl, "WECHAT_OPEN_ENTERPRISE_CALLBACK_URI"));
+  const url = new URL(normalizedHttpUrl(configuredUrl, relayEnv));
   if (String(process.env.NODE_ENV ?? "").toLowerCase() === "production" && url.protocol !== "https:") {
-    throw new WechatOAuthError("生产环境企业版微信回调中继必须使用 HTTPS", {
+    throw new WechatOAuthError("生产环境业务版微信回调中继必须使用 HTTPS", {
       code: "wechat-not-configured",
       status: 503,
     });
@@ -168,6 +179,15 @@ export function buildWechatEnterpriseCallbackRelayUrl(params = {}) {
     if (value) url.searchParams.set(key, value);
   }
   return url.toString();
+}
+
+function getBusinessRelayUrl(edition) {
+  const normalizedEdition = String(edition ?? "").trim().toLowerCase();
+  if (!isBusinessAppEdition(normalizedEdition)) return "";
+  const prefix = normalizedEdition.toUpperCase();
+  return env(`WECHAT_OPEN_${prefix}_CALLBACK_URI`)
+    || env(`${prefix}_WECHAT_OPEN_CALLBACK_URI`)
+    || (normalizedEdition === "enterprise" ? env("WECHAT_OPEN_ENTERPRISE_CALLBACK_URI") : "");
 }
 
 export function buildWechatAuthorizationUrl(state) {

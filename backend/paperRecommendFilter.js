@@ -19,6 +19,7 @@ const WEB_SOURCES = new Set([
   "wikipedia_web",
   "core",
   "entity_seed",
+  "finance_web",
 ]);
 
 function isWebSource(p) {
@@ -65,6 +66,7 @@ export function sourceTier(p) {
   if (s === "qwant_web") return 35;
   if (s === "ddg_web") return 34;
   if (s === "mojeek_web") return 33;
+  if (s === "finance_web") return 42;
   if (s === "ddg_patent") return 40;
   return 25;
 }

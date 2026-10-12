@@ -1,0 +1,23 @@
+[Unit]
+Description=数智通金融 API (:8789)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%WORKDIR%
+Environment=PATH=%NODE_BIN%:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+EnvironmentFile=-%SECRETS_DIR%/ailunwen.env
+EnvironmentFile=-%SECRETS_DIR%/ailunwen-finance.env
+Environment=APP_EDITION=finance
+Environment=PORT=8789
+ExecStart=%NODE_BIN%/node backend/index.js
+Restart=on-failure
+RestartSec=8
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

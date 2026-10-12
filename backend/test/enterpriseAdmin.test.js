@@ -32,3 +32,25 @@ test("enterprise startup creates the default admin account once", async (t) => {
   const second = await findUserByUsernameKey("admin");
   assert.equal(second.id, first.id);
 });
+
+test("finance startup uses its own administrator configuration", async (t) => {
+  const original = {
+    APP_EDITION: process.env.APP_EDITION,
+    FINANCE_ADMIN_USERNAME: process.env.FINANCE_ADMIN_USERNAME,
+    FINANCE_ADMIN_PASSWORD: process.env.FINANCE_ADMIN_PASSWORD,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  process.env.APP_EDITION = "finance";
+  process.env.FINANCE_ADMIN_USERNAME = "financeadmin";
+  process.env.FINANCE_ADMIN_PASSWORD = "Finance_Test_123";
+
+  await seedEnterpriseAdminIfEnabled();
+  const account = await findUserByUsernameKey("financeadmin");
+  assert.ok(account);
+  assert.equal(await verifyUserPassword("Finance_Test_123", account.password_hash), true);
+});

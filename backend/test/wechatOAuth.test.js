@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   WechatOAuthError,
   buildWechatEnterpriseCallbackRelayUrl,
+  buildWechatBusinessCallbackRelayUrl,
   buildWechatAuthorizationUrl,
   consumeWechatTicket,
   createWechatOAuthState,
@@ -140,6 +141,21 @@ test("enterprise callback relay is fixed by server configuration", (t) => {
   assert.equal(relayUrl.origin, "https://enterprise.example.test");
   assert.equal(relayUrl.searchParams.get("code"), "temporary code");
   assert.equal(relayUrl.searchParams.get("state"), `enterprise.${"x".repeat(32)}`);
+  assert.equal(relayUrl.searchParams.has("redirect_uri"), false);
+});
+
+test("finance callback relay is fixed by its own server configuration", (t) => {
+  configuredEnv(t);
+  process.env.WECHAT_OPEN_FINANCE_CALLBACK_URI = "https://finance.example.test/api/v1/auth/wechat/callback";
+  const state = `finance.${"y".repeat(32)}`;
+  const relayUrl = new URL(buildWechatBusinessCallbackRelayUrl("finance", {
+    code: "finance-code",
+    state,
+    redirect_uri: "https://evil.test/",
+  }));
+  assert.equal(relayUrl.origin, "https://finance.example.test");
+  assert.equal(relayUrl.searchParams.get("code"), "finance-code");
+  assert.equal(relayUrl.searchParams.get("state"), state);
   assert.equal(relayUrl.searchParams.has("redirect_uri"), false);
 });
 

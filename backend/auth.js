@@ -20,7 +20,7 @@ import {
 } from "./smsVerification.js";
 import {
   WechatOAuthError,
-  buildWechatEnterpriseCallbackRelayUrl,
+  buildWechatBusinessCallbackRelayUrl,
   buildWechatAuthorizationUrl,
   clearWechatTicket,
   consumeWechatTicket,
@@ -33,7 +33,7 @@ import {
   getWechatTicket,
   updateWechatTicket,
 } from "./wechatOAuth.js";
-import { getConfiguredAppEdition } from "./appEdition.js";
+import { getConfiguredAppEdition, isBusinessAppEdition } from "./appEdition.js";
 
 // jose 6 uses the Web Crypto API. Node 20+ exposes it globally, while the
 // production Node 18 runtime requires wiring in Node's built-in implementation.
@@ -146,7 +146,7 @@ function getConfiguredAdminUsernames() {
   // The enterprise instance owns its built-in administrator account. This is
   // intentionally scoped to the enterprise backend process; the school
   // instance does not inherit enterprise admin access.
-  if (String(process.env.APP_EDITION ?? "").trim().toLowerCase() === "enterprise") {
+  if (isBusinessAppEdition(process.env.APP_EDITION)) {
     values.push("admin");
   }
 
@@ -280,7 +280,7 @@ export async function requireAdmin(req, res, next) {
 
 export function validateUsernameForRegister(raw) {
   const key = normalizeUsernameKey(raw);
-  if (getConfiguredAppEdition() === "enterprise") {
+  if (isBusinessAppEdition(getConfiguredAppEdition())) {
     const length = Array.from(key).length;
     if (length < 2 || length > 64 || /[\u0000-\u001f\u007f]/.test(key)) {
       return { ok: false, error: "公司名称须为 2～64 个字符" };
@@ -438,16 +438,16 @@ export async function handleWechatCallback(req, res) {
   const stateEdition = getWechatOAuthStateEdition(returnedState);
   const currentEdition = getConfiguredAppEdition();
 
-  if (currentEdition === "school" && stateEdition === "enterprise") {
+  if (currentEdition === "school" && isBusinessAppEdition(stateEdition)) {
     try {
-      return res.redirect(302, buildWechatEnterpriseCallbackRelayUrl({
+      return res.redirect(302, buildWechatBusinessCallbackRelayUrl(stateEdition, {
         code: req.query?.code,
         state: returnedState,
       }));
     } catch (error) {
       console.error("[auth/wechat/relay]", error instanceof Error ? error.message : error);
       const status = error instanceof WechatOAuthError ? error.status : 500;
-      return res.status(status).json({ error: "企业版微信登录中继未正确配置", code: "wechat-not-configured" });
+      return res.status(status).json({ error: "业务版微信登录中继未正确配置", code: "wechat-not-configured" });
     }
   }
 

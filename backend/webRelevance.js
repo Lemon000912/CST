@@ -24,6 +24,7 @@ const WEB_SOURCES = new Set([
   "wikipedia_web",
   "core",
   "entity_seed",
+  "finance_web",
 ]);
 const PATENT_SOURCES = new Set(["ddg_patent", "openalex_patent"]);
 

@@ -9,6 +9,7 @@ process.env.WECHAT_OPEN_APP_ID = "wx-shared-app";
 process.env.WECHAT_OPEN_APP_SECRET = "shared-secret";
 process.env.WECHAT_OPEN_COOKIE_DOMAIN = "syncsee.example.test";
 process.env.WECHAT_OPEN_ENTERPRISE_CALLBACK_URI = "https://syncsee-enterprise.test/api/v1/auth/wechat/callback";
+process.env.WECHAT_OPEN_FINANCE_CALLBACK_URI = "https://syncsee-finance.test/api/v1/auth/wechat/callback";
 process.env.SCHOOL_WECHAT_OPEN_REDIRECT_URI = "https://syncsee.example.test/api/v1/auth/wechat/callback";
 process.env.SCHOOL_WECHAT_OPEN_FRONTEND_URL = "https://syncsee.example.test/";
 process.env.ENTERPRISE_WECHAT_OPEN_REDIRECT_URI = "https://syncsee.example.test/api/v1/auth/wechat/callback";
@@ -76,5 +77,20 @@ test("the shared school callback relays enterprise state only to the configured 
   assert.equal(relayUrl.origin, "https://syncsee-enterprise.test");
   assert.equal(relayUrl.pathname, "/api/v1/auth/wechat/callback");
   assert.equal(relayUrl.searchParams.get("code"), "temporary-code");
+  assert.equal(relayUrl.searchParams.get("state"), state);
+});
+
+test("the shared school callback relays finance state only to the configured finance callback", async () => {
+  process.env.APP_EDITION = "school";
+  const response = responseCapture();
+  const state = `finance.${"y".repeat(32)}`;
+  await handleWechatCallback({ query: { code: "finance-code", state } }, response);
+
+  assert.equal(response.statusCode, 302);
+  assert.equal(response.redirects.length, 1);
+  const relayUrl = new URL(response.redirects[0]);
+  assert.equal(relayUrl.origin, "https://syncsee-finance.test");
+  assert.equal(relayUrl.pathname, "/api/v1/auth/wechat/callback");
+  assert.equal(relayUrl.searchParams.get("code"), "finance-code");
   assert.equal(relayUrl.searchParams.get("state"), state);
 });

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * 释放校园版和企业版开发端口，避免旧进程导致连接到错误版本。
+ * 释放校园版、企业版和数智通金融版开发端口，避免旧进程导致连接到错误版本。
  * 用法：npm run dev:kill
  */
 import { execFileSync, execSync } from "node:child_process";
 import process from "node:process";
 
-const PORTS = [8787, 8788, 5175, 5176];
+const PORTS = [8787, 8788, 8789, 5175, 5176, 5177];
 
 function killPort(port) {
   const killed = new Set();
@@ -66,4 +66,4 @@ function killPort(port) {
 }
 
 for (const port of PORTS) killPort(port);
-console.log("[dev:kill] 完成。可执行 npm run dev 重新启动。");
+console.log("[dev:kill] 完成。可执行 npm run dev 或 npm run dev:all 重新启动。");
