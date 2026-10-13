@@ -267,6 +267,12 @@ export function shouldIncludeWebChannelPaper(p, tokens, coreQuery, fullQuery) {
   const intentBlob = `${String(fullQuery ?? "")} ${String(coreQuery ?? "")}`;
   if (isWebOfftopicForQuery(text, intentBlob)) return false;
 
+  // 覆盖式多实体搜索已确认该页面命中了某个请求实体；保留它，
+  // 让最终回答有机会逐项核验，而不是只留下综合相关度最高的产品。
+  if (p?._entityCoverage && Array.isArray(p?._matchedEntities) && p._matchedEntities.length) {
+    return true;
+  }
+
   if (CORPORATE_WEB_INTENT_RE.test(intentBlob) && isWebPaper(p) && WEB_TRAVEL_JUNK_RE.test(text)) return false;
 
   const score = scoreWebPaperForAnswer(p, tokens, coreQuery, fullQuery);

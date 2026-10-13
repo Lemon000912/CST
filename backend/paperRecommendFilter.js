@@ -218,6 +218,12 @@ function countTokenHitsForFilter(p, tokens) {
 function passesRelevanceGate(p, tokens, prefN, opts) {
   if (isObviousWebNoise(p, tokens, opts?.rawQuery)) return false;
 
+  // 多实体联网检索为每个实体保留的唯一候选项：只要页面标题/摘要
+  // 确实命中实体，就不能被通用 token 比例门槛整体淘汰。
+  if (p?._entityCoverage && Array.isArray(p?._matchedEntities) && p._matchedEntities.length) {
+    return true;
+  }
+
   const r = relevanceRatio(p, tokens);
   const hitCount = countTokenHitsForFilter(p, tokens);
 

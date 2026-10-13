@@ -32,6 +32,12 @@ import { buildBookWebSearchPlan, extractBookTitles, isBookIntentQuery } from "./
 import { buildEntityDirectWebSeeds } from "./webEntityDirectSeeds.js";
 import { filterWebChannelInclusion, buildWebAnswerTokens, scoreWebPaperForAnswer } from "./webRelevance.js";
 import { traceAsync } from "./performanceTrace.js";
+import {
+  planWebSearchQueries,
+  buildEntityCoverageQueries,
+  markEntityCoverage,
+  extractRequestedWebEntities,
+} from "./webSearchAgent.js";
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
@@ -311,7 +317,7 @@ function dropZeroRelevanceByTokens(papers, rawQuery, effectiveQuery, preferenceK
     const s = String(p?.source ?? "");
     return s === "ddg_patent" || s === "openalex_patent";
   };
-  const withHits = scored.filter((x) => x.c > 0 || isPatentSrc(x.p));
+  const withHits = scored.filter((x) => x.c > 0 || isPatentSrc(x.p) || x.p?._entityCoverage);
   const withoutHits = scored.filter((x) => x.c === 0 && !isPatentSrc(x.p));
   if (withHits.length < 3) return papers;
   if (withoutHits.length < 2) return papers;
@@ -340,6 +346,14 @@ export function mergeDedupe(lists) {
           authors: p.authors?.length ? p.authors : prev.authors,
           summary: (p.summary || p.abstract || "").length >= (prev.summary || "").length ? p.summary || p.abstract : prev.summary,
         };
+        const matchedEntities = [...new Set([
+          ...(Array.isArray(prev._matchedEntities) ? prev._matchedEntities : []),
+          ...(Array.isArray(p._matchedEntities) ? p._matchedEntities : []),
+        ])];
+        if (matchedEntities.length) {
+          merged._matchedEntities = matchedEntities;
+          merged._entityCoverage = true;
+        }
         const databasePdfUrl = [prev.pdfUrl, p.pdfUrl]
           .map((value) => String(value ?? "").trim())
           .find((value) => value.startsWith("db-pdf:"));
@@ -353,6 +367,16 @@ export function mergeDedupe(lists) {
           merged.source = databasePaper?.source ?? "local";
         }
         map.set(k, merged);
+      }
+      if (prev && scoreSource(p) < scoreSource(prev)) {
+        const matchedEntities = [...new Set([
+          ...(Array.isArray(prev._matchedEntities) ? prev._matchedEntities : []),
+          ...(Array.isArray(p._matchedEntities) ? p._matchedEntities : []),
+        ])];
+        if (matchedEntities.length) {
+          prev._matchedEntities = matchedEntities;
+          prev._entityCoverage = true;
+        }
       }
       if (normalizedTitle.length >= 32) exactTitleKeys.set(normalizedTitle, k);
     }
@@ -527,9 +551,36 @@ function applySort(merged, sort) {
   return out;
 }
 
+/** 网页列表截断前，先为每个实体留出一个候选，避免热门实体挤掉长尾实体。 */
+function preserveEntityCoverageRows(papers, max) {
+  const list = Array.isArray(papers) ? papers : [];
+  const cap = Math.max(1, Number(max) || list.length || 1);
+  const picked = [];
+  const seenIds = new Set();
+  const covered = new Set();
+  for (const paper of list) {
+    const entities = Array.isArray(paper?._matchedEntities) ? paper._matchedEntities : [];
+    if (!entities.length || entities.every((entity) => covered.has(entity))) continue;
+    const id = String(paper?.paper_id ?? paper?.id ?? paper?.absUrl ?? "");
+    if (id && seenIds.has(id)) continue;
+    picked.push(paper);
+    if (id) seenIds.add(id);
+    for (const entity of entities) covered.add(entity);
+    if (picked.length >= cap) return picked;
+  }
+  for (const paper of list) {
+    if (picked.length >= cap) break;
+    const id = String(paper?.paper_id ?? paper?.id ?? paper?.absUrl ?? "");
+    if (id && seenIds.has(id)) continue;
+    picked.push(paper);
+    if (id) seenIds.add(id);
+  }
+  return picked;
+}
+
 /**
  * 全网多路检索（多 query 并行 + 二轮跟进 + 实体种子），网页渠道与数据库渠道的网页补充共用。
- * @param {{ fullRawQuery: string; rawQuery: string; effectiveQuery: string; max: number; useMcpWeb?: boolean; includePatents?: boolean; financeWebSources?: string[] }} opts
+ * @param {{ fullRawQuery: string; rawQuery: string; effectiveQuery: string; max: number; useMcpWeb?: boolean; includePatents?: boolean; financeWebSources?: string[]; llmHints?: object }} opts
  * @returns {Promise<{ papers: object[]; patents: object[]; sourcesUsed: string[] }>}
  */
 async function runWebIntelSearch(opts) {
@@ -550,6 +601,7 @@ async function runWebIntelSearch(opts) {
   )];
   const sourcesUsed = [];
   const performanceTrace = opts.performanceTrace;
+  const llmHints = opts.llmHints ?? {};
 
   if (!useMcpWeb) {
     sourcesUsed.push("web_intel_skipped_mcp");
@@ -562,6 +614,42 @@ async function runWebIntelSearch(opts) {
     effectiveQuery,
     extractConversationContext(fullRawQuery),
   );
+  const entityCoverageQueries = buildEntityCoverageQueries(
+    fullRawQuery,
+    Math.min(24, Math.max(4, Number(process.env.WEB_ENTITY_QUERY_MAX) || 20)),
+  );
+  // 对“多个实体 + 指标”问题，让模型根据用户原话主动拆分查询；规则式查询仍保留，
+  // 这样模型不可用时仍有稳定的降级路径。
+  const aiQueryCap = Math.min(4, Math.max(1, Number(process.env.WEB_AI_SEARCH_QUERY_MAX) || 4));
+  const aiRound1 = await planWebSearchQueries({
+    userQuery: fullRawQuery,
+    effectiveQuery,
+    maxQueries: aiQueryCap,
+    llmHints,
+    signal,
+    performanceTrace,
+    traceName: "search.web.ai_plan.round1",
+  });
+  if (aiRound1.length) {
+    const seen = new Set();
+    webPlan.queries = [...aiRound1, ...webPlan.queries].filter((q) => {
+      const key = String(q).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    sourcesUsed.push(`web_ai_plan:round1:${aiRound1.length}`);
+  }
+  if (entityCoverageQueries.length) {
+    const seen = new Set();
+    webPlan.queries = [...entityCoverageQueries, ...webPlan.queries].filter((q) => {
+      const key = String(q).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    sourcesUsed.push(`web_entity_coverage:${extractRequestedWebEntities(fullRawQuery).length}`);
+  }
   const webPrimary = webPlan.primary || webSearchQ;
   if (webPlan.tags.length) sourcesUsed.push(...webPlan.tags);
   if (webPlan.queries.length > 1) sourcesUsed.push(`web_multi_query:${webPlan.queries.length}`);
@@ -570,7 +658,13 @@ async function runWebIntelSearch(opts) {
   const webPaperBuckets = [];
   const webTasks = [];
   const perWebQ = Math.min(64, max + 32);
-  const webQueryCap = Math.min(12, Math.max(4, Number(process.env.WEB_MULTI_QUERY_MAX) || 8));
+  const defaultQueryCap = entityCoverageQueries.length
+    ? entityCoverageQueries.length + Math.max(4, aiQueryCap)
+    : 8;
+  const webQueryCap = Math.min(
+    32,
+    Math.max(4, entityCoverageQueries.length, Number(process.env.WEB_MULTI_QUERY_MAX) || defaultQueryCap),
+  );
 
   if (includePatents) {
     webTasks.push({
@@ -690,7 +784,7 @@ async function runWebIntelSearch(opts) {
     }
   }
 
-  let webMerged = webPaperBuckets.flat();
+  let webMerged = markEntityCoverage(webPaperBuckets.flat(), fullRawQuery);
   /**
    * 第二轮只作为低频兜底：限制查询数和等待预算，避免特殊实体问题把整条请求拖到
    * 首轮超时之后再额外等待 30～40 秒。环境变量仍可把上限调得更保守，但不会突破这里的硬上限。
@@ -699,7 +793,28 @@ async function runWebIntelSearch(opts) {
     2,
     Math.max(1, Number(process.env.WEB_ROUND2_QUERY_MAX) || 2),
   );
-  const followUp = inferFollowUpWebQueries(webMerged, rawQuery).slice(0, round2QueryCap);
+  const aiRound2 = webMerged.length
+    ? await planWebSearchQueries({
+        userQuery: fullRawQuery,
+        effectiveQuery,
+        papers: webMerged,
+        maxQueries: Math.min(2, aiQueryCap),
+        llmHints,
+        signal,
+        performanceTrace,
+        traceName: "search.web.ai_plan.round2",
+      })
+    : [];
+  const followUpSeen = new Set();
+  const followUp = [...aiRound2, ...inferFollowUpWebQueries(webMerged, rawQuery)]
+    .filter((q) => {
+      const key = String(q).toLowerCase();
+      if (followUpSeen.has(key)) return false;
+      followUpSeen.add(key);
+      return true;
+    })
+    .slice(0, round2QueryCap);
+  if (aiRound2.length) sourcesUsed.push(`web_ai_plan:round2:${aiRound2.length}`);
   if (followUp.length) {
     sourcesUsed.push(`web_round2:${followUp.length}`);
     const round2Tasks = followUp.map((q, i) => ({
@@ -731,7 +846,7 @@ async function runWebIntelSearch(opts) {
     throwIfSearchAborted(signal);
     for (const fr of r2) {
       if (fr.status === "fulfilled" && fr.value?.papers?.length) {
-        webMerged = webMerged.concat(fr.value.papers);
+        webMerged = webMerged.concat(markEntityCoverage(fr.value.papers, fullRawQuery));
       }
     }
   }
@@ -772,7 +887,7 @@ async function runWebIntelSearch(opts) {
     for (const rr of rescueResults) {
       if (webMerged.length >= 8) break;
       if (rr.status === "fulfilled" && rr.value?.papers?.length) {
-        webMerged = webMerged.concat(rr.value.papers);
+        webMerged = webMerged.concat(markEntityCoverage(rr.value.papers, fullRawQuery));
         sourcesUsed.push(rr.value.toolName ? `book_rescue:${rr.value.toolName}` : "book_rescue:web");
       } else if (rr.status !== "fulfilled") {
         console.warn("[search] book_clue rescue failed", rr.name, rr.reason);
@@ -783,11 +898,22 @@ async function runWebIntelSearch(opts) {
 
   const entitySeeds = buildEntityDirectWebSeeds(webSearchQ);
   if (entitySeeds.length) {
-    webMerged = entitySeeds.concat(webMerged);
+    webMerged = markEntityCoverage(entitySeeds.concat(webMerged), fullRawQuery);
     sourcesUsed.push(`entity_direct_seeds:${entitySeeds.length}`);
   }
 
-  return { papers: webMerged, patents: patentSearch, sourcesUsed };
+  const covered = new Set(
+    markEntityCoverage([...webMerged, ...patentSearch], fullRawQuery)
+      .flatMap((paper) => Array.isArray(paper?._matchedEntities) ? paper._matchedEntities : []),
+  );
+  if (entityCoverageQueries.length) {
+    sourcesUsed.push(`web_entity_covered:${covered.size}/${extractRequestedWebEntities(fullRawQuery).length}`);
+  }
+  return {
+    papers: webMerged,
+    patents: markEntityCoverage(patentSearch, fullRawQuery),
+    sourcesUsed,
+  };
 }
 
 function throwIfSearchAborted(signal) {
@@ -1013,6 +1139,11 @@ export async function runPaperSearch(opts) {
       useMcpWeb,
       includePatents,
       financeWebSources: opts.financeWebSources,
+      llmHints: {
+        apiKey: opts.openaiApiKey,
+        model: opts.openaiModel,
+        chatCompletionsUrl: opts.llmChatCompletionsUrl,
+      },
       performanceTrace,
       signal,
     });
@@ -1226,13 +1357,18 @@ export async function runPaperSearch(opts) {
     /** 数据库渠道：并行全网多路检索，与文献/自建库结果合并 */
     if (useMcpWeb !== false) {
       const webIntel = await runWebIntelSearch({
-        fullRawQuery,
+        fullRawQuery: fullContextQuery,
         rawQuery,
         effectiveQuery,
         max,
         useMcpWeb: true,
         includePatents,
         financeWebSources: opts.financeWebSources,
+        llmHints: {
+          apiKey: opts.openaiApiKey,
+          model: opts.openaiModel,
+          chatCompletionsUrl: opts.llmChatCompletionsUrl,
+        },
         performanceTrace,
         signal,
       });
@@ -1346,7 +1482,7 @@ export async function runPaperSearch(opts) {
     if (embedRerank.papers?.length) merged = embedRerank.papers;
   }
   merged = applySort(merged, sort);
-  merged = merged.slice(0, max);
+  merged = channel === "web" ? preserveEntityCoverageRows(merged, max) : merged.slice(0, max);
   if (channel === "web" && !patentsOnly) {
     const beforeInc = merged.length;
     const webPreInc = merged.length ? [...merged] : [];
