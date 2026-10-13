@@ -620,7 +620,7 @@ async function runWebIntelSearch(opts) {
   );
   // 对“多个实体 + 指标”问题，让模型根据用户原话主动拆分查询；规则式查询仍保留，
   // 这样模型不可用时仍有稳定的降级路径。
-  const aiQueryCap = Math.min(4, Math.max(1, Number(process.env.WEB_AI_SEARCH_QUERY_MAX) || 4));
+  const aiQueryCap = Math.min(12, Math.max(1, Number(process.env.WEB_AI_SEARCH_QUERY_MAX) || 8));
   const aiRound1 = await planWebSearchQueries({
     userQuery: fullRawQuery,
     effectiveQuery,
@@ -798,7 +798,7 @@ async function runWebIntelSearch(opts) {
         userQuery: fullRawQuery,
         effectiveQuery,
         papers: webMerged,
-        maxQueries: Math.min(2, aiQueryCap),
+        maxQueries: Math.min(4, aiQueryCap),
         llmHints,
         signal,
         performanceTrace,
