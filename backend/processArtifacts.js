@@ -185,7 +185,10 @@ export function buildMermaidFlowchart(steps, opts = {}) {
     const recipeColumns = Math.min(5, recipes.length);
     for (let start = 0, row = 1; start < recipes.length; start += recipeColumns, row += 1) {
       const end = Math.min(start + recipeColumns, recipes.length);
-      lines.push(`    subgraph recipeRow${row}[""]`);
+      // Mermaid does not accept an empty subgraph title (`[""]`).
+      // Keep the row grouping internal so the generated chart does not add
+      // an unnecessary visible heading for each recipe row.
+      lines.push(`    subgraph recipeRow${row}`);
       lines.push("      direction LR");
       for (let i = start; i < end; i++) {
         lines.push(`      R${i}["${mermaidLabel(recipes[i])}"]`);

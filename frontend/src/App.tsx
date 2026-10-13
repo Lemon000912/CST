@@ -2699,7 +2699,13 @@ function LlmRewriteSettingsModal({
                 data-lpignore="true"
                 value={editingProvider.url}
                 onChange={(e) => updateProvider(editingProvider.id, "url", e.target.value)}
-                placeholder={editingIndex === 0 ? "https://api.deepseek.com/v1/chat/completions" : "https://api.openai.com/v1/chat/completions"}
+                placeholder={
+                  editingIndex === 0
+                    ? "https://maas.qianwenaiapi.com/compatible-mode/v1"
+                    : editingIndex >= 2
+                      ? "https://api.deepseek.com/v1/chat/completions"
+                      : "https://api.openai.com/v1/chat/completions"
+                }
                 className="mt-1 w-full rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-field)] px-2.5 py-2 font-mono text-[11px] text-[var(--t-text)] placeholder:text-[var(--t-placeholder-input)] qp-focus-accent"
               />
               <label className="mt-2.5 block text-[10px] font-semibold uppercase tracking-wider text-[var(--t-text-micro)]">

@@ -26,6 +26,7 @@ test("long process flowcharts put horizontal recipe components above vertical st
 
   assert.match(mermaid, /subgraph recipe\["配方 \/ 组分"\]/);
   assert.match(mermaid, /subgraph recipeRow1/);
+  assert.doesNotMatch(mermaid, /subgraph recipeRow\d+\[\"\"\]/);
   assert.match(mermaid, /direction LR/);
   assert.match(mermaid, /R0 ~~~ R1/);
   assert.match(mermaid, /R1 ~~~ R2/);
