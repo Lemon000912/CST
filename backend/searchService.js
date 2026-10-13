@@ -786,19 +786,19 @@ async function runWebIntelSearch(opts) {
 
   let webMerged = markEntityCoverage(webPaperBuckets.flat(), fullRawQuery);
   /**
-   * 第二轮只作为低频兜底：限制查询数和等待预算，避免特殊实体问题把整条请求拖到
-   * 首轮超时之后再额外等待 30～40 秒。环境变量仍可把上限调得更保守，但不会突破这里的硬上限。
+   * 第二轮搜索：当第一轮结果覆盖不足时，基于已有结果进行补充搜索。
+   * 提高查询数量上限，确保多实体问题能获得足够覆盖。
    */
   const round2QueryCap = Math.min(
-    2,
-    Math.max(1, Number(process.env.WEB_ROUND2_QUERY_MAX) || 2),
+    6,  // 提高硬上限从2到6
+    Math.max(2, Number(process.env.WEB_ROUND2_QUERY_MAX) || 4),
   );
   const aiRound2 = webMerged.length
     ? await planWebSearchQueries({
         userQuery: fullRawQuery,
         effectiveQuery,
         papers: webMerged,
-        maxQueries: Math.min(4, aiQueryCap),
+        maxQueries: Math.min(8, Math.max(4, aiQueryCap)),  // 提高第二轮AI规划上限
         llmHints,
         signal,
         performanceTrace,

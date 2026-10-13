@@ -1,4 +1,4 @@
-import { generateText } from "./llmClient.js";
+﻿import { generateText } from "./llmClient.js";
 import { resolvePrimaryProvider } from "./llmProviders.js";
 import {
   extractCoreSearchQuery,
@@ -16,22 +16,35 @@ const ENTITY_STOP_WORDS = new Set([
 ]);
 
 /**
- * 从“多个产品/实体 + 指标”的自然语言问题中提取实体。这里故意使用
+ * 从"多个产品/实体 + 指标"的自然语言问题中提取实体。这里故意使用
  * 列表标点和常见引导词，而不是让搜索模型决定覆盖范围，避免 14 个产品
  * 被压缩成 3～4 条泛化查询。
  */
 export function extractRequestedWebEntities(query) {
   const raw = extractCoreSearchQuery(String(query ?? "").trim()) || String(query ?? "").trim();
   if (!raw) return [];
-  // 冒号后的部分通常就是用户列出的产品清单（“请查询……：A、B、C”）。
-  // 没有冒号时，取第一个指标前的部分（“A、B、C 的产能利用率”）。
+
+  // 优先识别"...的有X、Y、Z"或"包括X、Y、Z"模式
+  const hasPattern = raw.match(/(?:的有|包括|分别是|为[:：]?)\s*([^，。！？!?.]+[、，,；;][^。！？!?.]+)/);
+  if (hasPattern && hasPattern[1]) {
+    return parseEntityList(hasPattern[1]);
+  }
+
+  // 冒号后的部分通常就是用户列出的产品清单（"请查询……：A、B、C"）。
   const colon = Math.max(raw.lastIndexOf("："), raw.lastIndexOf(":"));
-  const metricAt = raw.search(/(?:的)?(?:产能利用率|利用率|开工率|产量|价格|销量|份额|成本|库存|趋势|统计|数据|数值)/);
-  let list = colon >= 0
-    ? raw.slice(colon + 1)
-    : metricAt > 0
-      ? raw.slice(0, metricAt)
-      : raw;
+  if (colon >= 0) {
+    return parseEntityList(raw.slice(colon + 1));
+  }
+
+  // 没有冒号时，取最后一个指标前的部分（"A、B、C 的产能利用率"）
+  const metricMatches = [...raw.matchAll(/(?:的)?(?:产能利用率|利用率|开工率|产量|价格|销量|份额|成本|库存|趋势|统计|数据|数值)/g)];
+  const lastMetric = metricMatches[metricMatches.length - 1];
+  const list = lastMetric && lastMetric.index > 0 ? raw.slice(0, lastMetric.index) : raw;
+
+  return parseEntityList(list);
+}
+
+function parseEntityList(list) {
   list = list
     .replace(/^(?:请|帮我|麻烦|查询|检索|列出|统计|获取)\s*/g, "")
     .replace(/^(?:以下|如下|这些|相关的?)\s*/g, "")
