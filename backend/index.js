@@ -3851,10 +3851,73 @@ if (String(process.env.SIMPLE_SEED ?? "").trim() === "1") {
   );
 }
 
+// ============================================================================
+// 智能搜索API - 模型可主动调用联网搜索工具
+// ============================================================================
+app.post("/api/v1/search/smart", requireAuthenticatedUser, async (req, res) => {
+  try {
+    const { synthesizeWithAutoTools } = await import("./synthesizeWithTools.js");
+
+    const query = String(req.body?.query || req.body?.question || "").trim();
+    if (!query) {
+      return res.status(400).json({ error: "缺少查询参数 query" });
+    }
+
+    const model = req.headers["x-openai-model"] || req.body?.model;
+    const forceWebSearch = req.body?.forceWebSearch ?? true; // 默认启用
+
+    console.log(`[api.search.smart] query="${query.slice(0, 100)}" force=${forceWebSearch}`);
+
+    // 先执行常规检索（可选）
+    let papers = [];
+    if (req.body?.includeDatabase !== false) {
+      try {
+        const searchResult = await runPaperSearch({
+          query,
+          channel: req.body?.channel || "web",
+          limit: 10,
+        });
+        papers = searchResult?.papers || [];
+        console.log(`[api.search.smart] Found ${papers.length} papers from database`);
+      } catch (err) {
+        console.warn(`[api.search.smart] Database search failed:`, err.message);
+      }
+    }
+
+    // 调用智能综合（模型自主决定是否联网搜索）
+    const result = await synthesizeWithAutoTools({
+      query,
+      papers,
+      model,
+      forceWebSearch,
+    });
+
+    // 返回结果
+    res.json({
+      query,
+      answer: result.text,
+      papers,
+      toolCalls: result.toolCalls || [],
+      usage: result.usage,
+      provider: result.provider,
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log(`[api.search.smart] Success, ${result.toolCalls.length} tool calls`);
+  } catch (error) {
+    console.error(`[api.search.smart] Error:`, error);
+    return res.status(500).json({
+      error: error.message || "智能搜索失败",
+      details: error.stack,
+    });
+  }
+});
+
 // Apache is the only public entry point. Keep the application unreachable
 // from the LAN/WAN even if a firewall rule is accidentally broadened.
 const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`QuantumPinnacle API: http://127.0.0.1:${PORT}  (POST /api/v1/search)`);
+  console.log(`[Smart Search] 智能搜索API: POST /api/v1/search/smart`);
   console.log(`[GStack] 图融合API: POST /api/v1/gstack/fuse`);
 });
 server.setTimeout(920_000);
