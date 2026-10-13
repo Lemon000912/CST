@@ -1,5 +1,34 @@
 import type { Paper } from "./types";
 
+/**
+ * Providers occasionally join Markdown table rows with `||` instead of
+ * emitting newlines. Split only pipe-heavy lines that look like tables, while
+ * preserving fenced code blocks and ordinary prose containing `||`.
+ */
+export function normalizeMalformedMarkdownTables(markdown: string): string {
+  const source = String(markdown ?? "");
+  const normalizePlain = (plain: string) =>
+    plain
+      .split("\n")
+      .flatMap((line) => {
+        const pipeCount = (line.match(/\|/g) || []).length;
+        if (pipeCount < 6 || !/\|{2,}/.test(line)) return [line];
+        return line.replace(/\s*\|{2,}\s*/g, "|\n|").split("\n");
+      })
+      .join("\n");
+  const chunks: string[] = [];
+  let cursor = 0;
+  const fenceRe = /```[\s\S]*?```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fenceRe.exec(source)) !== null) {
+    chunks.push(normalizePlain(source.slice(cursor, match.index)));
+    chunks.push(match[0]);
+    cursor = match.index + match[0].length;
+  }
+  chunks.push(normalizePlain(source.slice(cursor)));
+  return chunks.join("");
+}
+
 function normDoi(d: string) {
   return String(d ?? "")
     .trim()
@@ -161,7 +190,7 @@ function linkifySynthesisCitationsPlain(s: string, papers?: Paper[]): string {
  * **围栏代码块（``` … ```）内不处理**，以免破坏末尾 JSON 等。
  */
 export function linkifySynthesisCitations(markdown: string, papers?: Paper[]): string {
-  const s = String(markdown ?? "");
+  const s = normalizeMalformedMarkdownTables(markdown);
   const chunks: string[] = [];
   let i = 0;
   const re = /```[\s\S]*?```/g;

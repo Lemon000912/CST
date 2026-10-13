@@ -724,7 +724,7 @@ export async function submitFeedback(payload: {
 
 const EXTRACT_MAX_MB = 100;
 const EXTRACT_MAX_BYTES = EXTRACT_MAX_MB * 1024 * 1024;
-const EXTRACT_ALLOWED_EXT = /\.(pdf|md|markdown|txt|text|docx?|docm|pptx|ppsx)$/i;
+const EXTRACT_ALLOWED_EXT = /\.(pdf|md|markdown|txt|text|docx?|docm|pptx|ppsx|xlsx|xlsm|csv|tsv)$/i;
 
 function isExtractAllowedFile(file: File): boolean {
   const name = file.name || "";
@@ -735,19 +735,23 @@ function isExtractAllowedFile(file: File): boolean {
     t === "application/msword" ||
     t === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     t === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    t === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    t === "application/vnd.ms-excel.sheet.macroenabled.12" ||
     t === "text/plain" ||
-    t === "text/markdown"
+    t === "text/markdown" ||
+    t === "text/csv" ||
+    t === "text/tab-separated-values"
   );
 }
 
-/** 上传并解析 pdf / pptx / markdown / txt / doc / docx（multipart，字段名 file） */
+/** 上传并解析 pdf / office / csv / tsv / markdown / txt 文件（multipart，字段名 file） */
 export async function extractUploadedDocument(
   file: File,
 ): Promise<{ filename: string; text: string; charCount: number }> {
   const name = file.name || "file";
   if (!isExtractAllowedFile(file)) {
     throw new Error(
-      `不支持「${name}」：请使用 PDF、PPTX、Markdown、TXT、Word（.doc / .docx），单文件 ≤${EXTRACT_MAX_MB}MB`,
+      `不支持「${name}」：请使用 PDF、PPTX、Excel（.xlsx / .xlsm）、CSV、TSV、Markdown、TXT、Word（.doc / .docx），单文件 ≤${EXTRACT_MAX_MB}MB`,
     );
   }
   if (file.size > EXTRACT_MAX_BYTES) {

@@ -107,6 +107,41 @@ function joinVisibleParts(before, after) {
 }
 
 /**
+ * Some providers return a Markdown table with every row joined by `||` on one
+ * physical line. Markdown parsers cannot recognize those rows, so split the
+ * separators before the text reaches the UI/exporters. Fenced code blocks are
+ * left untouched because their pipe characters may be meaningful data.
+ *
+ * @param {string} markdown
+ * @returns {string}
+ */
+export function normalizeMalformedMarkdownTables(markdown) {
+  const source = String(markdown ?? "");
+  const chunks = [];
+  let cursor = 0;
+  const fenceRe = /```[\s\S]*?```/g;
+  let match;
+  const normalizePlain = (plain) =>
+    plain
+      .split("\n")
+      .flatMap((line) => {
+        // A regular sentence can contain `||`; only rewrite lines that have
+        // enough pipe delimiters to plausibly be a table with joined rows.
+        const pipeCount = (line.match(/\|/g) || []).length;
+        if (pipeCount < 6 || !/\|{2,}/.test(line)) return [line];
+        return line.replace(/\s*\|{2,}\s*/g, "|\n|").split("\n");
+      })
+      .join("\n");
+  while ((match = fenceRe.exec(source)) !== null) {
+    chunks.push(normalizePlain(source.slice(cursor, match.index)));
+    chunks.push(match[0]);
+    cursor = match.index + match[0].length;
+  }
+  chunks.push(normalizePlain(source.slice(cursor)));
+  return chunks.join("");
+}
+
+/**
  * @param {string} raw
  * @returns {{ markdown: string; plan: Record<string, unknown> | null; planNote: string }}
  */
@@ -198,7 +233,7 @@ export function finalizeSynthesisMarkdown(markdown) {
   if (!md) return { markdown: null, plan: null, planNote: null };
   const parsed = parseSynthesisOutput(md);
   return {
-    markdown: parsed.markdown || null,
+    markdown: parsed.markdown ? normalizeMalformedMarkdownTables(parsed.markdown) : null,
     plan: parsed.plan,
     planNote: parsed.planNote,
   };

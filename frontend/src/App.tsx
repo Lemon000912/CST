@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { linkifySynthesisCitations } from "./linkifySynthesis";
+import { linkifySynthesisCitations, normalizeMalformedMarkdownTables } from "./linkifySynthesis";
 import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
@@ -31,6 +31,7 @@ import type {
   ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ApiError,
   createIdempotencyKey,
@@ -1602,11 +1603,12 @@ function AssistantBlock({
         hasIndirectSection: false,
       };
     }
-    const split = splitSynthesisMarkdown(raw);
+    const normalized = normalizeMalformedMarkdownTables(raw);
+    const split = splitSynthesisMarkdown(normalized);
     return {
       directMd: split.directMarkdown
         ? linkifySynthesisCitations(split.directMarkdown, msg.papers)
-        : linkifySynthesisCitations(raw, msg.papers),
+        : linkifySynthesisCitations(normalized, msg.papers),
       indirectMd: split.indirectMarkdown
         ? linkifySynthesisCitations(split.indirectMarkdown, msg.papers)
         : "",
@@ -1658,6 +1660,8 @@ function AssistantBlock({
     !isAttachmentSynthesis
   );
   const webAnswerDrafts = msg.meta?.webAnswerDrafts ?? {};
+  const isAttachmentTriAnswer =
+    synthesisMode.startsWith("attachment_tri") && Boolean(msg.meta?.webAnswerDrafts);
   const webTriConfigIncomplete = synthesisMode.includes("config_incomplete");
   const webArbitrationSucceeded =
     synthesisMode === "web_tri_arbitration" ||
@@ -1752,6 +1756,20 @@ function AssistantBlock({
         <SynthesisMarkdownLink href={href}>{children}</SynthesisMarkdownLink>
       ),
       pre: SynthesisPreWithCopy,
+      table: ({ children }: ComponentPropsWithoutRef<"table">) => (
+        <div className="qp-markdown-table-scroll my-3 max-w-full overflow-x-auto rounded-lg border border-[color:var(--t-br08)]">
+          <table className="w-full min-w-[36rem] border-collapse text-left text-[12px] leading-relaxed">{children}</table>
+        </div>
+      ),
+      thead: ({ children }: ComponentPropsWithoutRef<"thead">) => (
+        <thead className="bg-[var(--t-muted)] text-[var(--t-text)]">{children}</thead>
+      ),
+      th: ({ children }: ComponentPropsWithoutRef<"th">) => (
+        <th className="border-b border-[color:var(--t-br08)] px-3 py-2 font-semibold">{children}</th>
+      ),
+      td: ({ children }: ComponentPropsWithoutRef<"td">) => (
+        <td className="border-b border-[color:var(--t-br06)] px-3 py-2 align-top text-[var(--t-text-card-body)]">{children}</td>
+      ),
     }),
     [],
   );
@@ -1761,6 +1779,20 @@ function AssistantBlock({
         <WebSynthCitationLink href={href}>{children}</WebSynthCitationLink>
       ),
       pre: SynthesisPreWithCopy,
+      table: ({ children }: ComponentPropsWithoutRef<"table">) => (
+        <div className="qp-markdown-table-scroll my-3 max-w-full overflow-x-auto rounded-lg border border-[color:var(--t-br08)]">
+          <table className="w-full min-w-[36rem] border-collapse text-left text-[12px] leading-relaxed">{children}</table>
+        </div>
+      ),
+      thead: ({ children }: ComponentPropsWithoutRef<"thead">) => (
+        <thead className="bg-[var(--t-muted)] text-[var(--t-text)]">{children}</thead>
+      ),
+      th: ({ children }: ComponentPropsWithoutRef<"th">) => (
+        <th className="border-b border-[color:var(--t-br08)] px-3 py-2 font-semibold">{children}</th>
+      ),
+      td: ({ children }: ComponentPropsWithoutRef<"td">) => (
+        <td className="border-b border-[color:var(--t-br06)] px-3 py-2 align-top text-[var(--t-text-card-body)]">{children}</td>
+      ),
     }),
     [],
   );
@@ -1841,7 +1873,7 @@ function AssistantBlock({
             </p>
           )
         ) : showWebDualPane ? null : (
-          <ReactMarkdown>{intro}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>{intro}</ReactMarkdown>
         )}
         {databaseSynthesisWaiting ? (
           <div
@@ -1898,7 +1930,7 @@ function AssistantBlock({
                             </p>
                           ) : null}
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
-                            <ReactMarkdown components={webMdLinkComponents}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthesisShown : synthesisMd}
                             </ReactMarkdown>
                             <TypewriterCaret visible={synthCaret} />
@@ -2045,7 +2077,7 @@ function AssistantBlock({
                     ) : null}
                     {synthesisParts.directMd ? (
                       <div className="relative max-w-full">
-                        <ReactMarkdown components={mdLinkComponents}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>
                           {synthStreamEnabled ? synthDirectShown : synthesisParts.directMd}
                         </ReactMarkdown>
                         <TypewriterCaret
@@ -2057,7 +2089,7 @@ function AssistantBlock({
                       </div>
                     ) : synthesisMd ? (
                       <div className="relative max-w-full">
-                        <ReactMarkdown components={mdLinkComponents}>{synthShown}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>{synthShown}</ReactMarkdown>
                         <TypewriterCaret visible={synthCaret} />
                       </div>
                     ) : null}
@@ -2070,7 +2102,7 @@ function AssistantBlock({
                           下列内容来自跑题、邻近领域或仅可类比的摘录，供拓展阅读，<strong>不构成</strong>对上文的直接结论。
                         </p>
                         <div className="relative max-w-full opacity-95">
-                          <ReactMarkdown components={mdLinkComponents}>{synthIndirectShown}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>{synthIndirectShown}</ReactMarkdown>
                           <TypewriterCaret
                             visible={
                               synthCaret &&
@@ -2145,7 +2177,7 @@ function AssistantBlock({
                 ) : null}
                 {deepSynthesisMd ? (
                   <div className="relative max-w-full">
-                    <ReactMarkdown components={mdLinkComponents}>{deepShown}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>{deepShown}</ReactMarkdown>
                     <TypewriterCaret visible={deepCaret} />
                   </div>
                 ) : null}
@@ -2174,10 +2206,12 @@ function AssistantBlock({
             ) : null}
           </div>
         ) : null}
-        {isWebTriAnswer ? (
+        {isWebTriAnswer || isAttachmentTriAnswer ? (
           <details className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2">
             <summary className="cursor-pointer list-none text-[11px] font-semibold text-[var(--t-text)] [&::-webkit-details-marker]:hidden">
-              两模型独立作答（仲裁前对照，点击展开）
+              {isAttachmentTriAnswer
+                ? "两模型独立作答（合并前对照，点击展开）"
+                : "两模型独立作答（仲裁前对照，点击展开）"}
             </summary>
             {webTriConfigIncomplete ? (
               <p className="mt-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-800 dark:text-amber-200">
@@ -2194,7 +2228,7 @@ function AssistantBlock({
                 <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
                   <p className="mb-1 font-semibold text-[var(--t-text)]">模型 {slot}</p>
                   {md?.trim() ? (
-                    <ReactMarkdown components={mdLinkComponents}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinkComponents}>
                       {linkifySynthesisCitations(md, msg.papers)}
                     </ReactMarkdown>
                   ) : (
@@ -4600,7 +4634,7 @@ export default function App({
               {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
             </button>
           ) : (
-            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{edition === "finance" ? "数智通 金融" : "企业版"}</span>
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{edition === "finance" ? "数智通|金融" : "企业版"}</span>
           )}
         </header>
 
@@ -4819,7 +4853,7 @@ export default function App({
                   tabIndex={-1}
                   className="pointer-events-none absolute h-0 w-0 opacity-0"
                   multiple
-                  accept=".pdf,.pptx,.ppsx,.md,.markdown,.txt,.text,.doc,.docx,.docm,image/*,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                  accept=".pdf,.pptx,.ppsx,.xlsx,.xlsm,.csv,.tsv,.md,.markdown,.txt,.text,.doc,.docx,.docm,image/*,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                   onChange={onFilesSelected}
                   disabled={uploadBusy || exportPickMode}
                 />
@@ -4855,7 +4889,7 @@ export default function App({
                   aria-label={
                     attachments.length > 0 ? `已附加 ${attachments.length} 个文件，点击继续添加` : "上传文件"
                   }
-                  title="支持图片、PDF、PPTX、Markdown、TXT、Word，单文件 ≤100MB"
+                  title="支持图片、PDF、PPTX、Excel（.xlsx / .xlsm）、CSV、TSV、Markdown、TXT、Word，单文件 ≤100MB"
                 >
                   {uploadBusy ? (
                     <LoadingSpinner />

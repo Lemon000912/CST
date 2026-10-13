@@ -3,7 +3,7 @@ export const APP_EDITIONS = Object.freeze(["school", "enterprise", "finance"]);
 export function normalizeAppEdition(value) {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "enterprise") return "enterprise";
-  if (["finance", "financial", "数智通金融", "数智通 金融"].includes(normalized)) return "finance";
+  if (["finance", "financial", "数智通金融", "数智通 金融", "数智通|金融"].includes(normalized)) return "finance";
   return "school";
 }
 

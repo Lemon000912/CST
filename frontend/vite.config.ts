@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
       {
         name: "edition-html-title",
         transformIndexHtml(html) {
-          const appTitle = edition === "finance" ? "数智通 金融" : "犀材探索";
+          const appTitle = edition === "finance" ? "数智通|金融" : "犀材探索";
           return html.replace(/<title>.*?<\/title>/, `<title>${appTitle}</title>`);
         },
       },

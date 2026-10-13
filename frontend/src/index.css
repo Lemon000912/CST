@@ -335,6 +335,19 @@ html {
     @apply font-semibold text-[var(--t-text-strong)];
   }
 
+  .qp-web-synth table {
+    @apply my-0 w-full border-collapse text-left text-[12px] leading-relaxed;
+  }
+
+  .qp-web-synth th {
+    @apply border-b border-[color:var(--t-br08)] px-3 py-2 font-semibold text-[var(--t-text)];
+    background: var(--t-muted);
+  }
+
+  .qp-web-synth td {
+    @apply border-b border-[color:var(--t-br06)] px-3 py-2 align-top text-[var(--t-text-card-body)];
+  }
+
   .qp-thinking-bar {
     @apply mb-3 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-[13px] transition-colors;
     border-color: var(--t-br06);
@@ -647,10 +660,8 @@ html {
     }
   }
 
-  .qp-markdown-scroll table {
-    display: block;
+  .qp-markdown-table-scroll {
     max-width: 100%;
-    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
 

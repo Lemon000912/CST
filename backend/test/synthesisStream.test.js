@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createSynthesisStreamEmitter } from "../synthesisStream.js";
-import { parseSynthesisOutput } from "../synthesisExtract.js";
+import { finalizeSynthesisMarkdown, normalizeMalformedMarkdownTables, parseSynthesisOutput } from "../synthesisExtract.js";
+
+test("malformed joined Markdown table rows are restored before rendering", () => {
+  const raw = "| 指标 | 数值 | 单位 | 条件 | 来源 || --- | --- | --- | --- | --- || 单丝直径 | ≤9 | 微米 | 电子级玻璃纤维纱 | [2] || 幅宽 | 1270 | mm | 7628型号 | [1]";
+  const normalized = normalizeMalformedMarkdownTables(raw);
+  assert.equal(normalized.split("\n").length, 4);
+  const finalized = finalizeSynthesisMarkdown(raw);
+  assert.match(finalized.markdown, /\n\|---/);
+  assert.equal(finalized.markdown.split("\n").length, 4);
+});
+
+test("pipe-heavy text in code fences is left untouched by table normalization", () => {
+  const raw = "```text\n| a || b |\n```";
+  assert.equal(normalizeMalformedMarkdownTables(raw), raw);
+});
 
 test("invalid structured JSON footer is removed from visible markdown", () => {
   const parsed = parseSynthesisOutput(

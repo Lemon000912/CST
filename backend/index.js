@@ -78,7 +78,7 @@ import {
 import { getElsevierScopusConfig } from "./scopusElsevier.js";
 import { lookupUnpaywallOa } from "./unpaywallOa.js";
 import { rateLimitHit, createScopedLimiter } from "./rateLimit.js";
-import { uploadMiddleware, extractDocumentText, MAX_UPLOAD_MB } from "./extract.js";
+import { uploadMiddleware, extractDocumentText, normalizeUploadedFilename, MAX_UPLOAD_MB } from "./extract.js";
 import { buildProcessArtifacts } from "./processArtifacts.js";
 import { buildPptxBuffer } from "./buildPptx.js";
 import { buildDocxBuffer } from "./buildDocx.js";
@@ -453,7 +453,7 @@ const QUERY_SYNTAX_HELP = `## 查询语法（摘录）
 - **网页渠道（网页+专利）**：选择「网页」时**不检索** arXiv、Crossref、OpenAlex 论文、Semantic Scholar、Scopus、Europe PMC 等；仅 **并行** 拉取 **全网网页**（Dataify / MCP Brave / DuckDuckGo，每条须带 **http(s) 链接**）与 **专利**（OpenAlex 专利 + 专利网页检索）；并对网页条目**尽量抓取正文**（\`webFetchNote: fetched\`）写入 \`summary\`。**响应同时含**：\`synthesis\`（联网综合回答）、\`papers[].summary\`（检索摘录，界面分块展示）。查论文库请用「**数据库优先**」；Scopus 仅数据库渠道（可选 \`ELSEVIER_API_KEY\`）。默认单路回答使用主 Provider/A；\`WEB_TRI_MODE=tri\` 时由 A/B 独立作答，再由 C 读取两份草稿并输出仲裁终稿。摘录长度见 \`WEB_FETCH_MAX_CHARS\`、\`WEB_SYNTH_EXCERPT_*\`。
 - **文献综述**：已配置 LLM Key 时，\`POST /api/v1/search\` 默认在检索完成后基于返回文献的**摘要摘录**生成中文综述；引用处须带 \`(DOI: …)\` 或 \`(arXiv: …)\`。**若用户问题或摘录涉及工艺链、工序、产线/SOP 等**，综述中的「方案说明」会要求包含 **\`### 工序流程\`** 有序步骤，且与响应 JSON 字段 \`synthesisPlan.steps\` 对齐。请求体 \`"includeSynthesis": false\` 可关闭。**双模型共识**仍可在同一主 Provider 内用 \`X-Model-B\` / \`modelB\` 运行。**三 Provider 仲裁**使用原子配置 \`LLM_PROVIDER_A_*\`、\`LLM_PROVIDER_B_*\`、\`LLM_PROVIDER_C_*\`：A/B 为各自独立 OpenAI-compatible URL/Key/model，C 为 Gemini Developer API 原生 \`generateContent\`，并输出唯一终稿（\`synthesisModels.mode=tri_arbitration\`）；响应仅返回模型名与模式，不返回 Key/URL。
 - **身份 / 用途（Skill）**：请求头 \`X-Persona\` 或 JSON 体 \`persona\` 填内置 id（见 \`GET /api/v1/personas\`）。服务端在**检索式 LLM 改写**与**文献综述**前会先拼接对应 Skill 再调用模型；未传时默认为 \`researcher\`。
-- **上传**：支持 PDF、Markdown、TXT、Word（.docx / .doc），解析后的正文会并入检索上下文（见 \`POST /api/v1/extract\`）。
+- **上传**：支持 PDF、PPTX、Excel（.xlsx / .xlsm）、CSV、TSV、Markdown、TXT、Word（.docx / .doc），解析后的正文会并入检索上下文（见 \`POST /api/v1/extract\`）。
 - **无命中扩检**：\`POST /api/v1/search\` 在首次检索返回文献 **≤12 条**时，会自动再跑一轮放宽检索（arXiv 字段固定为全文综合 \`all\`、关闭检索式 LLM 改写或附带扩检提示再改写），仍无结果时会在 \`rewriteNote\` 中带 \`expand2:still_zero\`。
 - **材料 MatSciBERT（身份 skill）**：侧栏身份选 **「材料 MatSciBERT（NER）」**（id: \`materials_matsci\`）时，服务端会用本机 Python 加载 \`MATSCI_PIPELINE_ROOT\` 下的 \`pipeline.py\` + MatSciBERT NER，在用户检索句后追加材料实体短语，再进入 LLM 检索式改写与多源检索。Windows 默认目录为 \`E:\\15w\`，Linux 默认目录为 \`/home/ubuntu/15w\`；生产环境仍应显式配置 \`MATSCI_PIPELINE_ROOT\` 和 \`MATSCI_PYTHON\`，\`MATSCI_NER_DISABLE=1\` 可关闭。
 - **短语**：用英文双引号包裹，例如 \`"deep learning"\`。
@@ -1721,16 +1721,17 @@ app.post("/api/v1/extract", (req, res, next) => {
     if (!req.file?.path) {
       return res.status(400).json({ error: "未收到文件（字段名须为 file）" });
     }
+    const originalFilename = normalizeUploadedFilename(req.file.originalname || "file");
     console.log(
       "[extract]",
-      String(req.file.originalname || "file").slice(0, 120),
+      originalFilename.slice(0, 120),
       `${req.file.size} bytes`,
     );
     const uploadBuffer = await fs.promises.readFile(req.file.path);
-    const text = await extractDocumentText(uploadBuffer, req.file.originalname);
+    const text = await extractDocumentText(uploadBuffer, originalFilename);
     await fs.promises.unlink(req.file.path).catch(() => {});
     res.json({
-      filename: String(req.file.originalname || "file").slice(0, 512),
+      filename: originalFilename.slice(0, 512),
       charCount: text.length,
       preview: text.slice(0, 400),
       text,
@@ -2180,6 +2181,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           );
           synthesisNote = synAtt.note ?? null;
           synthesisModels = synAtt.synthesisModels;
+          webAnswerDrafts = synAtt.webAnswerDrafts ?? undefined;
           if (synAtt.markdown) {
             fullSynthesis = synAtt.markdown;
             plan = synAtt.plan ?? null;
@@ -2750,6 +2752,7 @@ app.post("/api/v1/search", async (req, res) => {
         synthesisPlan = synAtt.plan ?? null;
         synthesisPlanNote = synAtt.planNote ?? null;
         synthesisModelsOut = synAtt.synthesisModels;
+        webAnswerDraftsOut = synAtt.webAnswerDrafts ?? undefined;
       } else {
         synthesisNote = synAtt.note ?? "attach_synth:empty";
       }

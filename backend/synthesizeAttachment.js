@@ -12,7 +12,7 @@ import {
 } from "./synthesisExtract.js";
 
 const ATTACHMENT_SYNTH_SYSTEM =
-  "你是「上传文档分析」助手。用户已上传文件，系统已从 PDF/Word/PPT 等解析出正文摘录。\n\n" +
+  "你是「上传文档分析」助手。用户已上传文件，系统已从 PDF/Word/Excel/PPT 等解析出正文摘录。\n\n" +
   "【硬性规则】\n" +
   "1. **只能**依据【上传文件摘录】作答；禁止用通用常识补充文档未出现的公司名、产能、产品型号、应用场景。\n" +
   "2. 用户问行业、应用场景、技术路线时：须**逐条列出文档中写明的方向**；文档未写明的要点列入「未在文档中出现：…」。\n" +
@@ -174,6 +174,7 @@ export async function synthesizeFromAttachmentContext(p) {
       planNote: null,
       note: "attach_synth:no-context",
       synthesisModels: null,
+      webAnswerDrafts: null,
     };
   }
 
@@ -186,6 +187,7 @@ export async function synthesizeFromAttachmentContext(p) {
       planNote: null,
       note: "attach_synth:no-llm-key",
       synthesisModels: null,
+      webAnswerDrafts: null,
     };
   }
 
@@ -200,6 +202,8 @@ export async function synthesizeFromAttachmentContext(p) {
     signal: p.signal,
   };
   const chars = attachmentContext.length;
+  let comparisonDrafts = null;
+  let triSynthesisModels = null;
 
   if (triCfg) {
     const [ra, rb] = await Promise.all([
@@ -212,6 +216,15 @@ export async function synthesizeFromAttachmentContext(p) {
       modelC: triCfg.C.model,
       mode: "attachment_tri",
     };
+    comparisonDrafts = {
+      modelA: ra.markdown,
+      modelB: rb.markdown,
+      modelC: null,
+      noteA: ra.note,
+      noteB: rb.note,
+      noteC: "attachment:merge_only",
+    };
+    triSynthesisModels = synthesisModels;
 
     if (ra.markdown && rb.markdown) {
       const merged = await mergeAttachmentDrafts({
@@ -232,6 +245,7 @@ export async function synthesizeFromAttachmentContext(p) {
           planNote: merged.planNote ?? null,
           note: `attach_synth:tri_merge_ok|chars=${chars}`,
           synthesisModels: { ...synthesisModels, mode: "attachment_tri_merge" },
+          webAnswerDrafts: comparisonDrafts,
         };
       }
     }
@@ -244,6 +258,7 @@ export async function synthesizeFromAttachmentContext(p) {
         planNote: pick.planNote ?? null,
         note: `attach_synth:tri_single_ok|chars=${chars}`,
         synthesisModels: { ...synthesisModels, mode: "attachment_tri_single" },
+        webAnswerDrafts: comparisonDrafts,
       };
     }
   }
@@ -261,7 +276,10 @@ export async function synthesizeFromAttachmentContext(p) {
       plan: r.plan ?? null,
       planNote: r.planNote ?? null,
       note: `attach_synth:single_ok|chars=${chars}`,
-      synthesisModels: { modelA: singleProvider.model, mode: "attachment_single" },
+      synthesisModels: triCfg
+        ? { ...triSynthesisModels, mode: "attachment_tri_single" }
+        : { modelA: singleProvider.model, mode: "attachment_single" },
+      webAnswerDrafts: comparisonDrafts,
     };
   }
 
@@ -271,5 +289,6 @@ export async function synthesizeFromAttachmentContext(p) {
     planNote: null,
     note: `attach_synth:fail:${r.note}`,
     synthesisModels: null,
+    webAnswerDrafts: null,
   };
 }

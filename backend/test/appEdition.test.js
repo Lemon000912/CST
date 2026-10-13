@@ -18,6 +18,7 @@ test("application edition is fixed from server configuration", () => {
   assert.equal(isEnterpriseAppEdition("school"), false);
   assert.equal(normalizeAppEdition("finance"), "finance");
   assert.equal(normalizeAppEdition("数智通 金融"), "finance");
+  assert.equal(normalizeAppEdition("数智通|金融"), "finance");
   assert.equal(getConfiguredAppEdition({ APP_EDITION: "finance" }), "finance");
   assert.equal(isBusinessAppEdition("finance"), true);
 });
