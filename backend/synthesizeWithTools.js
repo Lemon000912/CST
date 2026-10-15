@@ -1,25 +1,26 @@
 /**
- * 带工具调用的综合服务
- * 模型可以主动决定是否需要联网搜索
+ * 兼容旧「智能综合」入口。
+ * 当前只使用调用方提供的检索结果，不启用模型工具调用。
  */
 
 import { resolvePrimaryProvider } from "./llmProviders.js";
-import { generateTextWithTools, providerSupportsTools } from "./llmClientWithTools.js";
 import { generateText } from "./llmClient.js";
 
 /**
- * 智能综合：模型自主决定是否需要联网搜索
+ * 智能综合：使用调用方已经完成的检索结果，不再让模型二次调用联网工具。
+ *
+ * 这个函数和 /api/v1/search/smart 保留是为了兼容旧客户端；项目当前的联网
+ * 搜索统一由 runPaperSearch 在请求开始后完成，然后把结果作为上下文交给模型。
  * @param {object} options
  * @param {string} options.query - 用户查询
  * @param {object[]} options.papers - 已有的文献/网页结果
  * @param {string} [options.model] - 指定模型
- * @param {boolean} [options.forceWebSearch=false] - 强制启用联网搜索工具
- * @returns {Promise<object>} { text, usage, toolCalls, provider }
+ * @param {boolean} [options.forceWebSearch=false] - 兼容旧参数，当前忽略
+ * @returns {Promise<object>} { text, usage, toolCalls: [], provider }
  */
 export async function synthesizeWithAutoTools(options) {
   const query = String(options?.query || "").trim();
   const papers = Array.isArray(options?.papers) ? options.papers : [];
-  const forceWebSearch = options?.forceWebSearch ?? false;
 
   // 解析Provider
   const provider = resolvePrimaryProvider(options?.model);
@@ -29,16 +30,11 @@ export async function synthesizeWithAutoTools(options) {
 
   console.log(`[synthesize.auto_tools] query="${query.slice(0, 100)}" papers=${papers.length}`);
 
-  // 检查Provider是否支持工具调用
-  const supportsTools = providerSupportsTools(provider);
-  console.log(`[synthesize.auto_tools] Provider supports tools: ${supportsTools}`);
+  // 联网搜索已经在 runPaperSearch 中完成。这里明确不再提供 web_search
+  // Function Calling，避免同一次用户请求重复搜索或绕过项目的多源合并逻辑。
+  console.log("[synthesize.auto_tools] web_search tool disabled; using retrieved context only");
 
-  // 决定是否启用联网搜索工具
-  const enableWebSearch = forceWebSearch || (supportsTools && shouldEnableWebSearchTool(query, papers));
-  console.log(`[synthesize.auto_tools] Enable web search tool: ${enableWebSearch}`);
-
-  // 构建System Prompt
-  const systemPrompt = buildSystemPromptWithTool(enableWebSearch);
+  const systemPrompt = buildSystemPromptWithTool(false);
 
   // 构建上下文
   const context = buildContext(query, papers);
@@ -51,74 +47,20 @@ export async function synthesizeWithAutoTools(options) {
     },
   ];
 
-  // 调用LLM（带工具支持）
-  if (enableWebSearch && supportsTools) {
-    const result = await generateTextWithTools(provider, {
-      system: systemPrompt,
-      messages,
-      temperature: 0.3,
-      maxTokens: 4000,
-      enableWebSearch: true,
-      maxToolIterations: 3,
-      timeoutMs: 180_000, // 3分钟超时
-    });
+  const result = await generateText(provider, {
+    system: systemPrompt,
+    messages,
+    temperature: 0.3,
+    maxTokens: 4000,
+    timeoutMs: 120_000,
+  });
 
-    console.log(`[synthesize.auto_tools] Generated ${result.text.length} chars with ${result.toolCalls.length} tool calls`);
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      toolCalls: result.toolCalls,
-      provider: provider.model,
-    };
-  } else {
-    // 降级到普通综合（无工具）
-    const result = await generateText(provider, {
-      system: systemPrompt,
-      messages,
-      temperature: 0.3,
-      maxTokens: 4000,
-      timeoutMs: 120_000,
-    });
-
-    return {
-      text: result?.text || "",
-      usage: result?.usage,
-      toolCalls: [],
-      provider: provider.model,
-    };
-  }
-}
-
-/**
- * 判断是否应该启用联网搜索工具
- * 规则：
- * 1. 查询包含时间（如2026、2025等）
- * 2. 查询包含实时性关键词（如"最新"、"当前"、"现在"）
- * 3. 查询包含指标关键词（如"产能利用率"、"价格"、"开工率"）
- * 4. 现有结果较少（<5条）
- */
-function shouldEnableWebSearchTool(query, papers) {
-  const q = query.toLowerCase();
-
-  // 规则1：包含年份
-  const hasYear = /20\d{2}/.test(query);
-
-  // 规则2：实时性关键词
-  const hasRealtime = /最新|当前|现在|目前|今年|本月|近期|实时/.test(query);
-
-  // 规则3：数据指标关键词
-  const hasMetric = /产能利用率|开工率|价格|销量|市场份额|增长率|统计|数据|指标/.test(query);
-
-  // 规则4：结果较少
-  const hasLittleData = papers.length < 5;
-
-  // 满足任意2个条件就启用
-  const score = [hasYear, hasRealtime, hasMetric, hasLittleData].filter(Boolean).length;
-
-  console.log(`[synthesize.auto_tools] Decision factors: year=${hasYear} realtime=${hasRealtime} metric=${hasMetric} littleData=${hasLittleData} score=${score}/4`);
-
-  return score >= 2;
+  return {
+    text: result?.text || "",
+    usage: result?.usage,
+    toolCalls: [],
+    provider: provider.model,
+  };
 }
 
 /**
@@ -137,7 +79,10 @@ function buildSystemPromptWithTool(includeToolHint) {
     prompt += `\n\n**重要**：如果已有信息不足以回答问题，你可以使用 web_search 工具进行联网搜索获取更多信息。
 - 当需要最新数据、统计指标、行业报告等信息时，主动调用工具
 - 搜索查询要具体明确，包含实体名称、指标类型和时间范围
-- 可以多次调用工具搜索不同的关键词
+- 对多实体数值问题逐项核对实体、指标、时间和数值；不能只因已有网页条数充足就认为证据完整，缺失的产品应单独补搜
+- 对多产品问题按产品分别搜索；优先使用“产能利用率/开工率/开工负荷/装置负荷 + 年份 + 隆众资讯/卓创资讯/我的钢铁网”等定向词
+- 如果搜索结果里有可能包含数字的 URL 但摘要不足，调用 web_open_url 读取该 URL 的正文或 PDF；读取失败的 URL 不能当作事实依据
+- 已有摘录已直接支持目标实体和指标时不要重复发起宽泛搜索；只补查缺失项，并针对高价值页面打开正文
 - 基于搜索结果给出完整答案`;
   }
 
@@ -166,10 +111,10 @@ function buildContext(query, papers) {
     });
   } else {
     context += `已有信息：无\n\n`;
-    context += `请使用联网搜索工具查找相关信息。\n\n`;
+    context += `本轮没有返回可用检索摘录，请明确说明信息不足，不要自行编造事实。\n\n`;
   }
 
-  context += `请回答用户问题。如果信息不足，使用 web_search 工具搜索更多信息。`;
+  context += `请基于以上检索摘录回答用户问题；如果信息不足，请明确列出未找到的要点。`;
 
   return context;
 }

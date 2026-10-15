@@ -14,9 +14,11 @@ import {
 import { webSearchRecallMode, webIncludeMinScore } from "./searchRecall.js";
 
 const WEB_SOURCES = new Set([
+  "direct_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",
+  "baidu_web",
   "tavily_web",
   "searx_web",
   "qwant_web",
@@ -25,6 +27,7 @@ const WEB_SOURCES = new Set([
   "core",
   "entity_seed",
   "finance_web",
+  "deepseek_web",
 ]);
 const PATENT_SOURCES = new Set(["ddg_patent", "openalex_patent"]);
 
@@ -34,6 +37,16 @@ export const WEB_OFFTOPIC_RE =
 
 const TECH_QUERY_RE =
   /聚氨酯|polyurethane|阻燃|聚酯|纤维|spu[-_]?\d|涂料|防水|密封|弹性体|compound|patent|专利|聚合物|树脂|固化剂|环氧|丙烯|桥隧|重载|工程材料/i;
+
+// 行业指标问题需要优先保留“指标 + 数值”的页面。SERP 摘要往往只给
+// 出标题，正文证据会在后续抓取阶段补上，因此这里同时检查标题、摘要、
+// webEvidence 和 URL 主域名。
+const INDUSTRY_METRIC_QUERY_RE =
+  /产能利用率|利用率|开工率|开工负荷|装置负荷|负荷率|产量|库存|价格|报价|均价/i;
+const INDUSTRY_DATA_SITE_RE =
+  /(?:oilchem\.net|sci99\.com|mysteel\.com|10jqka\.com\.cn|finance\.sina\.com\.cn|lzqh\.net\.cn|100ppi\.com|stats\.gov\.cn|miit\.gov\.cn|customs\.gov\.cn|mei\.net\.cn|caam\.org\.cn|chinaisa\.org\.cn|chinania\.org\.cn|隆众资讯|卓创资讯|我的钢铁|钢联|同花顺|新浪财经|期货研究|国家统计局|工业和信息化部|海关总署|中国机经网)/i;
+const GENERIC_CHEMICAL_REFERENCE_RE =
+  /(?:baike\.baidu\.com|wikipedia\.org|chemicalbook|chembk|chemsrc|chemnet\.com\/dict|molaid\.com|msds|sigma.?aldrich|aladdin-e\.com|南京化学试剂|reagent|\bcas(?:号| no\.?| database)|试剂|产品中心|产品详情|product_detail|词典|百科)/i;
 
 /** 用户意图偏「企业 / 产品 / 资本」——此类下旅游攻略类网页应强降权或剔除 */
 const CORPORATE_WEB_INTENT_RE =
@@ -208,6 +221,19 @@ export function scoreWebPaperForAnswer(p, tokens, coreQuery, fullQuery) {
   const rel = tokens.length ? relevanceRatio(p, tokens) : 0;
   const hits = countHits(p, tokens);
   let score = rel * 100 + hits * 28;
+
+  const industryIntent = INDUSTRY_METRIC_QUERY_RE.test(`${coreQuery} ${fullQuery}`);
+  if (industryIntent && isWebPaper(p)) {
+    const evidence = Array.isArray(p?.webEvidence) ? p.webEvidence.join(" ") : "";
+    const metricText = `${text} ${evidence}`;
+    const hasMetric = INDUSTRY_METRIC_QUERY_RE.test(metricText);
+    const hasNumericValue = /\d+(?:\.\d+)?\s*(?:%|％|万吨|万吨\/年|万?吨|元(?:\/|每)?吨|亿元|万元)/i.test(metricText);
+    if (hasMetric) score += 28;
+    if (hasMetric && hasNumericValue) score += 72;
+    if (INDUSTRY_DATA_SITE_RE.test(text)) score += 42;
+    if (GENERIC_CHEMICAL_REFERENCE_RE.test(text) && !(hasMetric && hasNumericValue)) score -= 110;
+    if (/20\d{2}/.test(text) && hasMetric) score += 12;
+  }
 
   for (const c of extractProductCodes(`${coreQuery} ${fullQuery}`)) {
     const u = text.toUpperCase();
@@ -403,6 +429,58 @@ function webSynthStrictMode() {
   return v !== "0" && v !== "false" && v !== "no";
 }
 
+/**
+ * 多实体行业指标问法需要逐实体进入综合上下文。搜索结果的标题/摘要
+ * 经常只有「某产品周报」而没有数字，正文抓取后才会出现开工率或百分比；
+ * 这类页面不能仅按通用相关度阈值筛掉。
+ */
+function isMultiEntityMetricCoverageQuery(query, papers) {
+  if (!INDUSTRY_METRIC_QUERY_RE.test(String(query ?? ""))) return false;
+  const entities = new Set(
+    (Array.isArray(papers) ? papers : []).flatMap((p) =>
+      Array.isArray(p?._matchedEntities) ? p._matchedEntities : [],
+    ),
+  );
+  return entities.size >= 4;
+}
+
+function coveragePaperScore(p, baseScore, query) {
+  const text = `${p?.title || ""} ${p?.summary || ""} ${p?.abstract || ""}`;
+  const evidence = Array.isArray(p?.webEvidence) ? p.webEvidence.join(" ") : "";
+  const metricText = `${text} ${evidence}`;
+  let score = baseScore;
+  if (INDUSTRY_METRIC_QUERY_RE.test(metricText)) score += 36;
+  if (/\d+(?:\.\d+)?\s*(?:%|％|万吨|万?吨|元(?:\/|每)?吨|亿元|万元)/i.test(metricText)) score += 120;
+  if (String(p?.webFetchNote ?? "") === "fetched") score += 18;
+  if (INDUSTRY_DATA_SITE_RE.test(`${text} ${p?.absUrl || ""}`)) score += 24;
+  if (String(query ?? "").includes("2026") && /2026/.test(metricText)) score += 12;
+  return score;
+}
+
+function selectEntityCoverageWebs(scored, query) {
+  const byEntity = new Map();
+  for (const item of scored) {
+    const paper = item.p;
+    if (!isWebPaper(paper) || !/^https?:\/\//i.test(String(paper?.absUrl ?? "").trim())) continue;
+    for (const entity of Array.isArray(paper?._matchedEntities) ? paper._matchedEntities : []) {
+      const key = String(entity ?? "").trim();
+      if (!key) continue;
+      const current = byEntity.get(key);
+      const ranked = { ...item, coverageScore: coveragePaperScore(paper, item.score, query) };
+      if (!current || ranked.coverageScore > current.coverageScore) byEntity.set(key, ranked);
+    }
+  }
+  const seen = new Set();
+  return [...byEntity.values()]
+    .sort((a, b) => b.coverageScore - a.coverageScore)
+    .filter((item) => {
+      const key = String(item.p?.absUrl ?? "").split("#")[0].toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, effectiveQuery = "") {
   const full = `${String(userQuery ?? "").trim()}\n${String(effectiveQuery ?? "").trim()}`.trim();
   const core = extractCoreSearchQuery(String(userQuery ?? "")) || extractCoreSearchQuery(full) || full;
@@ -446,8 +524,19 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
   let patents = scored.filter((x) => isPatentPaper(x.p) && x.score >= minPatent);
 
   let maxP = Math.min(6, patents.length);
-  let maxW = Math.min(cap - maxP, webs.length, corp ? 22 : 16);
-  let picked = [...webs.slice(0, maxW).map((x) => x.p), ...patents.slice(0, maxP).map((x) => x.p)];
+  const metricCoverage = isMultiEntityMetricCoverageQuery(full, rawList);
+  const coverageWebs = metricCoverage ? selectEntityCoverageWebs(scored, full) : [];
+  const coverageKeys = new Set(coverageWebs.map((x) => String(x.p.absUrl ?? "").split("#")[0].toLowerCase()));
+  const rankedWebs = metricCoverage
+    ? [...coverageWebs, ...webs.filter((x) => !coverageKeys.has(String(x.p.absUrl ?? "").split("#")[0].toLowerCase()))]
+    : webs;
+  let maxW = Math.min(cap - maxP, rankedWebs.length, corp ? 22 : 16);
+  // 每个已识别实体至少占一个网页名额；其余名额仍按通用相关度补齐。
+  if (metricCoverage) maxW = Math.min(cap - maxP, rankedWebs.length, Math.max(maxW, coverageWebs.length));
+  let picked = [
+    ...rankedWebs.slice(0, maxW).map((x) => x.p),
+    ...patents.slice(0, maxP).map((x) => x.p),
+  ];
 
   /** 强相关不足：从全量网页/专利中补「弱锚点」摘录（严格模式关闭，避免弱相关进作答） */
   if (!strict && picked.length < minSources) {

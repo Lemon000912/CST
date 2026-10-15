@@ -1,20 +1,21 @@
 /**
- * 智能搜索功能测试脚本
- * 演示模型如何主动调用联网搜索工具
+ * 兼容智能搜索入口测试脚本
+ * 当前入口只验证基于预先检索结果的模型综合，不再触发 web_search 工具。
  */
 
-import { synthesizeWithAutoTools, formatToolCallsLog } from "./synthesizeWithTools.js";
+// 这是演示脚本，复用后端真实实现；不在 test 目录复制一份工具模块。
+import { synthesizeWithAutoTools, formatToolCallsLog } from "../synthesizeWithTools.js";
 
 // 测试用例
 const TEST_CASES = [
   {
-    name: "多实体产能利用率查询（应该触发联网搜索）",
+    name: "多实体产能利用率查询（使用前置检索结果）",
     query: "2023年产能利用率低于75%的14种化工品：1-丁烯、MTBE、裂解C9、苯乙烯、环氧乙烷、二甲苯、甲苯、丁二烯、PO、DEG、MEG、PX、烷基化油、硫磺，查询这些产品在2026年的产能利用率",
     papers: [],
     forceWebSearch: true,
   },
   {
-    name: "最新价格查询（应该触发联网搜索）",
+    name: "最新价格查询（使用前置检索结果）",
     query: "查询2026年10月铜的最新价格",
     papers: [],
     forceWebSearch: true,
@@ -89,9 +90,9 @@ async function main() {
   console.log("智能搜索功能测试");
   console.log("=".repeat(80));
   console.log("\n本测试将演示:");
-  console.log("1. 模型如何自主判断是否需要联网搜索");
-  console.log("2. 模型如何调用 web_search 工具");
-  console.log("3. 模型如何基于搜索结果生成答案");
+  console.log("1. 请求先完成多源联网检索");
+  console.log("2. 模型只基于检索结果生成答案");
+  console.log("3. web_search 工具调用应保持为 0");
   console.log("\n注意: 需要配置LLM Provider和搜索API Key");
 
   const results = [];

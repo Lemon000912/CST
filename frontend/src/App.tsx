@@ -1220,8 +1220,20 @@ function formatSourceUsedTag(tag: string): string {
   if (tag.startsWith("semantic:")) return "语义理解";
   if (tag.startsWith("embed:")) return "向量重排";
   if (tag.startsWith("web:")) return `网页（${tag.slice(4)}）`;
-  if (tag.startsWith("finance:eastmoney")) return "东方财富网";
-  if (tag.startsWith("finance:wind")) return "万得";
+  if (tag.startsWith("site:eastmoney") || tag.startsWith("finance:eastmoney")) return "东方财富网";
+  if (tag.startsWith("site:wind") || tag.startsWith("finance:wind")) return "万得";
+  if (tag.startsWith("site:ruida") || tag.startsWith("finance:ruida")) return "瑞达期货";
+  if (tag.startsWith("site:sina") || tag.startsWith("finance:sina")) return "新浪财经";
+  if (tag.startsWith("site:longzhong") || tag.startsWith("finance:longzhong")) return "隆众资讯";
+  if (tag.startsWith("site:zhuochuang") || tag.startsWith("finance:zhuochuang")) return "卓创资讯";
+  if (tag.startsWith("site:guotai_junan") || tag.startsWith("finance:guotai_junan")) return "国泰君安";
+  if (tag.startsWith("site:stats")) return "国家统计局";
+  if (tag.startsWith("site:miit")) return "工业和信息化部";
+  if (tag.startsWith("site:customs")) return "海关总署";
+  if (tag.startsWith("site:mei")) return "中国机经网";
+  if (tag.startsWith("site:caam")) return "中国汽车工业协会";
+  if (tag.startsWith("site:chinaisa")) return "中国钢铁工业协会";
+  if (tag.startsWith("site:chinania")) return "中国有色金属工业协会";
   if (
     tag === "ddg_web" ||
     tag === "mcp_web" ||

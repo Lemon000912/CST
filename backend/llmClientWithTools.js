@@ -4,9 +4,13 @@
  */
 
 import { generateText } from "./llmClient.js";
-import { WEB_SEARCH_TOOL_DEFINITION, handleToolCall } from "./webSearchTool.js";
+import {
+  WEB_SEARCH_TOOL_DEFINITION,
+  WEB_OPEN_URL_TOOL_DEFINITION,
+  handleToolCall,
+} from "./webSearchTool.js";
 
-const MAX_TOOL_ITERATIONS = 3; // 最多允许3轮工具调用
+const MAX_TOOL_ITERATIONS = 5; // 允许模型进行多轮检索、补查和最终核对
 
 /**
  * 生成文本，支持工具调用
@@ -20,7 +24,8 @@ const MAX_TOOL_ITERATIONS = 3; // 最多允许3轮工具调用
  */
 export async function generateTextWithTools(provider, request) {
   const enableWebSearch = request.enableWebSearch ?? false;
-  const maxIterations = Math.min(5, Math.max(1, request.maxToolIterations || MAX_TOOL_ITERATIONS));
+  const configuredMax = Number(process.env.WEB_TOOL_MAX_ITERATIONS) || MAX_TOOL_ITERATIONS;
+  const maxIterations = Math.min(6, Math.max(1, request.maxToolIterations || configuredMax));
 
   // 如果不启用工具，直接调用原生generateText
   if (!enableWebSearch) {
@@ -47,8 +52,10 @@ export async function generateTextWithTools(provider, request) {
     const llmRequest = {
       ...request,
       messages,
-      tools: [WEB_SEARCH_TOOL_DEFINITION],
-      tool_choice: iteration === 0 ? "auto" : "auto", // 让模型自己决定是否调用工具
+      tools: [WEB_SEARCH_TOOL_DEFINITION, WEB_OPEN_URL_TOOL_DEFINITION],
+      tool_choice: iteration === 0 && request.forceWebSearch
+        ? { type: "function", function: { name: "web_search" } }
+        : "auto",
     };
 
     // 调用LLM（带工具定义）

@@ -7,9 +7,12 @@ import { traceAsync } from "./performanceTrace.js";
 import { fetchDataifyWebUnlockerHtml, getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
 
 const WEB_SOURCES = new Set([
+  "direct_web",
+  "deepseek_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",
+  "baidu_web",
   "tavily_web",
   "searx_web",
   "qwant_web",
@@ -69,6 +72,31 @@ function metaContent(html, names) {
   return "";
 }
 
+/**
+ * 从正文中保留“指标 + 数值”的短证据窗口。很多行业网页把关键百分比放在
+ * 表格或段落中，若只取正文开头，综合模型会看不到这些数字。
+ */
+function extractNumericEvidence(text) {
+  const rows = String(text ?? "")
+    .split(/[。；;\n]+/)
+    .map((row) => row.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const metric = /产能利用率|开工率|开工负荷|负荷率|装置负荷|利用率|产量|价格|报价|均价|库存/;
+  const number = /\d+(?:\.\d+)?\s*(?:%|％|万吨|万吨\/年|万?吨|元(?:\/|每)?吨|亿元|万元)/i;
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    if (!metric.test(row) || !number.test(row)) continue;
+    const value = row.slice(0, 260);
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 /** 识别反爬/验证页（微信公众号等），避免把「环境异常」当成正文入库 */
 function detectBlockedPage(html, url) {
   const t = String(html ?? "");
@@ -99,10 +127,11 @@ function extractFromHtml(html, fallbackTitle) {
   return {
     title: decodeHtmlEntities(title).slice(0, 500) || fallbackTitle,
     text,
+    numericEvidence: extractNumericEvidence(body),
   };
 }
 
-function parseHtmlToPageResult(html, pageUrl, finalUrl) {
+export function parseHtmlToPageResult(html, pageUrl, finalUrl) {
   const u = String(pageUrl ?? "").trim();
   if (html.length < 80) {
     return { ok: false, error: "body_too_short", title: "", text: "" };
@@ -113,13 +142,14 @@ function parseHtmlToPageResult(html, pageUrl, finalUrl) {
   }
   const parsed = extractFromHtml(html, u);
   if (parsed.text.length < 30) {
-    return { ok: false, error: "no_extractable_text", title: parsed.title, text: "" };
+    return { ok: false, error: "no_extractable_text", title: parsed.title, text: "", numericEvidence: [] };
   }
   return {
     ok: true,
     error: null,
     title: parsed.title,
     text: parsed.text,
+    numericEvidence: parsed.numericEvidence ?? [],
     finalUrl: finalUrl || u,
   };
 }
@@ -216,7 +246,7 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
   if (!enabled) return { papers, fetched: 0, skipped: 0, errors: 0 };
 
   const forceFetchAll = Boolean(opts.forceFetchAll);
-  const maxPages = Math.min(20, Math.max(1, Number(opts.maxPages ?? process.env.WEB_FETCH_MAX_PAGES ?? 10)));
+  const maxPages = Math.min(40, Math.max(1, Number(opts.maxPages ?? process.env.WEB_FETCH_MAX_PAGES ?? 10)));
   const timeoutMs = Math.min(25_000, Math.max(5000, Number(opts.timeoutMs ?? process.env.WEB_FETCH_TIMEOUT_MS ?? 14_000)));
   const minSnippet = Number(opts.minExistingAbstractLen ?? 120);
   const maxChars = Math.min(12_000, Math.max(500, Number(process.env.WEB_FETCH_MAX_CHARS ?? 6000)));
@@ -281,8 +311,12 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
     fetched++;
     const mergedText = got.text.slice(0, maxChars);
     const prev = String(row.summary ?? row.abstract ?? "").trim();
-    row.summary = prev.length > mergedText.length ? prev : mergedText;
+    const evidence = Array.isArray(got.numericEvidence) ? got.numericEvidence : [];
+    const evidenceText = evidence.length ? `\n\n【数值证据】${evidence.join("；")}` : "";
+    const candidateText = `${mergedText}${evidenceText}`.slice(0, maxChars + 2600);
+    row.summary = prev.length > candidateText.length ? prev : candidateText;
     row.abstract = row.summary;
+    if (evidence.length) row.webEvidence = evidence;
     // `url` belongs to the worker-local fetch scope. Use the row's URL here
     // instead of referencing that out-of-scope variable (which previously
     // caused `url is not defined` after a successful page fetch).

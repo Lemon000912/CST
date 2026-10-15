@@ -39,12 +39,15 @@ test("recognizes multi-entity metric questions", () => {
 test("extracts every listed product and creates year-metric coverage queries", () => {
   const question = "2023年产能利用率低于75%的14种化工品：纯苯、苯乙烯、丙烯腈、环氧氯丙烷，查询2026年利用率";
   assert.deepEqual(extractRequestedWebEntities(question), ["纯苯", "苯乙烯", "丙烯腈", "环氧氯丙烷"]);
-  assert.deepEqual(buildEntityCoverageQueries(question), [
-    "纯苯 产能利用率 2026年",
-    "苯乙烯 产能利用率 2026年",
-    "丙烯腈 产能利用率 2026年",
-    "环氧氯丙烷 产能利用率 2026年",
+  const queries = buildEntityCoverageQueries(question);
+  assert.equal(queries.length, 8);
+  assert.deepEqual(queries.slice(0, 4), [
+    "site:oilchem.net 纯苯 产能利用率 2026年",
+    "site:sci99.com 苯乙烯 产能利用率 2026年",
+    "site:mysteel.com 丙烯腈 产能利用率 2026年",
+    "site:10jqka.com.cn 环氧氯丙烷 产能利用率 2026年",
   ]);
+  assert.ok(queries.slice(4).some((query) => query.includes("隆众资讯")));
 });
 
 test("uses the configured model to plan bounded queries", async () => {

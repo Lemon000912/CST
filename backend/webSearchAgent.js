@@ -16,6 +16,44 @@ const ENTITY_STOP_WORDS = new Set([
 ]);
 
 /**
+ * 常见化工品的中文名/英文缩写。搜索时把缩写和全称一起带上，
+ * 但实体覆盖仍以用户写法作为 canonical entity，便于最终结果逐项核对。
+ */
+const CHEMICAL_ENTITY_ALIASES = Object.freeze({
+  DEG: ["二乙二醇", "diethylene glycol"],
+  MEG: ["乙二醇", "monoethylene glycol"],
+  PX: ["对二甲苯", "p-xylene", "paraxylene"],
+  MTBE: ["甲基叔丁基醚", "methyl tert-butyl ether"],
+  PO: ["环氧丙烷", "propylene oxide"],
+  EO: ["环氧乙烷", "ethylene oxide"],
+  "裂解C9": ["裂解碳九", "C9"],
+  "1-丁烯": ["1丁烯", "1-butene"],
+  二甲苯: ["混合二甲苯", "xylene"],
+});
+
+// 中文行业数据页面通常不会把“产能利用率”写进网页标题，
+// 但会使用“开工率/开工负荷/装置负荷”等说法，并集中发布在少数
+// 行业资讯站。把这些同义词和站点限定词放进查询，比单纯扩大 SERP
+// 条数更能提高精确页面召回率。
+const INDUSTRY_SITE_TARGETS = Object.freeze([
+  { label: "隆众资讯", domain: "oilchem.net" },
+  { label: "卓创资讯", domain: "sci99.com" },
+  { label: "我的钢铁网", domain: "mysteel.com" },
+  { label: "同花顺", domain: "10jqka.com.cn" },
+  { label: "新浪财经", domain: "finance.sina.com.cn" },
+  { label: "期货研究报告", domain: "lzqh.net.cn" },
+  { label: "生意社", domain: "100ppi.com" },
+]);
+
+const INDUSTRY_METRIC_TERMS = Object.freeze([
+  "产能利用率",
+  "开工率",
+  "开工负荷",
+  "装置负荷",
+  "负荷率",
+]);
+
+/**
  * 从"多个产品/实体 + 指标"的自然语言问题中提取实体。这里故意使用
  * 列表标点和常见引导词，而不是让搜索模型决定覆盖范围，避免 14 个产品
  * 被压缩成 3～4 条泛化查询。
@@ -48,12 +86,17 @@ function parseEntityList(list) {
   list = list
     .replace(/^(?:请|帮我|麻烦|查询|检索|列出|统计|获取)\s*/g, "")
     .replace(/^(?:以下|如下|这些|相关的?)\s*/g, "")
+    // 列表常写成“2026年苯乙烯、甲苯…”，年份属于查询条件，不是实体名。
+    .replace(/^(?:19|20)\d{2}\s*年?\s*/g, "")
     .replace(/[，,]\s*(?:请?查询|统计|获取|求)\s*[^、，,；;]*$/g, "")
     .replace(/[（(][^）)]*(?:年|季度|月份|低于|高于|超过|达到|截至|统计)[^）)]*[）)]/g, " ");
   const parts = list
     .split(/[、，,；;\n]|\s+(?:和|及|与|以及)\s+/)
     .map((part) => part
-      .replace(/^[\s\d.、，,；;：:()（）\[\]【】-]+|[\s。？！?：:()（）\[\]【】-]+$/g, "")
+      // 不要把“1-丁烯”的数字和连字符剥掉；只清理列表标点。
+      .replace(/^[\s.、，,；;：:()（）\[\]【】]+|[\s。？！?：:()（）\[\]【】]+$/g, "")
+      .replace(/^(?:19|20)\d{2}\s*年?\s*/g, "")
+      .replace(/^年\s*/g, "")
       .replace(/(?:低于|高于|超过|达到|约|大约)\s*[\d.]+\s*%?/g, "")
       .replace(/[的之]$/g, "")
       .trim())
@@ -88,7 +131,46 @@ export function buildEntityCoverageQueries(query, maxQueries = 20) {
   const period = extractSearchPeriod(query);
   const suffix = [metric, period].filter(Boolean).join(" ");
   const cap = Math.min(32, Math.max(1, Number(maxQueries) || 20));
-  return entities.slice(0, cap).map((entity) => `${entity} ${suffix}`.trim());
+  const queries = [];
+  const seen = new Set();
+  const push = (q) => {
+    const text = clampQueryForExternalApi(String(q ?? "").replace(/\s+/g, " ").trim(), 320);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key) || queries.length >= cap) return;
+    seen.add(key);
+    queries.push(text);
+  };
+
+  // 第一优先级：每个实体先做一个严格的站点限定查询，保证长尾品种
+  // 不会被综合查询或其他产品的结果挤掉。
+  for (const [index, entity] of entities.entries()) {
+    const aliases = CHEMICAL_ENTITY_ALIASES[entity] ?? [];
+    const site = INDUSTRY_SITE_TARGETS[index % INDUSTRY_SITE_TARGETS.length];
+    push(
+      `site:${site.domain} ${entity}${aliases.length ? ` ${aliases.slice(0, 2).join(" ")}` : ""} ${suffix}`.trim(),
+    );
+  }
+
+  if (queries.length >= cap) return queries;
+
+  // 第二优先级：在严格站点结果不足时，用行业来源名称扩大每个产品的召回。
+  for (const [index, entity] of entities.entries()) {
+    const aliases = CHEMICAL_ENTITY_ALIASES[entity] ?? [];
+    const site = INDUSTRY_SITE_TARGETS[index % INDUSTRY_SITE_TARGETS.length];
+    push(`${entity}${aliases.length ? ` ${aliases[0]}` : ""} ${suffix} ${site.label}`.trim());
+    if (queries.length >= cap) break;
+  }
+
+  return queries;
+}
+
+function entityTextMatches(entity, text) {
+  const blob = String(text ?? "").toLowerCase();
+  const candidates = [entity, ...(CHEMICAL_ENTITY_ALIASES[entity] ?? [])];
+  return candidates.some((candidate) => {
+    const value = String(candidate ?? "").trim().toLowerCase();
+    return value && blob.includes(value);
+  });
 }
 
 /** 给候选页面打上实体覆盖标记，后续相关性过滤不得把唯一命中项全部丢掉。 */
@@ -97,7 +179,7 @@ export function markEntityCoverage(papers, query) {
   if (!entities.length) return Array.isArray(papers) ? papers : [];
   return (Array.isArray(papers) ? papers : []).map((paper) => {
     const text = `${paper?.title ?? ""} ${paper?.summary ?? paper?.abstract ?? ""} ${paper?.absUrl ?? ""}`;
-    const matched = entities.filter((entity) => text.includes(entity));
+    const matched = entities.filter((entity) => entityTextMatches(entity, text));
     return matched.length ? { ...paper, _matchedEntities: matched, _entityCoverage: true } : paper;
   });
 }
@@ -159,7 +241,10 @@ export async function planWebSearchQueries({
   const context = extractConversationContext(promptQuery);
   const currentQuestion = extractCoreSearchQuery(promptQuery) || promptQuery;
   const intentQuery = context ? `${context}\n${currentQuestion}` : promptQuery;
-  if (!shouldUseWebSearchAgent(intentQuery) && !(papers.length && hasMultipleEntities(intentQuery))) return [];
+  if (
+    !shouldUseWebSearchAgent(intentQuery) &&
+    !(papers.length && (hasMultipleEntities(intentQuery) || /化工品|产品|品种|实体/.test(intentQuery)))
+  ) return [];
   const cap = Math.min(12, Math.max(1, Number(maxQueries) || 1));
   const evidence = (Array.isArray(papers) ? papers : [])
     .slice(0, 28)

@@ -9,9 +9,11 @@ import { fuzzyTokenMatch } from "./queryTypoCorrect.js";
 import { webSearchRecallMode } from "./searchRecall.js";
 
 const WEB_SOURCES = new Set([
+  "direct_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",
+  "baidu_web",
   "tavily_web",
   "searx_web",
   "qwant_web",
@@ -20,6 +22,7 @@ const WEB_SOURCES = new Set([
   "core",
   "entity_seed",
   "finance_web",
+  "deepseek_web",
 ]);
 
 function isWebSource(p) {
@@ -58,6 +61,8 @@ export function sourceTier(p) {
   if (s === "openalex") return 38;
   if (s === "arxiv") return 18;
   if (s === "dataify_web") return 38;
+  if (s === "direct_web") return 52;
+  if (s === "baidu_web") return 37;
   if (s === "core") return 48;
   if (s === "wikipedia_web") return 30;
   if (s === "tavily_web") return 40;
@@ -67,6 +72,7 @@ export function sourceTier(p) {
   if (s === "ddg_web") return 34;
   if (s === "mojeek_web") return 33;
   if (s === "finance_web") return 42;
+  if (s === "deepseek_web") return 41;
   if (s === "ddg_patent") return 40;
   return 25;
 }

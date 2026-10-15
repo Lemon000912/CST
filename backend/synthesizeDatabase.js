@@ -8,6 +8,7 @@ const WEB_SOURCES = new Set([
   "mcp_web",
   "ddg_web",
   "dataify_web",
+  "baidu_web",
   "tavily_web",
   "searx_web",
   "qwant_web",
@@ -16,6 +17,7 @@ const WEB_SOURCES = new Set([
   "core",
   "entity_seed",
   "finance_web",
+  "deepseek_web",
 ]);
 
 function isWebPaper(p) {

@@ -441,7 +441,7 @@ export async function searchPapersV1(
     timeoutMs: 900_000,
     body: JSON.stringify({
       query,
-      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
+      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 120 }),
       field: opts.field ?? "all",
       channel: opts.channel ?? "web",
       sort: opts.sort ?? "relevance",
@@ -534,7 +534,7 @@ export async function* searchPapersV1Stream(
   try {
     const requestBody = JSON.stringify({
       query,
-      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 60 }),
+      ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 120 }),
       field: opts.field ?? "all",
       channel: opts.channel ?? "web",
       sort: opts.sort ?? "relevance",

@@ -35,6 +35,9 @@ import {
   getFreeWebSourceIds,
 } from "./freeWebSearch.js";
 import { traceAsync } from "./performanceTrace.js";
+import { enhanceChineseWebQuery } from "./chineseWebQueryEnhancer.js";
+import { fetchBaiduWebSearch, getBaiduWebSearchConfig, isBaiduWebEnabled } from "./baiduWebSearch.js";
+import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
 
 export { FREE_WEB_SEARCH_CATALOG, getFreeWebSourceIds };
 
@@ -54,18 +57,26 @@ export function isCnBingFallbackEnabled() {
 /**
  * 允许参与「全网合并」的源：
  * 免费（默认）：ddg, searx, qwant, mojeek
- * 需 Key：core, tavily, mcp
- * 可选：bing（须 WEB_USE_BING=1）
+ * 需 Key：core, tavily, deepseek, mcp
+ * 可选：bing（须 WEB_USE_BING=1）、baidu（默认启用，可用 BAIDU_WEB_ENABLED=0 关闭）
  * @returns {Set<string>}
  */
 export function getWebSourceAllowlist() {
   // 保留原通用网页检索，并叠加 Wikipedia 与 CORE；Semantic Scholar 仍由数据库渠道负责。
-  const defaultFree = "tavily,dataify,searx,wikipedia,core";
+  const defaultFree = "tavily,dataify,deepseek,searx,wikipedia,core,bing,baidu";
   const raw = String(process.env.WEB_SOURCES ?? defaultFree).trim().toLowerCase();
   const parts = raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
-  const set = new Set(parts.length ? parts : ["tavily", "dataify", "searx", "wikipedia", "core"]);
+  const set = new Set(parts.length ? parts : ["tavily", "dataify", "deepseek", "searx", "wikipedia", "core", "bing", "baidu"]);
   if (isBingWebEnabled()) set.add("bing");
   else set.delete("bing");
+  // 显式 WEB_SOURCES 是调用方的白名单，不额外注入百度；未显式配置时才使用默认源。
+  if (!parts.length && isBaiduWebEnabled()) set.add("baidu");
+  if (!isBaiduWebEnabled()) set.delete("baidu");
+  const providerMode = String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
+  if (providerMode === "deepseek+sources") set.add("deepseek");
+  if (["legacy", "sources"].includes(providerMode)) {
+    set.delete("deepseek");
+  }
   return set;
 }
 
@@ -83,6 +94,10 @@ export function getWebSourcesStatus() {
     core: allow.has("core") && Boolean(getCoreSearchConfig()),
     mcp: allow.has("mcp") && isMcpUsable(),
     bing: allow.has("bing") && isBingWebEnabled(),
+    baidu: allow.has("baidu") && Boolean(getBaiduWebSearchConfig()),
+    deepseek:
+      Boolean(getDeepseekWebSearchConfig()) &&
+      (allow.has("deepseek") || ["auto", "deepseek"].includes(String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase())),
   };
 }
 
@@ -553,10 +568,15 @@ export async function fetchBingWebSearch(query, max, opts = {}) {
       if (html.length < 400) continue;
       const items = _bingParseResultsHtml(html, cap);
       if (items.length) {
+        const isCnBing = url.includes("cn.bing");
         return {
-          papers: _ddgToPapers(items, "ddg_web", cap),
-          note: url.includes("cn.bing") ? "bing_cn_ok" : "bing_com_ok",
-          toolName: url.includes("cn.bing") ? "bing-cn" : "bing-com",
+          papers: _ddgToPapers(items, "ddg_web", cap).map((paper) => ({
+            ...paper,
+            venue: isCnBing ? "Web (Bing CN)" : "Web (Bing)",
+            webProviderLabel: isCnBing ? "Bing CN" : "Bing",
+          })),
+          note: isCnBing ? "bing_cn_ok" : "bing_com_ok",
+          toolName: isCnBing ? "bing-cn" : "bing-com",
         };
       }
     } catch (e) {
@@ -741,7 +761,9 @@ export async function fetchGooglePatentsSearch(query, max = 20, opts = {}) {
 const WEB_MERGE_SOURCE_RANK = {
   core: 1,
   tavily_web: 2,
+  deepseek_web: 2.15,
   dataify_web: 3,
+  baidu_web: 3.5,
   wikipedia_web: 4,
   searx_web: 5,
   mcp_web: 6,
@@ -768,6 +790,32 @@ function dedupeWebPapersByUrl(papers) {
   return Array.from(byUrl.values());
 }
 
+/** Keep early candidates from each engine so one noisy source cannot fill the cap. */
+export function interleaveWebPapersBySource(papers) {
+  const bySource = new Map();
+  for (const paper of dedupeWebPapersByUrl(Array.isArray(papers) ? papers : [])) {
+    const source = String(paper?.source ?? "unknown");
+    const rows = bySource.get(source) ?? [];
+    rows.push(paper);
+    bySource.set(source, rows);
+  }
+
+  const sources = [...bySource.keys()].sort(
+    (a, b) => webMergeSourceRank({ source: a }) - webMergeSourceRank({ source: b }),
+  );
+  const out = [];
+  for (let index = 0; ; index += 1) {
+    let added = false;
+    for (const source of sources) {
+      const paper = bySource.get(source)?.[index];
+      if (!paper) continue;
+      out.push(paper);
+      added = true;
+    }
+    if (!added) return out;
+  }
+}
+
 /** 单次 fetchMergedWebPapers 合并上限（WEB_MERGE_PER_QUERY_CAP，默认 128） */
 function resolveWebMergeCaps(requestedMax) {
   const mergeCap = Math.min(
@@ -790,8 +838,26 @@ function resolveWebMergeCaps(requestedMax) {
  */
 export async function fetchMergedWebPapers(query, max, opts = {}) {
   const q = String(query ?? "").trim();
+  const industryMetricQuery =
+    /(?:产能利用率|利用率|开工率|开工负荷|负荷率|装置负荷|产量|库存|价格)/i.test(q) &&
+    /[\u4e00-\u9fa5]/.test(q);
+
+  // \ud83c\udfaf \u4e2d\u6587\u4e13\u4e1a\u7f51\u7ad9\u67e5\u8be2\u589e\u5f3a
+  let enhancedQ = q;
+  let enhanceNote = "";
+  if (/[\u4e00-\u9fa5]/.test(q) && !/\bsite:/i.test(q)) {
+    const enhancement = enhanceChineseWebQuery(q);
+    if (enhancement.sites.length > 0) {
+      enhancedQ = enhancement.enhanced;
+      enhanceNote = ` (${enhancement.note})`;
+      console.log(`[web-query-enhance] "${q}" -> "${enhancedQ}" ${enhanceNote}`);
+    }
+  }
+
   const cnQ = String(opts.chineseQuery ?? "").trim();
-  const bingQ = /[\u4e00-\u9fff]/.test(cnQ) ? cnQ : q;
+  // 中文专业问题优先把增强后的行业词带给 cn.bing，避免只搜到通用百科；
+  // 没有增强时仍沿用调用方传入的原始中文上下文。
+  const bingQ = enhanceNote ? enhancedQ : (/[一-鿿]/.test(cnQ) ? cnQ : enhancedQ);
   const performanceTrace = opts.performanceTrace;
   const tracePrefix = String(opts.tracePrefix || "search.web.source").replace(/[^a-z0-9_.-]/gi, "_");
   const tracedSource = (source, task) => traceAsync(
@@ -807,6 +873,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const allow = getWebSourceAllowlist();
   const wantPreferredWeb =
     (allow.has("tavily") && Boolean(getTavilyWebSearchConfig())) ||
+    (allow.has("deepseek") && Boolean(getDeepseekWebSearchConfig())) ||
     (allow.has("mcp") && isMcpUsable()) ||
     allow.has("wikipedia") ||
     (allow.has("core") && Boolean(getCoreSearchConfig()));
@@ -828,73 +895,92 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   }
   const tasks = [];
 
+  // 对于中文查询，使用增强后的查询；对于英文查询，使用原始查询
+  const searchQ = enhancedQ;
+
   const tavilyCap = Math.min(20, Math.ceil(perSource * 1.2));
+  if (opts.includeDeepseek !== false && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
+    tasks.push(
+      tracedSource("deepseek", () => fetchDeepseekWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal: opts.signal }))
+        .then((r) => ({ src: "deepseek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "deepseek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
   if (allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
-      tracedSource("tavily", () => fetchTavilyWebPapers(q, tavilyCap, { signal: opts.signal }))
+      tracedSource("tavily", () => fetchTavilyWebPapers(searchQ, tavilyCap, { signal: opts.signal }))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
-      tracedSource("dataify", () => fetchDataifyWebPapers(q, Math.min(64, Math.ceil(perSource * 1.35)), { signal: opts.signal }))
+      tracedSource("dataify", () => fetchDataifyWebPapers(searchQ, Math.min(64, Math.ceil(perSource * 1.35)), { signal: opts.signal }))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("wikipedia")) {
+  // Wikipedia/CORE help general and academic queries, but add definitions
+  // instead of operating-rate evidence to industry metric searches.
+  if (allow.has("wikipedia") && !industryMetricQuery) {
     tasks.push(
-      tracedSource("wikipedia", () => fetchWikipediaWebPapers(q, perSource, { signal: opts.signal }))
+      tracedSource("wikipedia", () => fetchWikipediaWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("core") && getCoreSearchConfig()) {
+  if (allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
     tasks.push(
-      tracedSource("core", () => fetchCoreWebPapers(q, perSource, { signal: opts.signal }))
+      tracedSource("core", () => fetchCoreWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("searx")) {
     tasks.push(
-      tracedSource("searx", () => fetchSearxWebSearch(q, perSource, { signal: opts.signal }))
+      tracedSource("searx", () => fetchSearxWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mcp") && isMcpUsable()) {
     tasks.push(
-      tracedSource("mcp", () => fetchMcpWebPapers(q, perSource, { signal: opts.signal }))
+      tracedSource("mcp", () => fetchMcpWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mcp", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mcp", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("bing") && isBingWebEnabled()) {
     tasks.push(
-      tracedSource("bing", () => fetchBingWebSearch(q, perSource, { signal: opts.signal }))
+      tracedSource("bing", () => fetchBingWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "bing", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
+  if (allow.has("baidu") && isBaiduWebEnabled()) {
+    tasks.push(
+      tracedSource("baidu", () => fetchBaiduWebSearch(searchQ, perSource, { signal: opts.signal }))
+        .then((r) => ({ src: "baidu", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "baidu", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
   if (allow.has("ddg")) {
     tasks.push(
-      tracedSource("ddg", () => fetchDuckDuckGoSearch(q, perSource, { skipBing: true, signal: opts.signal }))
+      tracedSource("ddg", () => fetchDuckDuckGoSearch(searchQ, perSource, { skipBing: true, signal: opts.signal }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("qwant")) {
     tasks.push(
-      tracedSource("qwant", () => fetchQwantWebSearch(q, perSource, { signal: opts.signal }))
+      tracedSource("qwant", () => fetchQwantWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "qwant", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "qwant", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (allow.has("mojeek")) {
     tasks.push(
-      tracedSource("mojeek", () => fetchMojeekWebSearch(q, perSource, { signal: opts.signal }))
+      tracedSource("mojeek", () => fetchMojeekWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mojeek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mojeek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
@@ -921,12 +1007,17 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
     };
   }
 
-  const settled = await Promise.all(tasks);
+  const settled = await Promise.allSettled(tasks);
   if (opts.signal?.aborted) throw opts.signal.reason ?? new DOMException("Search cancelled", "AbortError");
   const notes = [];
   const tools = [];
   let all = [];
-  for (const r of settled) {
+  for (const outcome of settled) {
+    if (outcome.status === "rejected") {
+      notes.push(`source:err:${String(outcome.reason?.message || outcome.reason).slice(0, 80)}`);
+      continue;
+    }
+    const r = outcome.value;
     if (r.papers?.length) {
       all = all.concat(r.papers);
       notes.push(`${r.src}:${r.note || "ok"}(${r.papers.length})`);
@@ -936,8 +1027,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
     }
   }
 
-  all.sort((a, b) => webMergeSourceRank(a) - webMergeSourceRank(b));
-  let papers = dedupeWebPapersByUrl(all).slice(0, totalCap);
+  let papers = interleaveWebPapersBySource(all).slice(0, totalCap);
   let note = notes.join(" · ") || "web_merge_empty";
   let toolName = tools.length ? tools.join("+") : "duckduckgo-lite";
 
@@ -959,16 +1049,68 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   return { papers, note, toolName };
 }
 
-const FINANCE_WEB_TARGETS = Object.freeze({
+const WEB_SITE_TARGETS = Object.freeze({
+  ruida: { domain: "rdqh.com", label: "瑞达期货" },
+  sina: { domain: "finance.sina.com.cn", label: "新浪财经" },
+  longzhong: { domain: "oilchem.net", label: "隆众资讯" },
+  zhuochuang: { domain: "sci99.com", label: "卓创资讯" },
+  guotai_junan: { domain: "gtja.com", label: "国泰君安" },
+  stats: { domain: "stats.gov.cn", label: "国家统计局" },
+  miit: { domain: "miit.gov.cn", label: "工业和信息化部" },
+  customs: { domain: "customs.gov.cn", label: "海关总署" },
+  mei: { domain: "mei.net.cn", label: "中国机经网" },
+  caam: { domain: "caam.org.cn", label: "中国汽车工业协会" },
+  chinaisa: { domain: "chinaisa.org.cn", label: "中国钢铁工业协会" },
+  chinania: { domain: "chinania.org.cn", label: "中国有色金属工业协会" },
   eastmoney: { domain: "eastmoney.com", label: "东方财富网" },
   wind: { domain: "wind.com.cn", label: "万得" },
 });
 
-export const FINANCE_WEB_SOURCE_IDS = Object.freeze(Object.keys(FINANCE_WEB_TARGETS));
+/** 不需要专用账号即可检索公开网页的定向来源。 */
+export const PUBLIC_WEB_SOURCE_IDS = Object.freeze([
+  "ruida",
+  "sina",
+  "longzhong",
+  "zhuochuang",
+  "guotai_junan",
+  "stats",
+  "miit",
+  "customs",
+  "mei",
+  "caam",
+  "chinaisa",
+  "chinania",
+]);
 
-/** 在现有公开网页搜索引擎上执行站点限定查询，不访问需要授权的 Wind 终端接口。 */
+export const PUBLIC_OFFICIAL_WEB_SOURCE_IDS = Object.freeze([
+  "stats",
+  "miit",
+  "customs",
+  "mei",
+  "caam",
+  "chinaisa",
+  "chinania",
+]);
+
+/** 财经版专属定向来源，避免其它版本无谓增加外部请求。 */
+export const FINANCE_WEB_SOURCE_IDS = Object.freeze(["eastmoney", "wind"]);
+
+export const WEB_SITE_SOURCE_IDS = Object.freeze([
+  ...PUBLIC_WEB_SOURCE_IDS,
+  ...FINANCE_WEB_SOURCE_IDS,
+]);
+
+export function getEditionWebSiteSourceIds(edition, channel = "web") {
+  if (channel !== "web") return [];
+  return [
+    ...PUBLIC_WEB_SOURCE_IDS,
+    ...(String(edition ?? "").trim().toLowerCase() === "finance" ? FINANCE_WEB_SOURCE_IDS : []),
+  ];
+}
+
+/** 在现有公开网页搜索引擎上执行站点限定查询，不访问需要授权的终端接口。 */
 export async function fetchFinanceWebPapers(query, max, source, opts = {}) {
-  const target = FINANCE_WEB_TARGETS[String(source ?? "").trim().toLowerCase()];
+  const target = WEB_SITE_TARGETS[String(source ?? "").trim().toLowerCase()];
   const q = String(query ?? "").trim();
   if (!target || !q) return { papers: [], note: "invalid-finance-source", toolName: null };
 

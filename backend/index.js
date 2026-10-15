@@ -69,11 +69,13 @@ import { getMcpWebSearchConfig } from "./mcpWebSearch.js";
 import { getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
 import { getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
 import { getTavilyWebSearchConfig } from "./tavilyWebSearch.js";
+import { getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
 import {
   getWebSourcesStatus,
   getWebSourceAllowlist,
   isBingWebEnabled,
   FREE_WEB_SEARCH_CATALOG,
+  getEditionWebSiteSourceIds,
 } from "./mcpWebSearch.js";
 import { getElsevierScopusConfig } from "./scopusElsevier.js";
 import { lookupUnpaywallOa } from "./unpaywallOa.js";
@@ -1461,6 +1463,7 @@ app.get("/api/v1/mcp/status", (_req, res) => {
   const df = getDataifyWebSearchConfig();
   const du = getDataifyWebUnlockerConfig();
   const tv = getTavilyWebSearchConfig();
+  const deepseek = getDeepseekWebSearchConfig();
   const sc = getElsevierScopusConfig();
   const webSrc = getWebSourcesStatus();
   const allow = [...getWebSourceAllowlist()];
@@ -1470,6 +1473,9 @@ app.get("/api/v1/mcp/status", (_req, res) => {
     dataifyWebUnlockerConfigured: Boolean(du),
     dataifyWebUnlockerMode: du?.mode ?? null,
     tavilyWebConfigured: Boolean(tv),
+    deepseekWebConfigured: Boolean(deepseek),
+    deepseekWebActive: Boolean(deepseek) && Boolean(webSrc.deepseek),
+    webSearchProvider: String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase(),
     scopusElsevierConfigured: Boolean(sc),
     scopusInstTokenConfigured: Boolean(sc?.instToken),
     maxResults: c?.maxResults ?? null,
@@ -1484,6 +1490,10 @@ app.get("/api/v1/mcp/status", (_req, res) => {
       ? "已配置 TAVILY_API_KEY（Tavily REST 搜索）；当前网页源由 WEB_SOURCES 控制。"
       : df
         ? "检测到 DATAIFY_API_KEY，但 Dataify 搜索已从当前网页源方案移除。"
+        : deepseek && String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase() === "deepseek"
+          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox DeepSeek WebSearch；WEB_SEARCH_PROVIDER=auto 或 legacy 可与其它网页源并行。"
+        : deepseek
+          ? "已配置 REDFOX_API_KEY：DeepSeek WebSearch 将与 WEB_SOURCES 中的其它网页源并行合并；WEB_SEARCH_PROVIDER=deepseek 可切换为单独调用。"
         : c
           ? "已配置 Brave MCP（需 Key）；当前网页源由 WEB_SOURCES 控制。"
       : "网页渠道默认源：通用网页搜索（Dataify/Tavily/SearX）+ Wikipedia + CORE（CORE 需 CORE_API_KEY）；Semantic Scholar 保留数据库渠道。可选 BRAVE_API_KEY。",
@@ -2021,9 +2031,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
     const includePatents = channel === "web" && req.body?.includePatents != null
       ? req.body.includePatents === true
       : undefined;
-    const financeWebSources = APP_EDITION === "finance" && channel === "web"
-      ? ["eastmoney", "wind"]
-      : [];
+    const financeWebSources = getEditionWebSiteSourceIds(APP_EDITION, channel);
     const personaId = normalizePersonaId(req.headers["x-persona"] ?? req.body?.persona);
     const personaSkill = getPersonaSkill(personaId);
     const personaLabel = listPersonas().find((p) => p.id === personaId)?.label ?? personaId;
@@ -2572,9 +2580,7 @@ app.post("/api/v1/search", async (req, res) => {
     const includePatents = channel === "web" && req.body?.includePatents != null
       ? req.body.includePatents === true
       : undefined;
-    const financeWebSources = APP_EDITION === "finance" && channel === "web"
-      ? ["eastmoney", "wind"]
-      : [];
+    const financeWebSources = getEditionWebSiteSourceIds(APP_EDITION, channel);
 
     const personaId = normalizePersonaId(req.headers["x-persona"] ?? req.body?.persona);
     const personaSkill = getPersonaSkill(personaId);
@@ -3864,7 +3870,10 @@ app.post("/api/v1/search/smart", requireAuthenticatedUser, async (req, res) => {
     }
 
     const model = req.headers["x-openai-model"] || req.body?.model;
-    const forceWebSearch = req.body?.forceWebSearch ?? true; // 默认启用
+    // runPaperSearch already performs the complete retrieval pass. The legacy
+    // smart route remains for compatibility, but synthesis no longer invokes
+    // the separate web_search Function Calling tool.
+    const forceWebSearch = req.body?.forceWebSearch ?? false;
 
     console.log(`[api.search.smart] query="${query.slice(0, 100)}" force=${forceWebSearch}`);
 
@@ -3872,10 +3881,25 @@ app.post("/api/v1/search/smart", requireAuthenticatedUser, async (req, res) => {
     let papers = [];
     if (req.body?.includeDatabase !== false) {
       try {
+        const smartChannel = req.body?.channel === "database" ? "database" : "web";
+        const smartKey = String(
+          req.headers["x-openai-key"] ||
+          req.headers["x-dashscope-key"] ||
+          req.headers["x-deepseek-key"] ||
+          "",
+        ).trim().slice(0, 512);
         const searchResult = await runPaperSearch({
-          query,
-          channel: req.body?.channel || "web",
-          limit: 10,
+          rawQuery: query,
+          channel: smartChannel,
+          max: Math.min(160, Math.max(20, Number(req.body?.max) || 80)),
+          field: "all",
+          sort: "relevance",
+          useLlmRewrite: req.body?.useLlmRewrite !== false,
+          useMcpWeb: req.body?.useMcpWeb !== false,
+          includePatents: req.body?.includePatents,
+          openaiApiKey: smartKey || undefined,
+          openaiModel: String(req.headers["x-openai-model"] || req.body?.model || "").trim().slice(0, 96) || undefined,
+          llmChatCompletionsUrl: String(req.headers["x-llm-chat-url"] || "").trim().slice(0, 2048) || undefined,
         });
         papers = searchResult?.papers || [];
         console.log(`[api.search.smart] Found ${papers.length} papers from database`);

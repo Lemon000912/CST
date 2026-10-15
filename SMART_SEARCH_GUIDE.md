@@ -2,16 +2,16 @@
 
 ## 🎯 功能说明
 
-新增的智能搜索功能允许**模型主动决定是否需要联网搜索**，类似于 ChatGPT、Claude 等AI助手的联网功能。
+当前项目采用“先检索、后综合”的联网流程：请求发送后由后端调用已配置的多路搜索源，模型只负责基于检索摘录生成回答。
 
 ### 与原有搜索的区别
 
 | 特性 | 原有搜索 (`/api/v1/search`) | 智能搜索 (`/api/v1/search/smart`) |
 |------|---------------------------|----------------------------------|
-| 搜索触发 | 固定流程，预先配置 | **模型自主决定** |
-| 搜索次数 | 一次性批量搜索 | **模型可多次调用**（最多3轮） |
-| 搜索策略 | 规则式查询生成 | **模型规划查询词** |
-| 适用场景 | 文献检索、常规查询 | **实时数据、多实体查询、复杂问题** |
+| 搜索触发 | 请求发送后自动执行 | 请求发送后自动执行 |
+| 搜索来源 | `WEB_SOURCES` 与定向行业源 | 同左 |
+| 搜索策略 | 多源并行、去重、相关性筛选 | 同左 |
+| 模型职责 | 基于检索结果综合回答 | 同左 |
 
 ## 🚀 快速开始
 
@@ -20,7 +20,7 @@
 确保 `.env` 文件中已配置：
 
 ```bash
-# LLM Provider（支持Function Calling的模型）
+# LLM Provider（用于检索结果综合）
 LLM_PROVIDER_A_API_KEY=your_api_key
 LLM_PROVIDER_A_BASE_URL=https://api.openai.com/v1/chat/completions
 LLM_PROVIDER_A_MODEL=gpt-4  # 或 deepseek-chat, qwen-max 等
@@ -63,7 +63,7 @@ curl -X POST http://127.0.0.1:3000/api/v1/search/smart \
 ```javascript
 {
   "query": "用户问题",           // 必需，用户查询
-  "forceWebSearch": true,        // 可选，强制启用联网搜索（默认true）
+  "forceWebSearch": false,       // 兼容旧参数，当前不会触发 web_search 工具
   "includeDatabase": true,       // 可选，是否包含数据库检索（默认true）
   "model": "gpt-4"              // 可选，指定模型
 }
@@ -76,16 +76,7 @@ curl -X POST http://127.0.0.1:3000/api/v1/search/smart \
   "query": "用户问题",
   "answer": "模型生成的完整答案",
   "papers": [...],              // 数据库检索的结果
-  "toolCalls": [                // 工具调用记录
-    {
-      "iteration": 1,
-      "function": "web_search",
-      "arguments": {
-        "query": "MTBE 产能利用率 2026",
-        "max_results": 10
-      }
-    }
-  ],
+  "toolCalls": [],               // 当前固定为空；联网检索已在前置阶段完成
   "usage": {                    // Token使用情况
     "inputTokens": 1234,
     "outputTokens": 567
@@ -230,13 +221,9 @@ const MAX_TOOL_ITERATIONS = 3; // 修改为 5 可以允许更多轮搜索
 
 ## 🐛 常见问题
 
-### Q: 模型没有调用工具？
+### Q: 为什么没有 web_search 工具调用日志？
 
-**排查步骤**：
-1. 检查模型是否支持Function Calling
-2. 查看日志是否有 `[llm.tools] Enabled web_search tool`
-3. 确认查询是否满足触发条件
-4. 尝试设置 `forceWebSearch: true`
+这是预期行为。当前流程不把 `web_search` Function Calling 工具提供给模型；请查看 `sourcesUsed`、`/api/v1/mcp/status` 和各网页源日志确认前置检索状态。
 
 ### Q: 搜索失败？
 
@@ -249,9 +236,9 @@ const MAX_TOOL_ITERATIONS = 3; // 修改为 5 可以允许更多轮搜索
 ### Q: 响应太慢？
 
 **优化方案**：
-1. 减少 `MAX_TOOL_ITERATIONS`（从3改为2）
-2. 限制搜索结果数量（`max_results: 5`）
-3. 使用更快的搜索源（Brave > Tavily > MCP）
+1. 减少 `max` 或 `WEB_SEARCH_MAX_CAP`
+2. 调整 `WEB_QUERY_CONCURRENCY`
+3. 关闭不需要的来源，保留 `deepseek` 与行业定向源
 
 ## 💡 最佳实践
 
@@ -259,31 +246,21 @@ const MAX_TOOL_ITERATIONS = 3; // 修改为 5 可以允许更多轮搜索
    - ✅ 好：`2026年MTBE产能利用率`
    - ❌ 差：`化工品数据`
 
-2. **合理设置forceWebSearch**：
-   - 实时数据查询：`true`
-   - 常识性问题：`false`
+2. **监控来源**：查看响应中的 `sourcesUsed`，确认 DeepSeek、Tavily、百度及定向行业源是否返回。
 
-3. **监控Token使用**：工具调用会增加Token消耗
-
-4. **缓存策略**：相同查询可以考虑缓存结果
+3. **缓存策略**：相同查询可以考虑缓存结果
 
 ## 📚 相关文件
 
-- `backend/webSearchTool.js` - 联网搜索工具定义
-- `backend/llmClientWithTools.js` - 支持工具调用的LLM客户端
-- `backend/synthesizeWithTools.js` - 智能综合服务
+- `backend/webSearchTool.js` - 旧版工具实现（当前请求路径不调用）
+- `backend/llmClientWithTools.js` - 旧版工具调用客户端（当前请求路径不调用）
+- `backend/synthesizeWithTools.js` - 兼容旧智能入口，当前只做无工具综合
 - `backend/index.js` - API路由（`/api/v1/search/smart`）
 - `backend/test/smartSearch.test.js` - 测试脚本
 
 ## 🎉 总结
 
-智能搜索功能使模型能够**像人一样主动寻找信息**：
-- 判断何时需要搜索
-- 规划搜索策略
-- 多轮迭代获取信息
-- 综合所有信息给出答案
-
-这就是为什么Word里的AI模型能搜到更多信息的原因！
+项目会在请求发送后自动并行检索多路来源，再由模型综合统一结果。旧的 `web_search` 文件仍保留作兼容，但不会被当前请求流程调用。
 
 ---
 

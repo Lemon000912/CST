@@ -10,7 +10,14 @@ import {
   extractConversationContext,
   clampQueryForExternalApi,
 } from "./searchQueryNormalize.js";
-import { fetchMergedWebPapers, fetchFinanceWebPapers, fetchPatentPapers, fetchBingWebSearch } from "./mcpWebSearch.js";
+import {
+  fetchMergedWebPapers,
+  fetchFinanceWebPapers,
+  fetchPatentPapers,
+  fetchBingWebSearch,
+  WEB_SITE_SOURCE_IDS,
+  PUBLIC_OFFICIAL_WEB_SOURCE_IDS,
+} from "./mcpWebSearch.js";
 import { fetchOpenAlexWorks, fetchOpenAlexPatents } from "./openalex.js";
 import { fetchEuropePmcWorks } from "./europePmc.js";
 import { fetchScopusWorks } from "./scopusElsevier.js";
@@ -38,6 +45,8 @@ import {
   markEntityCoverage,
   extractRequestedWebEntities,
 } from "./webSearchAgent.js";
+import { extractHttpUrls, fetchDirectWebPapers } from "./directWebSearch.js";
+import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
@@ -51,9 +60,12 @@ function isWebChannelPatentsEnabled() {
 }
 
 const WEB_PAGE_SOURCES = new Set([
+  "direct_web",
+  "deepseek_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",
+  "baidu_web",
   "tavily_web",
   "searx_web",
   "qwant_web",
@@ -63,6 +75,9 @@ const WEB_PAGE_SOURCES = new Set([
   "entity_seed",
   "finance_web",
 ]);
+
+const PUBLIC_OFFICIAL_SOURCE_SET = new Set(PUBLIC_OFFICIAL_WEB_SOURCE_IDS);
+const OFFICIAL_DATA_QUERY_RE = /数据|统计|产量|产能|利用率|开工|价格|库存|进出口|海关|工业|行业|汽车|钢铁|有色|机械|制造|报告|景气/i;
 
 /** 网页渠道：可展示的网页条目（必须有 http(s) 链接） */
 function isWebPageResultPaper(p) {
@@ -147,7 +162,10 @@ function dedupeKey(p) {
   if (doi) return `doi:${doi}`;
   if (
     (p.source === "mcp_web" ||
+      p.source === "direct_web" ||
+      p.source === "deepseek_web" ||
       p.source === "dataify_web" ||
+      p.source === "baidu_web" ||
       p.source === "ddg_web" ||
       p.source === "searx_web" ||
       p.source === "qwant_web" ||
@@ -172,11 +190,14 @@ function scoreSource(x) {
   if (x.source === "scopus") return 10;
   if (x.source === "arxiv") return 2;
   if (x.source === "dataify_web") return 2.22;
+  if (x.source === "baidu_web") return 2.21;
   if (x.source === "tavily_web") return 2.24;
+  if (x.source === "deepseek_web") return 2.23;
   if (x.source === "core") return 2.28;
   if (x.source === "wikipedia_web") return 2.05;
   if (x.source === "searx_web") return 2.18;
   if (x.source === "mcp_web") return 2.15;
+  if (x.source === "direct_web") return 3.4;
   if (x.source === "qwant_web") return 2.12;
   if (x.source === "ddg_web") return 2.1;
   if (x.source === "mojeek_web") return 2.08;
@@ -578,6 +599,144 @@ function preserveEntityCoverageRows(papers, max) {
   return picked;
 }
 
+/** 严格相关性过滤后恢复被过滤掉的长尾实体候选，避免“有搜索结果但漏掉某个产品”。 */
+function restoreEntityCoverageRows(papers, candidates, query, sourcesUsed) {
+  const requested = extractRequestedWebEntities(query);
+  if (!requested.length) return papers;
+  const out = Array.isArray(papers) ? [...papers] : [];
+  const seen = new Set(out.map((paper) => String(paper?.absUrl ?? paper?.paper_id ?? paper?.id ?? "").split("#")[0].toLowerCase()));
+  const covered = new Set(out.flatMap((paper) => Array.isArray(paper?._matchedEntities) ? paper._matchedEntities : []));
+  let restored = 0;
+  for (const entity of requested) {
+    if (covered.has(entity)) continue;
+    const candidate = (Array.isArray(candidates) ? candidates : []).find(
+      (paper) => Array.isArray(paper?._matchedEntities) && paper._matchedEntities.includes(entity),
+    );
+    if (!candidate) continue;
+    const key = String(candidate?.absUrl ?? candidate?.paper_id ?? candidate?.id ?? "").split("#")[0].toLowerCase();
+    if (key && seen.has(key)) continue;
+    out.push(candidate);
+    if (key) seen.add(key);
+    covered.add(entity);
+    restored++;
+  }
+  if (restored) sourcesUsed.push(`web_entity_restore:${restored}`);
+  return out;
+}
+
+function webTaskConcurrency(envName, fallback, max = 8) {
+  return Math.min(max, Math.max(1, Number(process.env[envName]) || fallback));
+}
+
+function webAutoDeepseekTimeoutMs() {
+  return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || 180_000));
+}
+
+async function fetchAutoDeepseekPapers(query, max, signal) {
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort(signal.reason);
+  signal?.addEventListener("abort", relayAbort, { once: true });
+  if (signal?.aborted) relayAbort();
+  const timer = setTimeout(() => controller.abort(new Error("auto DeepSeek timeout")), webAutoDeepseekTimeoutMs());
+  try {
+    return await fetchDeepseekWebPapers(query, max, { signal: controller.signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return {
+      papers: [],
+      note: controller.signal.aborted ? "auto_timeout" : `err:${String(error?.message || error).slice(0, 100)}`,
+      toolName: "deepseek",
+    };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", relayAbort);
+  }
+}
+
+/**
+ * Run web tasks lazily with a bounded number of workers. The old implementation
+ * created every promise before the layer timeout, which could open hundreds of
+ * external connections for a multi-entity query.
+ */
+async function runBoundedWebTasks(tasks, concurrency, timeoutMs, { signal } = {}) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  if (!list.length) return [];
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Search cancelled", "AbortError");
+
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort(signal.reason);
+  signal?.addEventListener("abort", relayAbort, { once: true });
+  const results = new Array(list.length);
+  let cursor = 0;
+  let timedOut = false;
+
+  const worker = async () => {
+    while (!controller.signal.aborted) {
+      const index = cursor++;
+      if (index >= list.length) return;
+      const task = list[index];
+      try {
+        const value = await task.run(controller.signal);
+        results[index] = { name: task.name, status: "fulfilled", value };
+      } catch (reason) {
+        if (signal?.aborted) throw reason;
+        results[index] = {
+          name: task.name,
+          status: "rejected",
+          reason: reason?.message || String(reason),
+        };
+      }
+    }
+  };
+
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, Number(concurrency) || 1), list.length) },
+    () => worker(),
+  );
+  const allWorkers = Promise.all(workers);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error("web task queue timeout"));
+      reject(new Error("web task queue timeout"));
+    }, Math.max(1, Number(timeoutMs) || 15_000));
+  });
+  const aborted = new Promise((_, reject) => {
+    signal?.addEventListener("abort", () => reject(signal.reason ?? new DOMException("Search cancelled", "AbortError")), { once: true });
+  });
+
+  try {
+    await Promise.race([allWorkers, timeout, aborted]);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (!timedOut) throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", relayAbort);
+    controller.abort();
+  }
+
+  if (timedOut) {
+    for (let i = 0; i < results.length; i++) {
+      if (!results[i]) results[i] = { name: list[i].name, status: "rejected", reason: "web task queue timeout" };
+    }
+  }
+  return results;
+}
+
+function addWebSourceFailureNotes(value, failures) {
+  const note = String(value?.note ?? "");
+  if (!note) return;
+  for (const part of note.split(/\s*·\s*/)) {
+    const match = part.match(/^([a-z0-9_-]+):(.+)$/i);
+    if (!match) continue;
+    const [, source, status] = match;
+    if (!/(?:^err:|failed|timeout|^http_[45]|^api_code:|auth_disabled)/i.test(status)) continue;
+    failures.set(source, (failures.get(source) || 0) + 1);
+  }
+}
+
 /**
  * 全网多路检索（多 query 并行 + 二轮跟进 + 实体种子），网页渠道与数据库渠道的网页补充共用。
  * @param {{ fullRawQuery: string; rawQuery: string; effectiveQuery: string; max: number; useMcpWeb?: boolean; includePatents?: boolean; financeWebSources?: string[]; llmHints?: object }} opts
@@ -594,21 +753,70 @@ async function runWebIntelSearch(opts) {
   const includePatents = opts.includePatents == null
     ? isWebChannelPatentsEnabled()
     : opts.includePatents === true;
-  const financeWebSources = [...new Set(
+  const requestedWebSources = [...new Set(
     (Array.isArray(opts.financeWebSources) ? opts.financeWebSources : [])
       .map((source) => String(source ?? "").trim().toLowerCase())
-      .filter((source) => source === "eastmoney" || source === "wind"),
+      .filter((source) => WEB_SITE_SOURCE_IDS.includes(source)),
   )];
+  const officialQuery = OFFICIAL_DATA_QUERY_RE.test(`${fullRawQuery} ${rawQuery} ${effectiveQuery}`);
+  const financeWebSources = requestedWebSources.filter(
+    (source) => !PUBLIC_OFFICIAL_SOURCE_SET.has(source) || officialQuery,
+  );
   const sourcesUsed = [];
   const performanceTrace = opts.performanceTrace;
   const llmHints = opts.llmHints ?? {};
+  // Query rewriting/core extraction may remove URLs; always inspect the
+  // untouched user text so explicitly supplied sources reach the direct path.
+  const directUrls = extractHttpUrls(
+    `${fullRawQuery}\n${rawQuery}`,
+    Math.min(32, Number(process.env.WEB_DIRECT_URL_MAX) || 24),
+  );
+  let directPapers = [];
+  if (directUrls.length) {
+    const direct = await fetchDirectWebPapers(directUrls, {
+      timeoutMs: Number(process.env.WEB_DIRECT_URL_TIMEOUT_MS) || 18_000,
+      concurrency: Number(process.env.WEB_DIRECT_URL_CONCURRENCY) || 3,
+    });
+    directPapers = direct.papers;
+    sourcesUsed.push(`web_direct_urls:${directPapers.length}/${directUrls.length}`);
+    if (direct.failures.length) sourcesUsed.push(`web_direct_failures:${direct.failures.length}`);
+  }
 
   if (!useMcpWeb) {
     sourcesUsed.push("web_intel_skipped_mcp");
-    return { papers: [], patents: [], sourcesUsed };
+    return { papers: directPapers, patents: [], sourcesUsed };
   }
 
   const webSearchQ = extractWebSearchQuery(fullRawQuery) || rawQuery;
+  // DeepSeek participates in the normal multi-source planner by default.  The
+  // explicit `deepseek` mode remains available for callers that want a single
+  // Redfox task and no legacy engines.
+  const webProviderMode = String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
+  const deepseekConfigured = Boolean(getDeepseekWebSearchConfig());
+  if (webProviderMode === "deepseek") {
+    if (!deepseekConfigured) {
+      sourcesUsed.push("deepseek:not_configured");
+      return { papers: directPapers, patents: [], sourcesUsed };
+    }
+    const deepseekResult = await traceAsync(
+      performanceTrace,
+      "search.web.deepseek",
+      { queryChars: webSearchQ.length },
+      () => fetchDeepseekWebPapers(webSearchQ, max, { signal }),
+      (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
+    );
+    if (deepseekResult.papers?.length) {
+      sourcesUsed.push(`web:deepseek(${deepseekResult.papers.length})`);
+    } else {
+      sourcesUsed.push(`deepseek:${deepseekResult.note || "empty"}`);
+    }
+    return {
+      papers: [...directPapers, ...(deepseekResult.papers ?? [])],
+      patents: [],
+      sourcesUsed,
+    };
+  }
+
   const webPlan = buildWebMultiSearchQueries(
     webSearchQ,
     effectiveQuery,
@@ -656,7 +864,9 @@ async function runWebIntelSearch(opts) {
 
   let patentSearch = [];
   const webPaperBuckets = [];
+  if (directPapers.length) webPaperBuckets.push(directPapers);
   const webTasks = [];
+  const webSourceFailures = new Map();
   const perWebQ = Math.min(64, max + 32);
   const defaultQueryCap = entityCoverageQueries.length
     ? entityCoverageQueries.length + Math.max(4, aiQueryCap)
@@ -669,74 +879,95 @@ async function runWebIntelSearch(opts) {
   if (includePatents) {
     webTasks.push({
       name: "openalex_patents",
-      promise: traceAsync(
-        performanceTrace,
-        "search.web.round1.openalex_patents",
-        {},
-        () => fetchOpenAlexPatents(webSearchQ, 45),
-        (rows) => ({ results: Array.isArray(rows) ? rows.length : 0 }),
-      ),
+      run: (taskSignal) => traceAsync(
+          performanceTrace,
+          "search.web.round1.openalex_patents",
+          {},
+          () => fetchOpenAlexPatents(webSearchQ, 45),
+          (rows) => ({ results: Array.isArray(rows) ? rows.length : 0 }),
+        ),
     });
     webTasks.push({
       name: "patents",
-      promise: traceAsync(
-        performanceTrace,
-        "search.web.round1.patents",
-        {},
-        () => fetchPatentPapers(webPrimary, 45, { signal }),
-        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0 }),
-      ),
+      run: (taskSignal) => traceAsync(
+          performanceTrace,
+          "search.web.round1.patents",
+          {},
+          () => fetchPatentPapers(webPrimary, 45, { signal: taskSignal }),
+          (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0 }),
+        ),
     });
   }
 
   webPlan.queries.slice(0, webQueryCap).forEach((q, i) => {
     webTasks.push({
       name: `web_merge_q${i}`,
-      promise: traceAsync(
-        performanceTrace,
-        `search.web.round1.query_${i + 1}`,
-        { queryChars: q.length },
-        () => fetchMergedWebPapers(q, perWebQ, {
-          chineseQuery: webSearchQ,
+      run: (taskSignal) => traceAsync(
           performanceTrace,
-          tracePrefix: `search.web.round1.query_${i + 1}.source`,
-          signal,
-        }),
-        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
-      ),
+          `search.web.round1.query_${i + 1}`,
+          { queryChars: q.length },
+          () => fetchMergedWebPapers(q, perWebQ, {
+            chineseQuery: webSearchQ,
+            performanceTrace,
+            tracePrefix: `search.web.round1.query_${i + 1}.source`,
+            includeDeepseek: false,
+            signal: taskSignal,
+          }),
+          (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+        ),
     });
   });
 
   for (const source of financeWebSources) {
     webTasks.push({
       name: `finance_${source}`,
-      promise: traceAsync(
-        performanceTrace,
-        `search.web.finance.${source}`,
-        { queryChars: webPrimary.length },
-        () => fetchFinanceWebPapers(webPrimary, perWebQ, source, {
-          chineseQuery: webSearchQ,
+      run: (taskSignal) => traceAsync(
           performanceTrace,
-          tracePrefix: `search.web.finance.${source}.source`,
-          signal,
-        }),
-        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
-      ),
+          `search.web.finance.${source}`,
+          { queryChars: webPrimary.length },
+          () => fetchFinanceWebPapers(webPrimary, perWebQ, source, {
+            chineseQuery: webSearchQ,
+            performanceTrace,
+            tracePrefix: `search.web.finance.${source}.source`,
+            signal: taskSignal,
+          }),
+          (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+        ),
     });
   }
 
-  const webLayer = await traceAsync(
+  // In auto mode DeepSeek WebSearch is a whole-query research task, not a SERP
+  // engine to repeat for every generated query. Run it once beside the normal
+  // source fan-out so a slow Redfox task cannot hold Tavily/Bing results hostage.
+  const autoDeepseekPromise = webProviderMode === "deepseek" || !deepseekConfigured
+    ? Promise.resolve(null)
+    : traceAsync(
+        performanceTrace,
+        "search.web.deepseek.auto",
+        { queryChars: webSearchQ.length, timeoutMs: webAutoDeepseekTimeoutMs() },
+        () => fetchAutoDeepseekPapers(webSearchQ, max, signal),
+        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
+      );
+  const webLayerPromise = traceAsync(
     performanceTrace,
     "search.web.round1.wait",
-    { tasks: webTasks.length },
-    () => raceWithTimeout(
+    { tasks: webTasks.length, concurrency: webTaskConcurrency("WEB_QUERY_CONCURRENCY", 6, 8) },
+    () => runBoundedWebTasks(
       webTasks,
+      webTaskConcurrency("WEB_QUERY_CONCURRENCY", 6, 8),
       Math.min(90_000, Math.max(45_000, Number(process.env.WEB_SEARCH_LAYER_TIMEOUT_MS) || 70_000)),
       { signal },
     ),
     (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
+  const [webLayer, autoDeepseekResult] = await Promise.all([webLayerPromise, autoDeepseekPromise]);
   throwIfSearchAborted(signal);
+  if (autoDeepseekResult?.papers?.length) {
+    webPaperBuckets.push(autoDeepseekResult.papers);
+    sourcesUsed.push(`web:deepseek(${autoDeepseekResult.papers.length})`);
+  } else if (autoDeepseekResult) {
+    sourcesUsed.push(`deepseek:${autoDeepseekResult.note || "empty"}`);
+  }
   for (const r of webLayer) {
     if (r.status !== "fulfilled") {
       console.warn(`[search] ${r.name} timeout/failed:`, r.reason);
@@ -764,6 +995,7 @@ async function runWebIntelSearch(opts) {
     }
     if (r.name.startsWith("web_merge_q")) {
       const wv = r.value;
+      addWebSourceFailureNotes(wv, webSourceFailures);
       const wp = wv?.papers ?? [];
       if (wp.length) {
         webPaperBuckets.push(wp);
@@ -773,17 +1005,17 @@ async function runWebIntelSearch(opts) {
     }
     if (r.name.startsWith("finance_")) {
       const value = r.value;
+      addWebSourceFailureNotes(value, webSourceFailures);
       const papers = Array.isArray(value?.papers) ? value.papers : [];
       const source = r.name.slice("finance_".length);
       if (papers.length) {
         webPaperBuckets.push(papers);
-        sourcesUsed.push(`finance:${source}(${papers.length})`);
+        sourcesUsed.push(`site:${source}(${papers.length})`);
       } else {
-        sourcesUsed.push(`finance:${source}:empty`);
+        sourcesUsed.push(`site:${source}:empty`);
       }
     }
   }
-
   let webMerged = markEntityCoverage(webPaperBuckets.flat(), fullRawQuery);
   /**
    * 第二轮搜索：当第一轮结果覆盖不足时，基于已有结果进行补充搜索。
@@ -819,25 +1051,27 @@ async function runWebIntelSearch(opts) {
     sourcesUsed.push(`web_round2:${followUp.length}`);
     const round2Tasks = followUp.map((q, i) => ({
       name: `web_r2_q${i}`,
-      promise: traceAsync(
-        performanceTrace,
-        `search.web.round2.query_${i + 1}`,
-        { queryChars: q.length },
-        () => fetchMergedWebPapers(q, perWebQ, {
-          chineseQuery: webSearchQ,
+      run: (taskSignal) => traceAsync(
           performanceTrace,
-          tracePrefix: `search.web.round2.query_${i + 1}.source`,
-          signal,
-        }),
-        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
-      ),
+          `search.web.round2.query_${i + 1}`,
+          { queryChars: q.length },
+          () => fetchMergedWebPapers(q, perWebQ, {
+            chineseQuery: webSearchQ,
+            performanceTrace,
+            tracePrefix: `search.web.round2.query_${i + 1}.source`,
+            includeDeepseek: false,
+            signal: taskSignal,
+          }),
+          (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+        ),
     }));
     const r2 = await traceAsync(
       performanceTrace,
       "search.web.round2.wait",
-      { tasks: round2Tasks.length },
-      () => raceWithTimeout(
+      { tasks: round2Tasks.length, concurrency: webTaskConcurrency("WEB_ROUND2_CONCURRENCY", 2, 6) },
+      () => runBoundedWebTasks(
         round2Tasks,
+        webTaskConcurrency("WEB_ROUND2_CONCURRENCY", 2, 6),
         Math.min(15_000, Math.max(8_000, Number(process.env.WEB_ROUND2_TIMEOUT_MS) || 12_000)),
         { signal },
       ),
@@ -845,6 +1079,7 @@ async function runWebIntelSearch(opts) {
     );
     throwIfSearchAborted(signal);
     for (const fr of r2) {
+      addWebSourceFailureNotes(fr.value, webSourceFailures);
       if (fr.status === "fulfilled" && fr.value?.papers?.length) {
         webMerged = webMerged.concat(markEntityCoverage(fr.value.papers, fullRawQuery));
       }
@@ -859,18 +1094,19 @@ async function runWebIntelSearch(opts) {
     /** 书籍救援并行执行少量最高优先级查询，并设置每轮总等待上限。 */
     const rescueTasks = rescueQs.map((rq, i) => ({
       name: `book_rescue_q${i}`,
-      promise: traceAsync(
-        performanceTrace,
-        `search.web.book_rescue.query_${i + 1}`,
-        { queryChars: rq.length },
-        () => fetchMergedWebPapers(rq, Math.max(perWebQ, 36), {
-          chineseQuery: webSearchQ,
+      run: (taskSignal) => traceAsync(
           performanceTrace,
-          tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
-          signal,
-        }),
-        (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
-      ),
+          `search.web.book_rescue.query_${i + 1}`,
+          { queryChars: rq.length },
+          () => fetchMergedWebPapers(rq, Math.max(perWebQ, 36), {
+            chineseQuery: webSearchQ,
+            performanceTrace,
+            tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
+            includeDeepseek: false,
+            signal: taskSignal,
+          }),
+          (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
+        ),
     }));
     const rescueTimeoutMs = Math.min(
       20_000,
@@ -879,12 +1115,18 @@ async function runWebIntelSearch(opts) {
     const rescueResults = await traceAsync(
       performanceTrace,
       "search.web.book_rescue.wait",
-      { tasks: rescueTasks.length, timeoutMs: rescueTimeoutMs },
-      () => raceWithTimeout(rescueTasks, rescueTimeoutMs, { signal }),
+      { tasks: rescueTasks.length, timeoutMs: rescueTimeoutMs, concurrency: webTaskConcurrency("WEB_RESCUE_CONCURRENCY", 2, 4) },
+      () => runBoundedWebTasks(
+        rescueTasks,
+        webTaskConcurrency("WEB_RESCUE_CONCURRENCY", 2, 4),
+        rescueTimeoutMs,
+        { signal },
+      ),
       (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
     );
     throwIfSearchAborted(signal);
     for (const rr of rescueResults) {
+      addWebSourceFailureNotes(rr.value, webSourceFailures);
       if (webMerged.length >= 8) break;
       if (rr.status === "fulfilled" && rr.value?.papers?.length) {
         webMerged = webMerged.concat(markEntityCoverage(rr.value.papers, fullRawQuery));
@@ -908,6 +1150,9 @@ async function runWebIntelSearch(opts) {
   );
   if (entityCoverageQueries.length) {
     sourcesUsed.push(`web_entity_covered:${covered.size}/${extractRequestedWebEntities(fullRawQuery).length}`);
+  }
+  if (webSourceFailures.size) {
+    sourcesUsed.push(`web_source_failures:${[...webSourceFailures.entries()].map(([source, count]) => `${source}=${count}`).join(",")}`);
   }
   return {
     papers: webMerged,
@@ -1099,7 +1344,7 @@ export async function runPaperSearch(opts) {
     ip: includePatents ? 1 : 0,
     financeWebSources: (Array.isArray(opts.financeWebSources) ? opts.financeWebSources : [])
       .map((source) => String(source ?? "").trim().toLowerCase())
-      .filter((source) => source === "eastmoney" || source === "wind")
+      .filter((source) => WEB_SITE_SOURCE_IDS.includes(source))
       .sort()
       .join(","),
     personaSkill: opts.personaSkill?.slice(0, 30),
@@ -1448,6 +1693,7 @@ export async function runPaperSearch(opts) {
   }
 
   let merged = mergeDedupe(buckets);
+  const explicitDirectRows = merged.filter((paper) => paper?.source === "direct_web");
   const beforeFilter = merged.length;
   merged = dropZeroRelevanceByTokens(merged, rawQuery, effectiveQuery, opts.preferenceKeywords);
   if (merged.length > 0 && merged.length < beforeFilter) {
@@ -1459,6 +1705,7 @@ export async function runPaperSearch(opts) {
     ...semanticTokens,
   ].filter((w, i, arr) => arr.indexOf(w) === i).slice(0, 48);
   const beforeStrict = merged.length;
+  const entityCoverageCandidates = channel === "web" ? merged.filter((paper) => paper?._entityCoverage) : [];
   merged = strictRecommendFilterAndRank(merged, mergedTokens, max, {
     preferenceCount: normalizePreferenceKeywords(opts.preferenceKeywords).length,
     channel,
@@ -1469,6 +1716,9 @@ export async function runPaperSearch(opts) {
   });
   if (merged.length > 0 && merged.length < beforeStrict) {
     sourcesUsed.push("strict_recommend_filter");
+  }
+  if (channel === "web" && !patentsOnly) {
+    merged = restoreEntityCoverageRows(merged, entityCoverageCandidates, fullRawQuery, sourcesUsed);
   }
   if (queryIntent) {
     const semTag = String(queryIntent.note ?? "ok");
@@ -1488,6 +1738,18 @@ export async function runPaperSearch(opts) {
     const webPreInc = merged.length ? [...merged] : [];
     const inc = filterWebChannelInclusion(merged, rawQuery, effectiveQuery, max);
     merged = inc.papers;
+    // User supplied URLs are explicit evidence requests. Preserve successfully
+    // fetched pages even when the rewritten query has too few matching tokens.
+    if (explicitDirectRows.length) {
+      const seen = new Set(merged.map((paper) => String(paper?.absUrl ?? "").split("#")[0].toLowerCase()));
+      for (const paper of explicitDirectRows) {
+        const key = String(paper?.absUrl ?? "").split("#")[0].toLowerCase();
+        if (!key || seen.has(key)) continue;
+        merged.push(paper);
+        seen.add(key);
+      }
+      merged = merged.slice(0, max);
+    }
     if (inc.dropped > 0) sourcesUsed.push(`web_strict_drop:${inc.dropped}`);
     if (merged.length < beforeInc) sourcesUsed.push("web_inclusion_filter");
     if (!merged.length && webPreInc.length) {
@@ -1529,7 +1791,7 @@ export async function runPaperSearch(opts) {
       const webEnrich = await enrichPapersWithWebPageContent(merged, {
         maxPages:
           channel === "web"
-            ? Math.min(40, Math.max(12, Number(process.env.WEB_FETCH_MAX_PAGES) || 32))
+            ? Math.min(40, Math.max(20, Number(process.env.WEB_FETCH_MAX_PAGES) || 24))
             : hasWebInMerged
               ? Math.min(28, Math.max(10, Number(process.env.DB_WEB_FETCH_MAX_PAGES) || 18))
               : Number(process.env.WEB_FETCH_MAX_PAGES) || 10,

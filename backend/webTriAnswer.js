@@ -40,13 +40,15 @@ function isWebPaper(p) {
     s === "mcp_web" ||
     s === "ddg_web" ||
     s === "dataify_web" ||
+    s === "baidu_web" ||
     s === "tavily_web" ||
     s === "searx_web" ||
     s === "qwant_web" ||
     s === "mojeek_web" ||
     s === "wikipedia_web" ||
     s === "core" ||
-    s === "finance_web"
+    s === "finance_web" ||
+    s === "deepseek_web"
   );
 }
 
@@ -61,7 +63,10 @@ function paperBlock(p, idx) {
   const title = String(p.title ?? "").slice(0, 220);
   const src = String(p.source ?? "");
   const absU = String(p.absUrl ?? "").trim();
-  const abst = String(p.summary ?? p.abstract ?? "").slice(0, excerptMaxForPaper(p));
+  const evidence = Array.isArray(p.webEvidence) && p.webEvidence.length
+    ? `\n【数值证据】${p.webEvidence.join("；")}`
+    : "";
+  const abst = `${evidence}${String(p.summary ?? p.abstract ?? "")}`.slice(0, excerptMaxForPaper(p));
   const fetchTag =
     String(p.webFetchNote ?? "") === "fetched"
       ? "（已抓取网页正文）"

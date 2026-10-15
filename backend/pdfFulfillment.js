@@ -281,6 +281,10 @@ async function fetchResourceSecurely(rawUrl, options = {}) {
   throw new PdfFulfillmentError("too-many-redirects", "PDF source redirected too many times", 502);
 }
 
+export async function fetchPublicResourceSecurely(rawUrl, options = {}) {
+  return fetchResourceSecurely(rawUrl, options);
+}
+
 function isPdfBuffer(buffer) {
   return Buffer.isBuffer(buffer) && buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
 }

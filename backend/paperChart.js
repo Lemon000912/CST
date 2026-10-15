@@ -30,6 +30,7 @@ function paperSnippet(p) {
     src === "mcp_web" ||
     src === "ddg_web" ||
     src === "dataify_web" ||
+    src === "baidu_web" ||
     src === "tavily_web" ||
     src === "searx_web" ||
     src === "qwant_web" ||
@@ -37,6 +38,7 @@ function paperSnippet(p) {
     src === "wikipedia_web" ||
     src === "core" ||
     src === "finance_web"
+    || src === "deepseek_web"
   ) {
     idLine = absU ? `URL: ${absU.slice(0, 200)}` : "网页文献";
   } else if (src === "openalex_patent") {

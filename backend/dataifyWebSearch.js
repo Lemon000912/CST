@@ -11,6 +11,11 @@ import { extractDoiCandidate } from "./doi.js";
 let dataifyAuthDisabled = false;
 let dataifyAuthDisabledKey = "";
 
+function disableDataifyForKey(apiKey) {
+  dataifyAuthDisabled = true;
+  dataifyAuthDisabledKey = apiKey;
+}
+
 export function resetDataifyAuthState() {
   dataifyAuthDisabled = false;
   dataifyAuthDisabledKey = "";
@@ -237,9 +242,8 @@ async function fetchDataifyGoogleSearch(cfg, query, cap, opts = {}) {
     const text = await res.text();
     if (!res.ok) {
       console.warn("[dataify_web] HTTP", res.status, text.slice(0, 240));
-      if (res.status === 401 || res.status === 403) {
-        dataifyAuthDisabled = true;
-        dataifyAuthDisabledKey = cfg.apiKey;
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /余额不足|insufficient\s+balance|balance\s+insufficient/i.test(text))) {
+        disableDataifyForKey(cfg.apiKey);
       }
       return { papers: [], note: `http_${res.status}`, toolName: "dataify-google" };
     }
@@ -253,9 +257,8 @@ async function fetchDataifyGoogleSearch(cfg, query, cap, opts = {}) {
     if (typeof code === "number" && code !== 200 && code !== 0) {
       const msg = String(/** @type {{ message?: string }} */ (json).message ?? json.data ?? "").slice(0, 120);
       console.warn("[dataify_web] google api code:", code, msg, "q:", q.slice(0, 80));
-      if (code === 401 || code === 403) {
-        dataifyAuthDisabled = true;
-        dataifyAuthDisabledKey = cfg.apiKey;
+      if (code === 401 || code === 403 || /余额不足|insufficient\s+balance|balance\s+insufficient/i.test(msg)) {
+        disableDataifyForKey(cfg.apiKey);
       }
       return { papers: [], note: `api_code:${code}`, toolName: "dataify-google" };
     }
@@ -299,15 +302,18 @@ async function fetchDataifyLegacySearch(cfg, query, cap, opts = {}) {
     const res = await fetch(u.toString(), { method: "GET", headers, signal: controller.signal });
     const text = await res.text();
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
-        dataifyAuthDisabled = true;
-        dataifyAuthDisabledKey = cfg.apiKey;
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /余额不足|insufficient\s+balance|balance\s+insufficient/i.test(text))) {
+        disableDataifyForKey(cfg.apiKey);
       }
       return { papers: [], note: `http_${res.status}`, toolName: "dataify" };
     }
     const json = JSON.parse(text);
     const c = json?.code;
     if (typeof c === "number" && c !== 0 && c !== 200) {
+      const msg = String(json?.message ?? json?.msg ?? json?.data ?? "");
+      if (c === 401 || c === 403 || /余额不足|insufficient\s+balance|balance\s+insufficient/i.test(msg)) {
+        disableDataifyForKey(cfg.apiKey);
+      }
       return { papers: [], note: `api_code:${c}`, toolName: "dataify" };
     }
     const papers = jsonToWebPapers(json, cap, "dataify_web");
