@@ -189,6 +189,8 @@ async function runToolQueriesBounded(queries, perQuery, concurrency = 3) {
         results[index] = { status: "fulfilled", value: await fetchMergedWebPapers(q, perQuery, {
           chineseQuery: q,
           tracePrefix: `tool.web_search.query_${index + 1}`,
+          includeAiProvider: false,
+          includeDeepseek: false,
         }) };
       } catch (reason) {
         results[index] = { status: "rejected", reason };

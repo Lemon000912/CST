@@ -968,7 +968,15 @@ async function runWebIntelSearch(opts) {
     ),
     (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
-  const [webLayer, autoAiResult] = await Promise.all([webLayerPromise, autoAiPromise]);
+  // The regular web layer is the bounded, user-visible search path. Do not let
+  // a slow whole-query DeepSeek/Doubao task extend the layer timeout after the
+  // regular sources have already finished. If the AI task wins the race, its
+  // results are merged; otherwise the regular source results remain usable.
+  const autoAiBeforeWebLayer = Promise.race([
+    autoAiPromise,
+    webLayerPromise.then(() => null, () => null),
+  ]);
+  const [webLayer, autoAiResult] = await Promise.all([webLayerPromise, autoAiBeforeWebLayer]);
   throwIfSearchAborted(signal);
   if (autoAiResult?.papers?.length) {
     webPaperBuckets.push(autoAiResult.papers);

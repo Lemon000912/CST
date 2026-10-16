@@ -855,6 +855,57 @@ function resolveWebMergeCaps(requestedMax) {
   return { totalCap, perSource };
 }
 
+function webSourceTimeoutMs(source) {
+  const envKey = {
+    searx: "SEARXNG_TIMEOUT_MS",
+    qwant: "QWANT_TIMEOUT_MS",
+    mojeek: "MOJEEK_TIMEOUT_MS",
+    core: "CORE_TIMEOUT_MS",
+    mcp: "MCP_WEB_TIMEOUT_MS",
+    bing: "BING_WEB_TIMEOUT_MS",
+    cn_bing: "BING_WEB_TIMEOUT_MS",
+    bing_fast: "BING_WEB_TIMEOUT_MS",
+    dataify: "DATAIFY_WEB_TIMEOUT_MS",
+    tavily: "TAVILY_WEB_TIMEOUT_MS",
+    wikipedia: "WIKIPEDIA_TIMEOUT_MS",
+    baidu: "BAIDU_WEB_TIMEOUT_MS",
+  }[String(source).toLowerCase()] || `${String(source).toUpperCase()}_WEB_TIMEOUT_MS`;
+  return Math.min(
+    60_000,
+    Math.max(3_000, Number(process.env[envKey]) || Number(process.env.WEB_SOURCE_TIMEOUT_MS) || 30_000),
+  );
+}
+
+async function runWebSourceTask(source, task, parentSignal) {
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort(parentSignal.reason);
+  parentSignal?.addEventListener("abort", relayAbort, { once: true });
+  let timer;
+  let abortListener;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort(new Error(`${source}_timeout`));
+      resolve({ papers: [], note: `${source}:timeout`, toolName: source });
+    }, webSourceTimeoutMs(source));
+  });
+  const aborted = parentSignal
+    ? new Promise((_, reject) => {
+        abortListener = () => reject(parentSignal.reason ?? new DOMException("Search cancelled", "AbortError"));
+        parentSignal.addEventListener("abort", abortListener, { once: true });
+      })
+    : new Promise(() => {});
+  try {
+    return await Promise.race([Promise.resolve().then(() => task(controller.signal)), timeout, aborted]);
+  } catch (error) {
+    if (parentSignal?.aborted) throw error;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", relayAbort);
+    if (abortListener) parentSignal?.removeEventListener("abort", abortListener);
+  }
+}
+
 /**
  * 并行合并全网网页：Wikipedia / CORE / 其它显式配置源（默认不含 Bing，见 WEB_SOURCES、WEB_USE_BING）。
  * @param {string} query
@@ -891,6 +942,11 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
     task,
     (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
   );
+  const sourceTask = (source, task) => runWebSourceTask(
+    source,
+    (signal) => tracedSource(source, () => task(signal)),
+    opts.signal,
+  );
   if (!q) return { papers: [], note: "empty-query", toolName: null };
 
   const { totalCap, perSource } = resolveWebMergeCaps(max);
@@ -906,7 +962,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const fastBing = !/^(0|false|off|no)$/i.test(String(process.env.WEB_BING_FAST_PATH ?? "1").trim());
   if (fastBing && isCnBingFallbackEnabled() && !wantPreferredWeb) {
     try {
-      const bingR = await tracedSource("bing_fast", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal: opts.signal }));
+      const bingR = await sourceTask("bing_fast", (signal) => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal }));
       if (bingR.papers?.length >= 4) {
         return {
           papers: bingR.papers.slice(0, totalCap),
@@ -930,28 +986,28 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const aiEnabled = opts.includeAiProvider !== false && opts.includeDeepseek !== false;
   if (aiEnabled && provider === "deepseek" && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
     tasks.push(
-      tracedSource("deepseek", () => fetchDeepseekWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal: opts.signal }))
+      sourceTask("deepseek", (signal) => fetchDeepseekWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal }))
         .then((r) => ({ src: "deepseek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "deepseek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (aiEnabled && provider === "doubao" && allow.has("doubao") && getDoubaoWebSearchConfig()) {
     tasks.push(
-      tracedSource("doubao", () => fetchDoubaoWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal: opts.signal }))
+      sourceTask("doubao", (signal) => fetchDoubaoWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal }))
         .then((r) => ({ src: "doubao", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "doubao", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
-      tracedSource("tavily", () => fetchTavilyWebPapers(searchQ, tavilyCap, { signal: opts.signal }))
+      sourceTask("tavily", (signal) => fetchTavilyWebPapers(searchQ, tavilyCap, { signal }))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
-      tracedSource("dataify", () => fetchDataifyWebPapers(searchQ, Math.min(64, Math.ceil(perSource * 1.35)), { signal: opts.signal }))
+      sourceTask("dataify", (signal) => fetchDataifyWebPapers(searchQ, Math.min(64, Math.ceil(perSource * 1.35)), { signal }))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
@@ -960,63 +1016,63 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   // instead of operating-rate evidence to industry metric searches.
   if (includeRegularSources && allow.has("wikipedia") && !industryMetricQuery) {
     tasks.push(
-      tracedSource("wikipedia", () => fetchWikipediaWebPapers(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("wikipedia", (signal) => fetchWikipediaWebPapers(searchQ, perSource, { signal }))
         .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
     tasks.push(
-      tracedSource("core", () => fetchCoreWebPapers(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("core", (signal) => fetchCoreWebPapers(searchQ, perSource, { signal }))
         .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("searx")) {
     tasks.push(
-      tracedSource("searx", () => fetchSearxWebSearch(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("searx", (signal) => fetchSearxWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("mcp") && isMcpUsable()) {
     tasks.push(
-      tracedSource("mcp", () => fetchMcpWebPapers(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("mcp", (signal) => fetchMcpWebPapers(searchQ, perSource, { signal }))
         .then((r) => ({ src: "mcp", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mcp", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("bing") && isBingWebEnabled()) {
     tasks.push(
-      tracedSource("bing", () => fetchBingWebSearch(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("bing", (signal) => fetchBingWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "bing", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("baidu") && isBaiduWebEnabled()) {
     tasks.push(
-      tracedSource("baidu", () => fetchBaiduWebSearch(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("baidu", (signal) => fetchBaiduWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "baidu", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "baidu", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("ddg")) {
     tasks.push(
-      tracedSource("ddg", () => fetchDuckDuckGoSearch(searchQ, perSource, { skipBing: true, signal: opts.signal }))
+      sourceTask("ddg", (signal) => fetchDuckDuckGoSearch(searchQ, perSource, { skipBing: true, signal }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("qwant")) {
     tasks.push(
-      tracedSource("qwant", () => fetchQwantWebSearch(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("qwant", (signal) => fetchQwantWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "qwant", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "qwant", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("mojeek")) {
     tasks.push(
-      tracedSource("mojeek", () => fetchMojeekWebSearch(searchQ, perSource, { signal: opts.signal }))
+      sourceTask("mojeek", (signal) => fetchMojeekWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "mojeek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mojeek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
@@ -1024,7 +1080,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   /** 与免费源并行：国内网络 DDG/SearX 常超时，cn.bing 通常可用 */
   if (includeRegularSources && isCnBingFallbackEnabled() && !allow.has("bing")) {
     tasks.push(
-      tracedSource("cn_bing", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal: opts.signal }))
+      sourceTask("cn_bing", (signal) => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal }))
         .then((r) => ({ src: "cn_bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({
           src: "cn_bing",
@@ -1155,6 +1211,8 @@ export async function fetchFinanceWebPapers(query, max, source, opts = {}) {
   const result = await fetchMergedWebPapers(`${q} site:${target.domain}`, max, {
     ...opts,
     chineseQuery: `${q} site:${target.domain}`,
+    includeAiProvider: false,
+    includeDeepseek: false,
   });
   const papers = (result?.papers ?? []).filter((paper) => {
     try {
