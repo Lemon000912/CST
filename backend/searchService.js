@@ -15,6 +15,7 @@ import {
   fetchFinanceWebPapers,
   fetchPatentPapers,
   fetchBingWebSearch,
+  getWebSearchProviderConfig,
   WEB_SITE_SOURCE_IDS,
   PUBLIC_OFFICIAL_WEB_SOURCE_IDS,
 } from "./mcpWebSearch.js";
@@ -47,6 +48,7 @@ import {
 } from "./webSearchAgent.js";
 import { extractHttpUrls, fetchDirectWebPapers } from "./directWebSearch.js";
 import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
+import { fetchDoubaoWebPapers, getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
@@ -62,6 +64,7 @@ function isWebChannelPatentsEnabled() {
 const WEB_PAGE_SOURCES = new Set([
   "direct_web",
   "deepseek_web",
+  "doubao_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",
@@ -164,6 +167,7 @@ function dedupeKey(p) {
     (p.source === "mcp_web" ||
       p.source === "direct_web" ||
       p.source === "deepseek_web" ||
+      p.source === "doubao_web" ||
       p.source === "dataify_web" ||
       p.source === "baidu_web" ||
       p.source === "ddg_web" ||
@@ -193,6 +197,7 @@ function scoreSource(x) {
   if (x.source === "baidu_web") return 2.21;
   if (x.source === "tavily_web") return 2.24;
   if (x.source === "deepseek_web") return 2.23;
+  if (x.source === "doubao_web") return 2.24;
   if (x.source === "core") return 2.28;
   if (x.source === "wikipedia_web") return 2.05;
   if (x.source === "searx_web") return 2.18;
@@ -628,24 +633,25 @@ function webTaskConcurrency(envName, fallback, max = 8) {
   return Math.min(max, Math.max(1, Number(process.env[envName]) || fallback));
 }
 
-function webAutoDeepseekTimeoutMs() {
+function webAutoAiTimeoutMs() {
   return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || 180_000));
 }
 
-async function fetchAutoDeepseekPapers(query, max, signal) {
+async function fetchAutoAiPapers(provider, query, max, signal) {
   const controller = new AbortController();
   const relayAbort = () => controller.abort(signal.reason);
   signal?.addEventListener("abort", relayAbort, { once: true });
   if (signal?.aborted) relayAbort();
-  const timer = setTimeout(() => controller.abort(new Error("auto DeepSeek timeout")), webAutoDeepseekTimeoutMs());
+  const timer = setTimeout(() => controller.abort(new Error(`auto ${provider} timeout`)), webAutoAiTimeoutMs());
   try {
+    if (provider === "doubao") return await fetchDoubaoWebPapers(query, max, { signal: controller.signal });
     return await fetchDeepseekWebPapers(query, max, { signal: controller.signal });
   } catch (error) {
     if (signal?.aborted) throw error;
     return {
       papers: [],
       note: controller.signal.aborted ? "auto_timeout" : `err:${String(error?.message || error).slice(0, 100)}`,
-      toolName: "deepseek",
+      toolName: provider,
     };
   } finally {
     clearTimeout(timer);
@@ -788,30 +794,32 @@ async function runWebIntelSearch(opts) {
   }
 
   const webSearchQ = extractWebSearchQuery(fullRawQuery) || rawQuery;
-  // DeepSeek participates in the normal multi-source planner by default.  The
-  // explicit `deepseek` mode remains available for callers that want a single
-  // Redfox task and no legacy engines.
-  const webProviderMode = String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
-  const deepseekConfigured = Boolean(getDeepseekWebSearchConfig());
-  if (webProviderMode === "deepseek") {
-    if (!deepseekConfigured) {
-      sourcesUsed.push("deepseek:not_configured");
+  const providerConfig = getWebSearchProviderConfig();
+  const aiProvider = providerConfig.aiProvider;
+  const aiConfigured = aiProvider === "doubao"
+    ? Boolean(getDoubaoWebSearchConfig())
+    : Boolean(getDeepseekWebSearchConfig());
+  // Explicit AI-only modes submit one whole-query task and skip the regular
+  // multi-source planner. Direct URLs collected from the user's query remain usable.
+  if (aiProvider && !providerConfig.includeSources) {
+    if (!aiConfigured) {
+      sourcesUsed.push(`${aiProvider}:not_configured`);
       return { papers: directPapers, patents: [], sourcesUsed };
     }
-    const deepseekResult = await traceAsync(
+    const aiResult = await traceAsync(
       performanceTrace,
-      "search.web.deepseek",
+      `search.web.${aiProvider}`,
       { queryChars: webSearchQ.length },
-      () => fetchDeepseekWebPapers(webSearchQ, max, { signal }),
+      () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal),
       (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
     );
-    if (deepseekResult.papers?.length) {
-      sourcesUsed.push(`web:deepseek(${deepseekResult.papers.length})`);
+    if (aiResult.papers?.length) {
+      sourcesUsed.push(`web:${aiProvider}(${aiResult.papers.length})`);
     } else {
-      sourcesUsed.push(`deepseek:${deepseekResult.note || "empty"}`);
+      sourcesUsed.push(`${aiProvider}:${aiResult.note || "empty"}`);
     }
     return {
-      papers: [...directPapers, ...(deepseekResult.papers ?? [])],
+      papers: [...directPapers, ...(aiResult.papers ?? [])],
       patents: [],
       sourcesUsed,
     };
@@ -911,6 +919,7 @@ async function runWebIntelSearch(opts) {
             performanceTrace,
             tracePrefix: `search.web.round1.query_${i + 1}.source`,
             includeDeepseek: false,
+            includeAiProvider: false,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
@@ -936,16 +945,15 @@ async function runWebIntelSearch(opts) {
     });
   }
 
-  // In auto mode DeepSeek WebSearch is a whole-query research task, not a SERP
-  // engine to repeat for every generated query. Run it once beside the normal
-  // source fan-out so a slow Redfox task cannot hold Tavily/Bing results hostage.
-  const autoDeepseekPromise = webProviderMode === "deepseek" || !deepseekConfigured
+  // AI WebSearch is a whole-query research task, not a SERP engine to repeat for
+  // every generated query. Run it once beside the regular source fan-out.
+  const autoAiPromise = !aiProvider || !aiConfigured || !providerConfig.includeSources
     ? Promise.resolve(null)
     : traceAsync(
         performanceTrace,
-        "search.web.deepseek.auto",
-        { queryChars: webSearchQ.length, timeoutMs: webAutoDeepseekTimeoutMs() },
-        () => fetchAutoDeepseekPapers(webSearchQ, max, signal),
+        `search.web.${aiProvider}.auto`,
+        { queryChars: webSearchQ.length, timeoutMs: webAutoAiTimeoutMs() },
+        () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
       );
   const webLayerPromise = traceAsync(
@@ -960,13 +968,13 @@ async function runWebIntelSearch(opts) {
     ),
     (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
-  const [webLayer, autoDeepseekResult] = await Promise.all([webLayerPromise, autoDeepseekPromise]);
+  const [webLayer, autoAiResult] = await Promise.all([webLayerPromise, autoAiPromise]);
   throwIfSearchAborted(signal);
-  if (autoDeepseekResult?.papers?.length) {
-    webPaperBuckets.push(autoDeepseekResult.papers);
-    sourcesUsed.push(`web:deepseek(${autoDeepseekResult.papers.length})`);
-  } else if (autoDeepseekResult) {
-    sourcesUsed.push(`deepseek:${autoDeepseekResult.note || "empty"}`);
+  if (autoAiResult?.papers?.length) {
+    webPaperBuckets.push(autoAiResult.papers);
+    sourcesUsed.push(`web:${aiProvider}(${autoAiResult.papers.length})`);
+  } else if (autoAiResult) {
+    sourcesUsed.push(`${aiProvider}:${autoAiResult.note || "empty"}`);
   }
   for (const r of webLayer) {
     if (r.status !== "fulfilled") {
@@ -1060,6 +1068,7 @@ async function runWebIntelSearch(opts) {
             performanceTrace,
             tracePrefix: `search.web.round2.query_${i + 1}.source`,
             includeDeepseek: false,
+            includeAiProvider: false,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
@@ -1103,6 +1112,7 @@ async function runWebIntelSearch(opts) {
             performanceTrace,
             tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
             includeDeepseek: false,
+            includeAiProvider: false,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),

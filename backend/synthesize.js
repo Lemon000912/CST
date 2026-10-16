@@ -32,7 +32,8 @@ function isWebOnlyPaper(p) {
     s === "wikipedia_web" ||
     s === "core" ||
     s === "finance_web" ||
-    s === "deepseek_web"
+    s === "deepseek_web" ||
+    s === "doubao_web"
   );
 }
 
@@ -66,7 +67,7 @@ function paperBlock(p, idx) {
   const abstRaw = String(p.summary ?? p.abstract ?? "");
   const abst = abstRaw.slice(
     0,
-      ["mcp_web", "ddg_web", "ddg_patent", "dataify_web", "baidu_web", "tavily_web", "deepseek_web", "openalex_patent", "wikipedia_web", "core", "finance_web"].includes(src)
+      ["mcp_web", "ddg_web", "ddg_patent", "dataify_web", "baidu_web", "tavily_web", "deepseek_web", "doubao_web", "openalex_patent", "wikipedia_web", "core", "finance_web"].includes(src)
       ? 360
       : 240,
   );
@@ -92,7 +93,8 @@ function paperBlock(p, idx) {
     src === "wikipedia_web" ||
     src === "core" ||
     src === "finance_web" ||
-    src === "deepseek_web"
+    src === "deepseek_web" ||
+    src === "doubao_web"
   ) {
     idLine = absU ? `网页 | URL: ${absU.slice(0, 240)}` : "网页条目（无 URL）";
   } else if (src === "openalex") {
@@ -118,7 +120,8 @@ function paperBlock(p, idx) {
           src === "wikipedia_web" ||
           src === "core" ||
           src === "finance_web" ||
-          src === "deepseek_web"
+          src === "deepseek_web" ||
+          src === "doubao_web"
         ? "网页"
         : "文献";
   return `[${idx}] 类型:${typeTag} | ${idLine}\n标题: ${title}\n作者: ${authors.slice(0, 220)}\n摘要摘录: ${abst}`;

@@ -39,6 +39,7 @@ function paperSnippet(p) {
     src === "core" ||
     src === "finance_web"
     || src === "deepseek_web"
+    || src === "doubao_web"
   ) {
     idLine = absU ? `URL: ${absU.slice(0, 200)}` : "网页文献";
   } else if (src === "openalex_patent") {
@@ -180,7 +181,7 @@ function paperDoiOrArxivTag(p) {
   const pid = String(p.paper_id ?? "").trim();
   const absU = String(p.absUrl ?? "").trim();
   const src = String(p.source ?? "");
-  if (src === "mcp_web" || src === "ddg_web") {
+  if (src === "mcp_web" || src === "ddg_web" || src === "deepseek_web" || src === "doubao_web") {
     return absU ? `url:${absU}` : `web_page:${pid || rawId || "unknown"}`;
   }
   if (src === "openalex_patent" || src === "ddg_patent") {

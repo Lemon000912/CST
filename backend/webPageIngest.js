@@ -9,6 +9,7 @@ import { fetchDataifyWebUnlockerHtml, getDataifyWebUnlockerConfig } from "./data
 const WEB_SOURCES = new Set([
   "direct_web",
   "deepseek_web",
+  "doubao_web",
   "mcp_web",
   "ddg_web",
   "dataify_web",

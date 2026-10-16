@@ -18,6 +18,7 @@ const WEB_SOURCES = new Set([
   "entity_seed",
   "finance_web",
   "deepseek_web",
+  "doubao_web",
 ]);
 
 function isWebPaper(p) {

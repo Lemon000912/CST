@@ -48,7 +48,8 @@ function isWebPaper(p) {
     s === "wikipedia_web" ||
     s === "core" ||
     s === "finance_web" ||
-    s === "deepseek_web"
+    s === "deepseek_web" ||
+    s === "doubao_web"
   );
 }
 

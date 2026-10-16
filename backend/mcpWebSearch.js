@@ -38,6 +38,7 @@ import { traceAsync } from "./performanceTrace.js";
 import { enhanceChineseWebQuery } from "./chineseWebQueryEnhancer.js";
 import { fetchBaiduWebSearch, getBaiduWebSearchConfig, isBaiduWebEnabled } from "./baiduWebSearch.js";
 import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
+import { fetchDoubaoWebPapers, getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
 
 export { FREE_WEB_SEARCH_CATALOG, getFreeWebSourceIds };
 
@@ -57,7 +58,7 @@ export function isCnBingFallbackEnabled() {
 /**
  * 允许参与「全网合并」的源：
  * 免费（默认）：ddg, searx, qwant, mojeek
- * 需 Key：core, tavily, deepseek, mcp
+ * 需 Key：core, tavily, deepseek, doubao, mcp
  * 可选：bing（须 WEB_USE_BING=1）、baidu（默认启用，可用 BAIDU_WEB_ENABLED=0 关闭）
  * @returns {Set<string>}
  */
@@ -72,12 +73,31 @@ export function getWebSourceAllowlist() {
   // 显式 WEB_SOURCES 是调用方的白名单，不额外注入百度；未显式配置时才使用默认源。
   if (!parts.length && isBaiduWebEnabled()) set.add("baidu");
   if (!isBaiduWebEnabled()) set.delete("baidu");
-  const providerMode = String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
-  if (providerMode === "deepseek+sources") set.add("deepseek");
-  if (["legacy", "sources"].includes(providerMode)) {
-    set.delete("deepseek");
-  }
+  const provider = getWebSearchProviderConfig();
+  set.delete("deepseek");
+  set.delete("doubao");
+  if (provider.aiProvider) set.add(provider.aiProvider);
   return set;
+}
+
+/**
+ * Resolve the single AI web-search provider and whether regular web sources
+ * should participate in the same search.
+ */
+export function getWebSearchProviderConfig() {
+  const mode = String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase();
+  const normalized = ["auto", "sources", "legacy", "deepseek", "deepseek+sources", "doubao", "doubao+sources"].includes(mode)
+    ? mode
+    : "auto";
+  const includeSources = normalized === "auto" || normalized === "sources" || normalized === "legacy" || normalized.endsWith("+sources");
+  let aiProvider = null;
+  if (["deepseek", "deepseek+sources"].includes(normalized)) aiProvider = "deepseek";
+  else if (["doubao", "doubao+sources"].includes(normalized)) aiProvider = "doubao";
+  else if (normalized === "auto") {
+    if (getDeepseekWebSearchConfig()) aiProvider = "deepseek";
+    else if (getDoubaoWebSearchConfig()) aiProvider = "doubao";
+  }
+  return { mode: normalized, aiProvider, includeSources };
 }
 
 /** @returns {Record<string, boolean>} */
@@ -97,7 +117,10 @@ export function getWebSourcesStatus() {
     baidu: allow.has("baidu") && Boolean(getBaiduWebSearchConfig()),
     deepseek:
       Boolean(getDeepseekWebSearchConfig()) &&
-      (allow.has("deepseek") || ["auto", "deepseek"].includes(String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase())),
+      allow.has("deepseek"),
+    doubao:
+      Boolean(getDoubaoWebSearchConfig()) &&
+      allow.has("doubao"),
   };
 }
 
@@ -762,6 +785,7 @@ const WEB_MERGE_SOURCE_RANK = {
   core: 1,
   tavily_web: 2,
   deepseek_web: 2.15,
+  doubao_web: 2.16,
   dataify_web: 3,
   baidu_web: 3.5,
   wikipedia_web: 4,
@@ -874,6 +898,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const wantPreferredWeb =
     (allow.has("tavily") && Boolean(getTavilyWebSearchConfig())) ||
     (allow.has("deepseek") && Boolean(getDeepseekWebSearchConfig())) ||
+    (allow.has("doubao") && Boolean(getDoubaoWebSearchConfig())) ||
     (allow.has("mcp") && isMcpUsable()) ||
     allow.has("wikipedia") ||
     (allow.has("core") && Boolean(getCoreSearchConfig()));
@@ -899,21 +924,32 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const searchQ = enhancedQ;
 
   const tavilyCap = Math.min(20, Math.ceil(perSource * 1.2));
-  if (opts.includeDeepseek !== false && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
+  const providerConfig = getWebSearchProviderConfig();
+  const provider = providerConfig.aiProvider;
+  const includeRegularSources = providerConfig.includeSources;
+  const aiEnabled = opts.includeAiProvider !== false && opts.includeDeepseek !== false;
+  if (aiEnabled && provider === "deepseek" && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
     tasks.push(
       tracedSource("deepseek", () => fetchDeepseekWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal: opts.signal }))
         .then((r) => ({ src: "deepseek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "deepseek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("tavily") && getTavilyWebSearchConfig()) {
+  if (aiEnabled && provider === "doubao" && allow.has("doubao") && getDoubaoWebSearchConfig()) {
+    tasks.push(
+      tracedSource("doubao", () => fetchDoubaoWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal: opts.signal }))
+        .then((r) => ({ src: "doubao", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "doubao", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
+  if (includeRegularSources && allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
       tracedSource("tavily", () => fetchTavilyWebPapers(searchQ, tavilyCap, { signal: opts.signal }))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("dataify") && getDataifyWebSearchConfig()) {
+  if (includeRegularSources && allow.has("dataify") && getDataifyWebSearchConfig()) {
     tasks.push(
       tracedSource("dataify", () => fetchDataifyWebPapers(searchQ, Math.min(64, Math.ceil(perSource * 1.35)), { signal: opts.signal }))
         .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
@@ -922,63 +958,63 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   }
   // Wikipedia/CORE help general and academic queries, but add definitions
   // instead of operating-rate evidence to industry metric searches.
-  if (allow.has("wikipedia") && !industryMetricQuery) {
+  if (includeRegularSources && allow.has("wikipedia") && !industryMetricQuery) {
     tasks.push(
       tracedSource("wikipedia", () => fetchWikipediaWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
+  if (includeRegularSources && allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
     tasks.push(
       tracedSource("core", () => fetchCoreWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("searx")) {
+  if (includeRegularSources && allow.has("searx")) {
     tasks.push(
       tracedSource("searx", () => fetchSearxWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("mcp") && isMcpUsable()) {
+  if (includeRegularSources && allow.has("mcp") && isMcpUsable()) {
     tasks.push(
       tracedSource("mcp", () => fetchMcpWebPapers(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mcp", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "mcp", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("bing") && isBingWebEnabled()) {
+  if (includeRegularSources && allow.has("bing") && isBingWebEnabled()) {
     tasks.push(
       tracedSource("bing", () => fetchBingWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "bing", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("baidu") && isBaiduWebEnabled()) {
+  if (includeRegularSources && allow.has("baidu") && isBaiduWebEnabled()) {
     tasks.push(
       tracedSource("baidu", () => fetchBaiduWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "baidu", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "baidu", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("ddg")) {
+  if (includeRegularSources && allow.has("ddg")) {
     tasks.push(
       tracedSource("ddg", () => fetchDuckDuckGoSearch(searchQ, perSource, { skipBing: true, signal: opts.signal }))
         .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("qwant")) {
+  if (includeRegularSources && allow.has("qwant")) {
     tasks.push(
       tracedSource("qwant", () => fetchQwantWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "qwant", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "qwant", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (allow.has("mojeek")) {
+  if (includeRegularSources && allow.has("mojeek")) {
     tasks.push(
       tracedSource("mojeek", () => fetchMojeekWebSearch(searchQ, perSource, { signal: opts.signal }))
         .then((r) => ({ src: "mojeek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
@@ -986,7 +1022,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
     );
   }
   /** 与免费源并行：国内网络 DDG/SearX 常超时，cn.bing 通常可用 */
-  if (isCnBingFallbackEnabled() && !allow.has("bing")) {
+  if (includeRegularSources && isCnBingFallbackEnabled() && !allow.has("bing")) {
     tasks.push(
       tracedSource("cn_bing", () => fetchBingWebSearch(bingQ, perSource, { cnOnly: true, signal: opts.signal }))
         .then((r) => ({ src: "cn_bing", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
@@ -1032,7 +1068,7 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   let toolName = tools.length ? tools.join("+") : "duckduckgo-lite";
 
   /** 国内等环境：DDG/SearX 超时后自动用 cn.bing（不并入日常并行，避免依赖国际站） */
-  if (!papers.length && isCnBingFallbackEnabled() && !allow.has("bing")) {
+  if (includeRegularSources && !papers.length && isCnBingFallbackEnabled() && !allow.has("bing")) {
     try {
       const fb = await fetchBingWebSearch(q, perSource, { cnOnly: true, signal: opts.signal });
       if (fb.papers?.length) {

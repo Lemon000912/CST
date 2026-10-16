@@ -70,6 +70,7 @@ import { getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
 import { getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
 import { getTavilyWebSearchConfig } from "./tavilyWebSearch.js";
 import { getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
+import { getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
 import {
   getWebSourcesStatus,
   getWebSourceAllowlist,
@@ -1464,6 +1465,7 @@ app.get("/api/v1/mcp/status", (_req, res) => {
   const du = getDataifyWebUnlockerConfig();
   const tv = getTavilyWebSearchConfig();
   const deepseek = getDeepseekWebSearchConfig();
+  const doubao = getDoubaoWebSearchConfig();
   const sc = getElsevierScopusConfig();
   const webSrc = getWebSourcesStatus();
   const allow = [...getWebSourceAllowlist()];
@@ -1475,6 +1477,8 @@ app.get("/api/v1/mcp/status", (_req, res) => {
     tavilyWebConfigured: Boolean(tv),
     deepseekWebConfigured: Boolean(deepseek),
     deepseekWebActive: Boolean(deepseek) && Boolean(webSrc.deepseek),
+    doubaoWebConfigured: Boolean(doubao),
+    doubaoWebActive: Boolean(doubao) && Boolean(webSrc.doubao),
     webSearchProvider: String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase(),
     scopusElsevierConfigured: Boolean(sc),
     scopusInstTokenConfigured: Boolean(sc?.instToken),
@@ -1491,9 +1495,11 @@ app.get("/api/v1/mcp/status", (_req, res) => {
       : df
         ? "检测到 DATAIFY_API_KEY，但 Dataify 搜索已从当前网页源方案移除。"
         : deepseek && String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase() === "deepseek"
-          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox DeepSeek WebSearch；WEB_SEARCH_PROVIDER=auto 或 legacy 可与其它网页源并行。"
-        : deepseek
-          ? "已配置 REDFOX_API_KEY：DeepSeek WebSearch 将与 WEB_SOURCES 中的其它网页源并行合并；WEB_SEARCH_PROVIDER=deepseek 可切换为单独调用。"
+          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox DeepSeek WebSearch；可用 WEB_SEARCH_PROVIDER=doubao 切换豆包，auto 为 DeepSeek 优先、豆包备用。"
+        : doubao && String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase() === "doubao"
+          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox Doubao WebSearch；可用 WEB_SEARCH_PROVIDER=deepseek 切换 DeepSeek，auto 为 DeepSeek 优先、豆包备用。"
+        : deepseek || doubao
+          ? "已配置 REDFOX_API_KEY：WEB_SEARCH_PROVIDER=auto 时 DeepSeek 优先、豆包备用；可用 deepseek+sources 或 doubao+sources 与其它网页源并行。"
         : c
           ? "已配置 Brave MCP（需 Key）；当前网页源由 WEB_SOURCES 控制。"
       : "网页渠道默认源：通用网页搜索（Dataify/Tavily/SearX）+ Wikipedia + CORE（CORE 需 CORE_API_KEY）；Semantic Scholar 保留数据库渠道。可选 BRAVE_API_KEY。",
