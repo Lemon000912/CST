@@ -6,7 +6,7 @@ import { validateHeaderValue as httpValidateHeaderValue } from "node:http";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import QRCode from "qrcode";
-import { getConfiguredAppEdition, isBusinessAppEdition } from "./appEdition.js";
+import { getConfiguredAppEdition, isBusinessAppEdition, isEnterpriseAppEdition } from "./appEdition.js";
 import { applyFetchConnectTimeout } from "./netTuning.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -759,7 +759,7 @@ app.get("/api/v1/billing/recharge/orders/:id", requireAuthenticatedUser, async (
   }
 });
 
-if (!isBusinessEdition()) {
+if (!isEnterpriseAppEdition(APP_EDITION)) {
   app.use("/api/pay/wechat", createWechatPayRouter({
     requireAuthenticatedUser,
     rateLimit: rechargeLimiter,
@@ -1031,7 +1031,7 @@ app.post("/api/v1/user/info", async (req, res) => {
  */
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
   try {
-    const businessEdition = isBusinessEdition();
+    const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1074,7 +1074,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
             operationType: "chart",
             idempotencyKey,
             requestHash,
-            costUnits: businessEdition ? 0 : billingDetails.chartPointUnits,
+            costUnits: billingFreeEdition ? 0 : billingDetails.chartPointUnits,
             billingDetails,
             result: body,
             receipt: { parentOperationId },
@@ -1548,7 +1548,7 @@ app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, asy
 app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
-    const businessEdition = isBusinessEdition();
+    const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1606,7 +1606,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        allowZeroBalance: businessEdition,
+        allowZeroBalance: billingFreeEdition,
       });
     activeOperation = begun?.operation ?? null;
 
@@ -1657,7 +1657,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        costUnits: businessEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
+        costUnits: billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1672,7 +1672,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       "Content-Disposition": contentDisposition,
       "Cache-Control": "private, no-store",
       "X-Billing-Operation-Id": activeOperation.id,
-      "X-Billing-Cost-Units": String(receipt?.costUnits ?? (businessEdition ? 0 : calculateCostUnits({ pdfCount: 1 }))),
+      "X-Billing-Cost-Units": String(receipt?.costUnits ?? (billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }))),
       "X-Billing-Balance-Units": String(receipt?.balanceUnits ?? ""),
       "X-Billing-Replayed": billingResult.replayed ? "true" : "false",
       "X-Parent-Operation-Id": parentOperationId,
@@ -1688,7 +1688,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationId: activeOperation.id,
         userId: req.auth.userId,
         leaseToken: activeOperation.leaseToken,
-        costUnits: businessEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
+        costUnits: billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1794,7 +1794,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   let activeOperation = null;
   let begun;
   let startingBalanceUnits = 0;
-  const businessEdition = isBusinessEdition();
+  const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
   const requestTrace = createPerformanceTrace(req.headers["idempotency-key"]);
   const endPapersReady = requestTrace.start("milestone.papers_ready");
   const endFirstSynthesisToken = requestTrace.start("milestone.first_synthesis_token");
@@ -1824,9 +1824,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: businessEdition,
+      allowZeroBalance: billingFreeEdition,
     });
-    if (businessEdition) {
+    if (billingFreeEdition) {
       startingBalanceUnits = Number.MAX_SAFE_INTEGER;
     } else if (!begun.replayed) {
       startingBalanceUnits = begun.balance?.balanceUnits
@@ -1956,7 +1956,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           edition: APP_EDITION,
           paused: true,
         };
-        const costUnits = businessEdition ? 0 : calculateCostUnits({
+        const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
           characterCount: billingDetails.characterCount,
           pdfCount: billingDetails.deepPaperCount,
         });
@@ -2343,7 +2343,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       ...searchBillingDetails(billingPayload),
       edition: APP_EDITION,
     };
-    const costUnits = businessEdition ? 0 : calculateCostUnits({
+    const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });
@@ -2425,7 +2425,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
 app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
-    const businessEdition = isBusinessEdition();
+    const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
       edition: APP_EDITION,
@@ -2442,7 +2442,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: businessEdition,
+      allowZeroBalance: billingFreeEdition,
     });
     if (begun.replayed) {
       return res.json({
@@ -2453,7 +2453,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       });
     }
     activeOperation = begun.operation;
-    const startingBalanceUnits = businessEdition
+    const startingBalanceUnits = billingFreeEdition
       ? Number.MAX_SAFE_INTEGER
       : begun.balance?.balanceUnits ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     res.locals.searchBillingOperation = activeOperation;
@@ -2473,7 +2473,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             ...searchBillingDetails(responseBody),
             edition: APP_EDITION,
           };
-          const costUnits = businessEdition ? 0 : calculateCostUnits({
+          const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
             characterCount: billingDetails.characterCount,
             pdfCount: billingDetails.deepPaperCount,
           });
@@ -3848,7 +3848,7 @@ await initDatabase().catch((e) => {
   process.exit(1);
 });
 
-if (!isBusinessEdition()) {
+if (!isEnterpriseAppEdition(APP_EDITION)) {
   logWechatPayStartupStatus();
 }
 

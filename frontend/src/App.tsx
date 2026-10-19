@@ -96,11 +96,10 @@ import type {
   UploadedAttachment,
 } from "./types";
 
-// Vite replaces this value per edition. The enterprise build eliminates the
-// dynamic import entirely, so payment UI and QR code code exist only in the
-// school frontend artifact.
+// Vite replaces this value per edition. Enterprise remains the only edition
+// without point billing; finance uses the same billing and recharge flow as school.
 const loadSchoolRechargeModule =
-  import.meta.env.VITE_APP_EDITION === "enterprise" || import.meta.env.VITE_APP_EDITION === "finance"
+  import.meta.env.VITE_APP_EDITION === "enterprise"
     ? null
     : () => import("./SchoolRechargeModal");
 const SchoolRechargeModal = loadSchoolRechargeModule
@@ -2262,7 +2261,7 @@ function AssistantBlock({
         ) : null}
         {!msg.error && msg.meta?.paused ? (
           <div className="not-prose mt-3 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-field)] px-3 py-2 text-[11px] text-[var(--t-text-dim)]">
-            回答已暂停，已保留当前内容{pointsEnabled ? "；校园版将按已输出字符结算积分。" : "。"}
+            回答已暂停，已保留当前内容{pointsEnabled ? "；将按已输出字符结算积分。" : "。"}
           </div>
         ) : null}
         {!msg.error && pointsEnabled ? <BillingReceiptBadge receipt={msg.meta?.billing} kind="回答" /> : null}
@@ -2790,7 +2789,8 @@ export default function App({
   onLogout?: () => void;
 }) {
   const { theme, setTheme } = useTheme();
-  const pointsEnabled = edition === "school";
+  const pointsEnabled = edition === "school" || edition === "finance";
+  const studentVerificationEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
     return removeEmptySessions(loaded);
@@ -2937,12 +2937,12 @@ export default function App({
     void loadSchoolRechargeModule()
       .then((module) => module.preloadRechargeCatalog())
       .catch(() => {
-        // 打开充值弹窗前会重试；预加载失败不影响其他校园版功能。
+        // 打开充值弹窗前会重试；预加载失败不影响其他功能。
       });
   }, [pointsEnabled]);
 
   useEffect(() => {
-    if (!pointsEnabled) {
+    if (!studentVerificationEnabled) {
       setStudentVerificationOpen(false);
       return;
     }
@@ -2955,7 +2955,7 @@ export default function App({
         // 认证状态不影响主功能；用户打开认证窗口后仍可重试。
       });
     return () => { cancelled = true; };
-  }, [pointsEnabled]);
+  }, [studentVerificationEnabled]);
 
   const applyReceipt = useCallback((receipt?: BillingReceipt | null) => {
     if (!pointsEnabled || !receipt) return;
@@ -4268,15 +4268,17 @@ export default function App({
               />
             </Suspense>
           ) : null}
-          <StudentVerificationModal
-            open={studentVerificationOpen}
-            verification={studentVerification}
-            onClose={() => setStudentVerificationOpen(false)}
-            onVerified={(verification, billing) => {
-              setStudentVerification(verification);
-              applyRechargeBalance(billing);
-            }}
-          />
+          {studentVerificationEnabled ? (
+            <StudentVerificationModal
+              open={studentVerificationOpen}
+              verification={studentVerification}
+              onClose={() => setStudentVerificationOpen(false)}
+              onVerified={(verification, billing) => {
+                setStudentVerification(verification);
+                applyRechargeBalance(billing);
+              }}
+            />
+          ) : null}
         </>
       ) : null}
       {deepMineToast ? (
@@ -4438,7 +4440,7 @@ export default function App({
                 积分 {pointBalance ? formatPoints(pointBalance.balance) : balanceError ? "加载失败" : "加载中"}
               </div>
             ) : null}
-            {pointsEnabled ? (
+            {studentVerificationEnabled ? (
               <button
                 type="button"
                 onClick={() => setStudentVerificationOpen(true)}
@@ -4627,7 +4629,7 @@ export default function App({
           >
             <IconMenu className="h-5 w-5" />
           </button>
-          {!pointsEnabled && edition !== "finance" ? (
+          {!pointsEnabled ? (
             <button
               type="button"
               onClick={() => setOtherKnowledgeBaseOpen(true)}
@@ -4652,7 +4654,7 @@ export default function App({
               {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
             </button>
           ) : (
-            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{edition === "finance" ? "数智通|金融" : "企业版"}</span>
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">企业版</span>
           )}
         </header>
 
@@ -4941,15 +4943,13 @@ export default function App({
             </div>
             {pointsEnabled ? (
               <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
-                校园版
+                {edition === "finance" ? "数智通金融" : "校园版"}
               </p>
             ) : null}
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
               {pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
-                : edition === "finance"
-                  ? "数智通金融 · 搜索、图表与 PDF 不使用积分"
-                  : "企业版 · 搜索、图表与 PDF 不使用积分"}
+                : "企业版 · 搜索、图表与 PDF 不使用积分"}
               {willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>

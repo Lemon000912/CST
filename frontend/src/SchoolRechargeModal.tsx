@@ -157,7 +157,7 @@ export default function SchoolRechargeModal({
 
   if (!open) return null;
   const activeCatalog = catalog ?? cachedRechargeCatalog;
-  // 学生版充值弹窗当前只展示微信支付，后端返回的支付宝通道暂不暴露给用户。
+  // 充值弹窗当前只展示微信支付，后端返回的支付宝通道暂不暴露给用户。
   const visibleProviders = activeCatalog?.providers.filter((item) => item.id === "wechat") ?? [];
   const enabledProviders = visibleProviders.filter((item) => item.enabled);
   const providerLabel = activeCatalog?.providers.find((item) => item.id === order?.provider)?.label ?? "支付应用";
