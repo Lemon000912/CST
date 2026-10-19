@@ -629,20 +629,51 @@ function restoreEntityCoverageRows(papers, candidates, query, sourcesUsed) {
   return out;
 }
 
+/** AI+sources 模式下保留少量整句 AI 联网结果，避免大量 SERP 条目把它们挤出最终网页列表。 */
+function preserveAiProviderRows(papers, candidates, max, limit = 6) {
+  const out = Array.isArray(papers) ? [...papers] : [];
+  const cap = Math.max(1, Number(max) || out.length || 1);
+  const aiRows = (Array.isArray(candidates) ? candidates : [])
+    .filter((paper) => paper?.source === "deepseek_web" || paper?.source === "doubao_web")
+    .slice(0, Math.max(0, Number(limit) || 0));
+  const seen = new Set(out.map((paper) => String(paper?.absUrl ?? paper?.paper_id ?? paper?.id ?? "").split("#")[0].toLowerCase()));
+  for (const paper of aiRows) {
+    const key = String(paper?.absUrl ?? paper?.paper_id ?? paper?.id ?? "").split("#")[0].toLowerCase();
+    if (key && seen.has(key)) continue;
+    if (out.length < cap) {
+      out.push(paper);
+    } else {
+      const replaceAt = [...out].map((row, index) => ({ row, index }))
+        .reverse()
+        .find(({ row }) => row?.source !== "deepseek_web" && row?.source !== "doubao_web");
+      if (!replaceAt) break;
+      out[replaceAt.index] = paper;
+      const replacedKey = String(replaceAt.row?.absUrl ?? replaceAt.row?.paper_id ?? replaceAt.row?.id ?? "").split("#")[0].toLowerCase();
+      if (replacedKey) seen.delete(replacedKey);
+    }
+    if (key) seen.add(key);
+  }
+  return out;
+}
+
 function webTaskConcurrency(envName, fallback, max = 8) {
   return Math.min(max, Math.max(1, Number(process.env[envName]) || fallback));
 }
 
-function webAutoAiTimeoutMs() {
-  return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || 180_000));
+function webAutoAiTimeoutMs(aiSourcesMode = false) {
+  const fallback = aiSourcesMode ? 45_000 : 180_000;
+  return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || fallback));
 }
 
-async function fetchAutoAiPapers(provider, query, max, signal) {
+async function fetchAutoAiPapers(provider, query, max, signal, aiSourcesMode = false) {
   const controller = new AbortController();
   const relayAbort = () => controller.abort(signal.reason);
   signal?.addEventListener("abort", relayAbort, { once: true });
   if (signal?.aborted) relayAbort();
-  const timer = setTimeout(() => controller.abort(new Error(`auto ${provider} timeout`)), webAutoAiTimeoutMs());
+  const timer = setTimeout(
+    () => controller.abort(new Error(`auto ${provider} timeout`)),
+    webAutoAiTimeoutMs(aiSourcesMode),
+  );
   try {
     if (provider === "doubao") return await fetchDoubaoWebPapers(query, max, { signal: controller.signal });
     return await fetchDeepseekWebPapers(query, max, { signal: controller.signal });
@@ -796,6 +827,7 @@ async function runWebIntelSearch(opts) {
   const webSearchQ = extractWebSearchQuery(fullRawQuery) || rawQuery;
   const providerConfig = getWebSearchProviderConfig();
   const aiProvider = providerConfig.aiProvider;
+  const aiSourcesMode = Boolean(aiProvider && providerConfig.includeSources);
   const aiConfigured = aiProvider === "doubao"
     ? Boolean(getDoubaoWebSearchConfig())
     : Boolean(getDeepseekWebSearchConfig());
@@ -810,7 +842,7 @@ async function runWebIntelSearch(opts) {
       performanceTrace,
       `search.web.${aiProvider}`,
       { queryChars: webSearchQ.length },
-      () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal),
+      () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal, aiSourcesMode),
       (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
     );
     if (aiResult.papers?.length) {
@@ -830,22 +862,29 @@ async function runWebIntelSearch(opts) {
     effectiveQuery,
     extractConversationContext(fullRawQuery),
   );
-  const entityCoverageQueries = buildEntityCoverageQueries(
-    fullRawQuery,
-    Math.min(24, Math.max(4, Number(process.env.WEB_ENTITY_QUERY_MAX) || 20)),
-  );
+  // An AI+sources mode already has a whole-query DeepSeek/Doubao result. Keep
+  // the regular-source side close to the pre-expansion path so it supplements
+  // that result instead of flooding the merge with per-entity SERP queries.
+  const entityCoverageQueries = aiSourcesMode
+    ? []
+    : buildEntityCoverageQueries(
+        fullRawQuery,
+        Math.min(24, Math.max(4, Number(process.env.WEB_ENTITY_QUERY_MAX) || 20)),
+      );
   // 对“多个实体 + 指标”问题，让模型根据用户原话主动拆分查询；规则式查询仍保留，
   // 这样模型不可用时仍有稳定的降级路径。
   const aiQueryCap = Math.min(12, Math.max(1, Number(process.env.WEB_AI_SEARCH_QUERY_MAX) || 8));
-  const aiRound1 = await planWebSearchQueries({
-    userQuery: fullRawQuery,
-    effectiveQuery,
-    maxQueries: aiQueryCap,
-    llmHints,
-    signal,
-    performanceTrace,
-    traceName: "search.web.ai_plan.round1",
-  });
+  const aiRound1 = aiSourcesMode
+    ? []
+    : await planWebSearchQueries({
+        userQuery: fullRawQuery,
+        effectiveQuery,
+        maxQueries: aiQueryCap,
+        llmHints,
+        signal,
+        performanceTrace,
+        traceName: "search.web.ai_plan.round1",
+      });
   if (aiRound1.length) {
     const seen = new Set();
     webPlan.queries = [...aiRound1, ...webPlan.queries].filter((q) => {
@@ -876,11 +915,13 @@ async function runWebIntelSearch(opts) {
   const webTasks = [];
   const webSourceFailures = new Map();
   const perWebQ = Math.min(64, max + 32);
-  const defaultQueryCap = entityCoverageQueries.length
+  const defaultQueryCap = aiSourcesMode
+    ? 8
+    : entityCoverageQueries.length
     ? entityCoverageQueries.length + Math.max(4, aiQueryCap)
     : 8;
   const webQueryCap = Math.min(
-    32,
+    aiSourcesMode ? 8 : 32,
     Math.max(4, entityCoverageQueries.length, Number(process.env.WEB_MULTI_QUERY_MAX) || defaultQueryCap),
   );
 
@@ -952,8 +993,8 @@ async function runWebIntelSearch(opts) {
     : traceAsync(
         performanceTrace,
         `search.web.${aiProvider}.auto`,
-        { queryChars: webSearchQ.length, timeoutMs: webAutoAiTimeoutMs() },
-        () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal),
+        { queryChars: webSearchQ.length, timeoutMs: webAutoAiTimeoutMs(aiSourcesMode) },
+        () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal, aiSourcesMode),
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
       );
   const webLayerPromise = traceAsync(
@@ -968,14 +1009,15 @@ async function runWebIntelSearch(opts) {
     ),
     (rows) => ({ fulfilled: rows.filter((x) => x.status === "fulfilled").length }),
   );
-  // The regular web layer is the bounded, user-visible search path. Do not let
-  // a slow whole-query DeepSeek/Doubao task extend the layer timeout after the
-  // regular sources have already finished. If the AI task wins the race, its
-  // results are merged; otherwise the regular source results remain usable.
-  const autoAiBeforeWebLayer = Promise.race([
-    autoAiPromise,
-    webLayerPromise.then(() => null, () => null),
-  ]);
+  // AI+sources waits for its bounded whole-query provider call so the primary
+  // DeepSeek/Doubao evidence cannot disappear when the regular sources finish
+  // first. Legacy/auto-free runs retain the non-blocking fallback behavior.
+  const autoAiBeforeWebLayer = aiSourcesMode
+    ? autoAiPromise
+    : Promise.race([
+        autoAiPromise,
+        webLayerPromise.then(() => null, () => null),
+      ]);
   const [webLayer, autoAiResult] = await Promise.all([webLayerPromise, autoAiBeforeWebLayer]);
   throwIfSearchAborted(signal);
   if (autoAiResult?.papers?.length) {
@@ -1038,15 +1080,15 @@ async function runWebIntelSearch(opts) {
    * 提高查询数量上限，确保多实体问题能获得足够覆盖。
    */
   const round2QueryCap = Math.min(
-    6,  // 提高硬上限从2到6
-    Math.max(2, Number(process.env.WEB_ROUND2_QUERY_MAX) || 4),
+    aiSourcesMode ? 2 : 6,
+    Math.max(aiSourcesMode ? 1 : 2, Number(process.env.WEB_ROUND2_QUERY_MAX) || (aiSourcesMode ? 2 : 4)),
   );
-  const aiRound2 = webMerged.length
+  const aiRound2 = webMerged.length && !aiSourcesMode
     ? await planWebSearchQueries({
         userQuery: fullRawQuery,
         effectiveQuery,
         papers: webMerged,
-        maxQueries: Math.min(8, Math.max(4, aiQueryCap)),  // 提高第二轮AI规划上限
+        maxQueries: Math.min(8, Math.max(4, aiQueryCap)),
         llmHints,
         signal,
         performanceTrace,
@@ -1712,6 +1754,7 @@ export async function runPaperSearch(opts) {
 
   let merged = mergeDedupe(buckets);
   const explicitDirectRows = merged.filter((paper) => paper?.source === "direct_web");
+  const explicitAiRows = merged.filter((paper) => paper?.source === "deepseek_web" || paper?.source === "doubao_web");
   const beforeFilter = merged.length;
   merged = dropZeroRelevanceByTokens(merged, rawQuery, effectiveQuery, opts.preferenceKeywords);
   if (merged.length > 0 && merged.length < beforeFilter) {
@@ -1734,6 +1777,9 @@ export async function runPaperSearch(opts) {
   });
   if (merged.length > 0 && merged.length < beforeStrict) {
     sourcesUsed.push("strict_recommend_filter");
+  }
+  if (channel === "web" && !patentsOnly && explicitAiRows.length) {
+    merged = preserveAiProviderRows(merged, explicitAiRows, max);
   }
   if (channel === "web" && !patentsOnly) {
     merged = restoreEntityCoverageRows(merged, entityCoverageCandidates, fullRawQuery, sourcesUsed);
@@ -1767,6 +1813,11 @@ export async function runPaperSearch(opts) {
         seen.add(key);
       }
       merged = merged.slice(0, max);
+    }
+    if (explicitAiRows.length) {
+      const beforeAi = merged.length;
+      merged = preserveAiProviderRows(merged, explicitAiRows, max);
+      if (merged.length > beforeAi) sourcesUsed.push(`web_ai_provider_rows:${merged.length - beforeAi}`);
     }
     if (inc.dropped > 0) sourcesUsed.push(`web_strict_drop:${inc.dropped}`);
     if (merged.length < beforeInc) sourcesUsed.push("web_inclusion_filter");
