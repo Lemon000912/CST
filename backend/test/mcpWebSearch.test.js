@@ -70,6 +70,8 @@ test("finance site search limits results to the requested public domain", async 
   const originalSources = process.env.WEB_SOURCES;
   const originalFastPath = process.env.WEB_BING_FAST_PATH;
   const originalFallback = process.env.WEB_CN_BING_FALLBACK;
+  const originalUseBing = process.env.WEB_USE_BING;
+  const originalProvider = process.env.WEB_SEARCH_PROVIDER;
   t.after(() => {
     globalThis.fetch = originalFetch;
     if (originalSources === undefined) delete process.env.WEB_SOURCES;
@@ -78,17 +80,23 @@ test("finance site search limits results to the requested public domain", async 
     else process.env.WEB_BING_FAST_PATH = originalFastPath;
     if (originalFallback === undefined) delete process.env.WEB_CN_BING_FALLBACK;
     else process.env.WEB_CN_BING_FALLBACK = originalFallback;
+    if (originalUseBing === undefined) delete process.env.WEB_USE_BING;
+    else process.env.WEB_USE_BING = originalUseBing;
+    if (originalProvider === undefined) delete process.env.WEB_SEARCH_PROVIDER;
+    else process.env.WEB_SEARCH_PROVIDER = originalProvider;
   });
 
-  process.env.WEB_SOURCES = "ddg";
+  process.env.WEB_SOURCES = "bing";
+  process.env.WEB_USE_BING = "1";
+  process.env.WEB_SEARCH_PROVIDER = "sources";
   process.env.WEB_BING_FAST_PATH = "0";
   process.env.WEB_CN_BING_FALLBACK = "0";
   const requestedQueries = [];
   globalThis.fetch = async (url) => {
     requestedQueries.push(new URL(String(url)).searchParams.get("q"));
     return new Response([
-      '<div class="result"><a rel="nofollow" class="result-link" href="https://quote.eastmoney.com/company">东方财富公司页</a><td class="result-snippet">公司公告与财务信息</td></div>',
-      '<div class="result"><a rel="nofollow" class="result-link" href="https://www.wind.com.cn/company">万得公司页</a><td class="result-snippet">行业研究与数据</td></div>',
+      '<li class="b_algo"><h2><a href="https://quote.eastmoney.com/company">东方财富公司页</a></h2><div class="b_caption"><p class="b_lineclamp3">公司公告与财务信息'.padEnd(220, "x") + '</p></div></li>',
+      '<li class="b_algo"><h2><a href="https://www.wind.com.cn/company">万得公司页</a></h2><div class="b_caption"><p class="b_lineclamp3">行业研究与数据'.padEnd(220, "x") + '</p></div></li>',
     ].join(""), { status: 200, headers: { "content-type": "text/html" } });
   };
 
@@ -109,6 +117,7 @@ test("finance site search supports futures, Sina, industry data, and Guotai Juna
   const originalSources = process.env.WEB_SOURCES;
   const originalFastPath = process.env.WEB_BING_FAST_PATH;
   const originalFallback = process.env.WEB_CN_BING_FALLBACK;
+  const originalUseBing = process.env.WEB_USE_BING;
   t.after(() => {
     globalThis.fetch = originalFetch;
     if (originalSources === undefined) delete process.env.WEB_SOURCES;
@@ -117,9 +126,12 @@ test("finance site search supports futures, Sina, industry data, and Guotai Juna
     else process.env.WEB_BING_FAST_PATH = originalFastPath;
     if (originalFallback === undefined) delete process.env.WEB_CN_BING_FALLBACK;
     else process.env.WEB_CN_BING_FALLBACK = originalFallback;
+    if (originalUseBing === undefined) delete process.env.WEB_USE_BING;
+    else process.env.WEB_USE_BING = originalUseBing;
   });
 
-  process.env.WEB_SOURCES = "ddg";
+  process.env.WEB_SOURCES = "bing";
+  process.env.WEB_USE_BING = "1";
   process.env.WEB_BING_FAST_PATH = "0";
   process.env.WEB_CN_BING_FALLBACK = "0";
   const sources = {
@@ -164,7 +176,7 @@ test("DuckDuckGo results are converted without an undefined result cap", async (
     const result = await fetchDuckDuckGoSearch("example patent", 5, { skipBing: true, forPatent: true });
     assert.equal(result.note, "ddg_ok");
     assert.equal(result.papers.length, 1);
-    assert.equal(result.papers[0].source, "ddg_patent");
+    assert.equal(result.papers[0].source, "patent_web");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -210,7 +222,7 @@ test("Google Patents results provide patent rows when general web search is nois
     const encodedParams = new URL(requestedUrl).searchParams.get("url");
     assert.match(encodedParams, /country=CN/);
     assert.equal(result.papers.length, 1);
-    assert.equal(result.papers[0].source, "ddg_patent");
+    assert.equal(result.papers[0].source, "patent_web");
     assert.equal(result.papers[0].patentNumber, "CN123456A");
     assert.match(result.papers[0].absUrl, /patents\.google\.com\/patent\/CN123456A/);
     assert.equal(result.papers[0].patentSource, "google_patents_cn");

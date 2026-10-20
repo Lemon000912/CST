@@ -1,10 +1,10 @@
 /**
  * 抓取网页链接正文，写入 papers 的 abstract/summary（检索结果入库前 enrich）。
- * 可选 Dataify 通用采集（webunlocker）：直连失败或反爬时回退，见 DATAIFY_WEBUNLOCKER_*。
+ * 先普通直连；直连失败时使用 DeepSeek 官方 Fetch API（需 DEEPSEEK_API_KEY）。
  */
 import { fetchWithTimeout } from "./fetchWithTimeout.js";
 import { traceAsync } from "./performanceTrace.js";
-import { fetchDataifyWebUnlockerHtml, getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
+import { fetchDeepseekWebPage } from "./deepseekWebSearch.js";
 
 const WEB_SOURCES = new Set([
   "direct_web",
@@ -191,17 +191,6 @@ async function fetchWebPageTextDirect(url, timeoutMs) {
   }
 }
 
-async function fetchWebPageTextDataify(url, unlockerCfg) {
-  const u = String(url ?? "").trim();
-  const got = await fetchDataifyWebUnlockerHtml(u, unlockerCfg);
-  if (!got.ok) {
-    return { ok: false, error: got.error, title: "", text: "" };
-  }
-  const parsed = parseHtmlToPageResult(got.html, u, got.finalUrl || u);
-  if (!parsed.ok) return parsed;
-  return { ...parsed, via: "dataify_unlocker" };
-}
-
 /**
  * @param {string} url
  * @param {number} timeoutMs
@@ -210,31 +199,11 @@ export async function fetchWebPageText(url, timeoutMs = 14_000) {
   const u = String(url ?? "").trim();
   if (!isFetchableUrl(u)) return { ok: false, error: "url_not_fetchable", title: "", text: "" };
 
-  const unlockerCfg = getDataifyWebUnlockerConfig();
-  const unlockerTimeout = unlockerCfg?.timeoutMs ?? timeoutMs;
-
-  if (unlockerCfg?.mode === "always") {
-    const dataify = await fetchWebPageTextDataify(u, unlockerCfg);
-    if (dataify.ok) return dataify;
-    const direct = await fetchWebPageTextDirect(u, timeoutMs);
-    return direct.ok ? direct : dataify;
-  }
-
   const direct = await fetchWebPageTextDirect(u, timeoutMs);
   if (direct.ok) return direct;
-
-  if (unlockerCfg) {
-    const dataify = await fetchWebPageTextDataify(u, { ...unlockerCfg, timeoutMs: unlockerTimeout });
-    if (dataify.ok) return dataify;
-    return {
-      ok: false,
-      error: `${direct.error}; ${dataify.error}`,
-      title: dataify.title || direct.title || "",
-      text: "",
-    };
-  }
-
-  return direct;
+  const official = await fetchDeepseekWebPage(u);
+  if (official.ok) return { ...official, title: official.title || direct.title || u };
+  return { ...direct, error: `${direct.error}; deepseek_fetch:${official.error}` };
 }
 
 /**
@@ -325,7 +294,7 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
     if (got.title && (!row.title || row.title === rowUrl || row.title.length < 12)) {
       row.title = got.title.slice(0, 400);
     }
-    row.webFetchNote = got.via === "dataify_unlocker" ? "fetched:dataify" : "fetched";
+    row.webFetchNote = got.via === "deepseek_fetch" ? "fetched:deepseek" : "fetched";
     row.webFetchedAt = Date.now();
     byId.set(key, row);
   }

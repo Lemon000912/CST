@@ -66,10 +66,9 @@ import { createSynthesisStreamEmitter } from "./synthesisStream.js";
 import { createPerformanceTrace, traceAsync } from "./performanceTrace.js";
 import { getPersonaSkill, listPersonas, normalizePersonaId } from "./personaSkills.js";
 import { getMcpWebSearchConfig } from "./mcpWebSearch.js";
-import { getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
-import { getDataifyWebUnlockerConfig } from "./dataifyWebUnlocker.js";
 import { getTavilyWebSearchConfig } from "./tavilyWebSearch.js";
 import { getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
+import { getRedfoxDeepseekConfig } from "./redfoxDeepseekWebSearch.js";
 import { getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
 import {
   getWebSourcesStatus,
@@ -1461,22 +1460,23 @@ app.get("/api/v1/papers/unpaywall-oa", async (req, res) => {
 
 app.get("/api/v1/mcp/status", (_req, res) => {
   const c = getMcpWebSearchConfig();
-  const df = getDataifyWebSearchConfig();
-  const du = getDataifyWebUnlockerConfig();
   const tv = getTavilyWebSearchConfig();
   const deepseek = getDeepseekWebSearchConfig();
+  const redfoxDeepseek = getRedfoxDeepseekConfig();
   const doubao = getDoubaoWebSearchConfig();
   const sc = getElsevierScopusConfig();
   const webSrc = getWebSourcesStatus();
   const allow = [...getWebSourceAllowlist()];
   res.json({
     mcpWebConfigured: Boolean(c),
-    dataifyWebConfigured: Boolean(df),
-    dataifyWebUnlockerConfigured: Boolean(du),
-    dataifyWebUnlockerMode: du?.mode ?? null,
+    dataifyWebConfigured: false,
+    dataifyWebUnlockerConfigured: false,
+    dataifyWebUnlockerMode: "disabled",
     tavilyWebConfigured: Boolean(tv),
     deepseekWebConfigured: Boolean(deepseek),
-    deepseekWebActive: Boolean(deepseek) && Boolean(webSrc.deepseek),
+    deepseekWebActive: (Boolean(deepseek) || Boolean(redfoxDeepseek)) && Boolean(webSrc.deepseek),
+    redfoxDeepseekWebConfigured: Boolean(redfoxDeepseek),
+    redfoxDeepseekWebActive: Boolean(redfoxDeepseek) && Boolean(webSrc.redfoxDeepseek),
     doubaoWebConfigured: Boolean(doubao),
     doubaoWebActive: Boolean(doubao) && Boolean(webSrc.doubao),
     webSearchProvider: String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase(),
@@ -1490,19 +1490,19 @@ app.get("/api/v1/mcp/status", (_req, res) => {
     webSourcesActive: webSrc,
     freeWebSearchCatalog: FREE_WEB_SEARCH_CATALOG,
     bingWebEnabled: isBingWebEnabled(),
-    hint: tv
-      ? "已配置 TAVILY_API_KEY（Tavily REST 搜索）；当前网页源由 WEB_SOURCES 控制。"
-      : df
-        ? "检测到 DATAIFY_API_KEY，但 Dataify 搜索已从当前网页源方案移除。"
-        : deepseek && String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase() === "deepseek"
-          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox DeepSeek WebSearch；可用 WEB_SEARCH_PROVIDER=doubao 切换豆包，auto 为 DeepSeek 优先、豆包备用。"
-        : doubao && String(process.env.WEB_SEARCH_PROVIDER ?? "auto").trim().toLowerCase() === "doubao"
-          ? "已配置 REDFOX_API_KEY：当前仅调用 Redfox Doubao WebSearch；可用 WEB_SEARCH_PROVIDER=deepseek 切换 DeepSeek，auto 为 DeepSeek 优先、豆包备用。"
-        : deepseek || doubao
-          ? "已配置 REDFOX_API_KEY：WEB_SEARCH_PROVIDER=auto 时 DeepSeek 优先、豆包备用；可用 deepseek+sources 或 doubao+sources 与其它网页源并行。"
-        : c
-          ? "已配置 Brave MCP（需 Key）；当前网页源由 WEB_SOURCES 控制。"
-      : "网页渠道默认源：通用网页搜索（Dataify/Tavily/SearX）+ Wikipedia + CORE（CORE 需 CORE_API_KEY）；Semantic Scholar 保留数据库渠道。可选 BRAVE_API_KEY。",
+    hint: deepseek && redfoxDeepseek
+      ? "已配置官方 DeepSeek Search 与红狐 Deepseek WebSearch：网页主检索会并行调用两者并合并来源。网页正文直连失败时使用官方 Fetch。"
+      : deepseek
+      ? "已配置 DEEPSEEK_API_KEY：网页主检索使用官方 DeepSeek Search；网页正文直连失败时回退官方 Fetch。"
+      : redfoxDeepseek
+        ? "已配置 REDFOX_API_KEY：网页主检索使用红狐 Deepseek WebSearch。"
+      : tv
+        ? "已配置 TAVILY_API_KEY（Tavily REST 搜索）；当前网页源由 WEB_SOURCES 控制。"
+        : doubao
+          ? "豆包仍使用 Redfox WebSearch 适配；DeepSeek 网页搜索使用官方 API。"
+          : c
+            ? "已配置 Brave MCP（需 Key）；当前网页源由 WEB_SOURCES 控制。"
+            : "DeepSeek 官方 Search 尚未配置 DEEPSEEK_API_KEY；当前按 WEB_SOURCES 使用保留的常规网页源。Dataify、DDG、SearX 与 Dataify Unlocker 已停用；Semantic Scholar 等论文库仍保留在数据库渠道。",
     scopusHint: sc
       ? "已配置 ELSEVIER_API_KEY：在「数据库优先」渠道检索时会合并 Scopus 题录。"
       : "未配置 ELSEVIER_API_KEY：不影响「网页」渠道；仅「数据库优先」渠道无法使用 Scopus。",
@@ -1510,7 +1510,7 @@ app.get("/api/v1/mcp/status", (_req, res) => {
       ? "web_only"
       : "web_patent_intel",
     webChannelHint:
-      "「网页」渠道：默认通用网页搜索 + Wikipedia + CORE，不查 arXiv/Crossref/Semantic Scholar/Scopus 等数据库论文；可选专利（WEB_CHANNEL_PATENTS=0 关闭）。",
+      "「网页」渠道：普通网页来源由 WEB_SOURCES 控制；论文数据库仍由数据库渠道检索，不查 arXiv/Crossref/Semantic Scholar/Scopus 题录；可选专利（WEB_CHANNEL_PATENTS=0 关闭）。",
     unpaywallOaConfigured: Boolean(
       String(process.env.UNPAYWALL_EMAIL ?? process.env.OPENALEX_CONTACT_EMAIL ?? "").trim(),
     ),

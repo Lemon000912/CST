@@ -73,16 +73,21 @@ test("WEB_SEARCH_PROVIDER supports Doubao and source combinations", () => {
   const oldMode = process.env.WEB_SEARCH_PROVIDER;
   const oldKey = process.env.REDFOX_API_KEY;
   const oldDeep = process.env.REDFOX_DEEPSEARCH_BASE;
+  const oldDeepseekKey = process.env.DEEPSEEK_API_KEY;
   try {
     process.env.REDFOX_API_KEY = "test-key";
     delete process.env.REDFOX_DEEPSEARCH_BASE;
     process.env.WEB_SEARCH_PROVIDER = "doubao";
-    assert.deepEqual(getWebSearchProviderConfig(), { mode: "doubao", aiProvider: "doubao", includeSources: false });
+    assert.deepEqual(getWebSearchProviderConfig(), { mode: "doubao", aiProvider: "doubao", includeSources: false, includeDeepseek: false, includeDoubao: true, includeRedfoxDeepseek: false });
     process.env.WEB_SEARCH_PROVIDER = "doubao+sources";
-    assert.deepEqual(getWebSearchProviderConfig(), { mode: "doubao+sources", aiProvider: "doubao", includeSources: true });
+    assert.deepEqual(getWebSearchProviderConfig(), { mode: "doubao+sources", aiProvider: "doubao", includeSources: true, includeDeepseek: false, includeDoubao: true, includeRedfoxDeepseek: false });
+    process.env.DEEPSEEK_API_KEY = "deepseek-test-key";
+    process.env.WEB_SEARCH_PROVIDER = "auto";
+    assert.deepEqual(getWebSearchProviderConfig(), { mode: "auto", aiProvider: "both", includeSources: false, includeDeepseek: true, includeDoubao: false, includeRedfoxDeepseek: true });
   } finally {
     if (oldMode === undefined) delete process.env.WEB_SEARCH_PROVIDER; else process.env.WEB_SEARCH_PROVIDER = oldMode;
     if (oldKey === undefined) delete process.env.REDFOX_API_KEY; else process.env.REDFOX_API_KEY = oldKey;
     if (oldDeep === undefined) delete process.env.REDFOX_DEEPSEARCH_BASE; else process.env.REDFOX_DEEPSEARCH_BASE = oldDeep;
+    if (oldDeepseekKey === undefined) delete process.env.DEEPSEEK_API_KEY; else process.env.DEEPSEEK_API_KEY = oldDeepseekKey;
   }
 });

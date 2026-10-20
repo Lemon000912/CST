@@ -22,13 +22,11 @@ import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { extractDoiCandidate } from "./doi.js";
 import { extractPatentNumberFromPaper } from "./patentNumber.js";
-import { fetchDataifyWebPapers, getDataifyWebSearchConfig } from "./dataifyWebSearch.js";
 import { fetchTavilyWebPapers, getTavilyWebSearchConfig } from "./tavilyWebSearch.js";
 import { fetchWikipediaWebPapers, getWikipediaSearchConfig } from "./wikipediaSearch.js";
 import { fetchCoreWebPapers, getCoreSearchConfig } from "./coreSearch.js";
 import {
   FREE_WEB_SEARCH_CATALOG,
-  fetchSearxWebSearch,
   fetchQwantWebSearch,
   fetchMojeekWebSearch,
   resolveWebSourceCap,
@@ -39,6 +37,7 @@ import { enhanceChineseWebQuery } from "./chineseWebQueryEnhancer.js";
 import { fetchBaiduWebSearch, getBaiduWebSearchConfig, isBaiduWebEnabled } from "./baiduWebSearch.js";
 import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
 import { fetchDoubaoWebPapers, getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
+import { fetchRedfoxDeepseekPapers, getRedfoxDeepseekConfig } from "./redfoxDeepseekWebSearch.js";
 
 export { FREE_WEB_SEARCH_CATALOG, getFreeWebSourceIds };
 
@@ -57,17 +56,21 @@ export function isCnBingFallbackEnabled() {
 
 /**
  * 允许参与「全网合并」的源：
- * 免费（默认）：ddg, searx, qwant, mojeek
+ * 免费（默认）：qwant, mojeek
  * 需 Key：core, tavily, deepseek, doubao, mcp
  * 可选：bing（须 WEB_USE_BING=1）、baidu（默认启用，可用 BAIDU_WEB_ENABLED=0 关闭）
  * @returns {Set<string>}
  */
 export function getWebSourceAllowlist() {
   // 保留原通用网页检索，并叠加 Wikipedia 与 CORE；Semantic Scholar 仍由数据库渠道负责。
-  const defaultFree = "tavily,dataify,deepseek,searx,wikipedia,core,bing,baidu";
+  const defaultFree = "deepseek,tavily,wikipedia,core,bing,baidu";
   const raw = String(process.env.WEB_SOURCES ?? defaultFree).trim().toLowerCase();
   const parts = raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
-  const set = new Set(parts.length ? parts : ["tavily", "dataify", "deepseek", "searx", "wikipedia", "core", "bing", "baidu"]);
+  const set = new Set(parts.length ? parts : ["deepseek", "tavily", "wikipedia", "core", "bing", "baidu"]);
+  // Dataify remains paused; restore Redfox Doubao alongside official DeepSeek Search.
+  set.delete("dataify");
+  set.delete("ddg");
+  set.delete("searx");
   if (isBingWebEnabled()) set.add("bing");
   else set.delete("bing");
   // 显式 WEB_SOURCES 是调用方的白名单，不额外注入百度；未显式配置时才使用默认源。
@@ -76,7 +79,8 @@ export function getWebSourceAllowlist() {
   const provider = getWebSearchProviderConfig();
   set.delete("deepseek");
   set.delete("doubao");
-  if (provider.aiProvider) set.add(provider.aiProvider);
+  if (provider.includeDeepseek || provider.includeRedfoxDeepseek) set.add("deepseek");
+  if (provider.includeDoubao) set.add("doubao");
   return set;
 }
 
@@ -89,15 +93,28 @@ export function getWebSearchProviderConfig() {
   const normalized = ["auto", "sources", "legacy", "deepseek", "deepseek+sources", "doubao", "doubao+sources"].includes(mode)
     ? mode
     : "auto";
-  const includeSources = normalized === "auto" || normalized === "sources" || normalized === "legacy" || normalized.endsWith("+sources");
+  let includeSources = normalized === "auto" || normalized === "sources" || normalized === "legacy" || normalized.endsWith("+sources");
   let aiProvider = null;
-  if (["deepseek", "deepseek+sources"].includes(normalized)) aiProvider = "deepseek";
-  else if (["doubao", "doubao+sources"].includes(normalized)) aiProvider = "doubao";
-  else if (normalized === "auto") {
-    if (getDeepseekWebSearchConfig()) aiProvider = "deepseek";
-    else if (getDoubaoWebSearchConfig()) aiProvider = "doubao";
+  let includeDeepseek = false;
+  let includeDoubao = false;
+  let includeRedfoxDeepseek = false;
+  if (["deepseek", "deepseek+sources"].includes(normalized)) {
+    aiProvider = "deepseek";
+    includeDeepseek = true;
+    includeRedfoxDeepseek = Boolean(getRedfoxDeepseekConfig());
+  } else if (["doubao", "doubao+sources"].includes(normalized)) {
+    aiProvider = "doubao";
+    includeDoubao = true;
+  } else if (normalized === "auto") {
+    includeDeepseek = Boolean(getDeepseekWebSearchConfig());
+    includeRedfoxDeepseek = Boolean(getRedfoxDeepseekConfig());
+    if (includeDeepseek && includeRedfoxDeepseek) aiProvider = "both";
+    else if (includeDeepseek) aiProvider = "deepseek";
+    else if (includeRedfoxDeepseek) aiProvider = "redfox_deepseek";
+    if (aiProvider) includeSources = false;
   }
-  return { mode: normalized, aiProvider, includeSources };
+  if (includeDeepseek && includeRedfoxDeepseek) aiProvider = "both";
+  return { mode: normalized, aiProvider, includeSources, includeDeepseek, includeDoubao, includeRedfoxDeepseek };
 }
 
 /** @returns {Record<string, boolean>} */
@@ -108,7 +125,7 @@ export function getWebSourcesStatus() {
     searx: allow.has("searx"),
     qwant: allow.has("qwant"),
     mojeek: allow.has("mojeek"),
-    dataify: allow.has("dataify") && Boolean(getDataifyWebSearchConfig()),
+    dataify: false,
     tavily: allow.has("tavily") && Boolean(getTavilyWebSearchConfig()),
     wikipedia: allow.has("wikipedia") && Boolean(getWikipediaSearchConfig()),
     core: allow.has("core") && Boolean(getCoreSearchConfig()),
@@ -116,8 +133,9 @@ export function getWebSourcesStatus() {
     bing: allow.has("bing") && isBingWebEnabled(),
     baidu: allow.has("baidu") && Boolean(getBaiduWebSearchConfig()),
     deepseek:
-      Boolean(getDeepseekWebSearchConfig()) &&
+      (Boolean(getDeepseekWebSearchConfig()) || Boolean(getRedfoxDeepseekConfig())) &&
       allow.has("deepseek"),
+    redfoxDeepseek: Boolean(getRedfoxDeepseekConfig()) && allow.has("deepseek"),
     doubao:
       Boolean(getDoubaoWebSearchConfig()) &&
       allow.has("doubao"),
@@ -479,7 +497,7 @@ function _bingParseResultsHtml(html, max) {
   const results = [];
   const seen = new Set();
   const skipHost =
-    /(?:bing\.com|microsoft\.com|msn\.com|live\.com|office\.com|google\.com\/search|miit\.gov\.cn|beian\.)/i;
+    /(?:bing\.com|microsoft\.com|msn\.com|live\.com|office\.com|google\.com\/search|beian\.)/i;
 
   /** 当前 SERP 主结果多在 h2 > a */
   const h2Re = /<h2[^>]*>[\s\S]*?<a[^>]*\shref\s*=\s*["'](https?:\/\/[^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -754,7 +772,7 @@ export async function fetchGooglePatentsSearch(query, max = 20, opts = {}) {
         .slice(0, 1200);
       const absUrl = `https://patents.google.com/patent/${encodeURIComponent(number)}/en`;
       papers.push({
-        paper_id: `ddg_patent:google:${number}`,
+        paper_id: `patent_web:google:${number}`,
         title,
         abstract: summary,
         summary: summary || title,
@@ -763,7 +781,7 @@ export async function fetchGooglePatentsSearch(query, max = 20, opts = {}) {
         authors: String(patent.inventor ?? "").trim() ? [String(patent.inventor).trim()] : [],
         absUrl,
         pdfUrl: absUrl,
-        source: "ddg_patent",
+        source: "patent_web",
         patentNumber: number,
         patentSource: country === "CN" ? "google_patents_cn" : "google_patents",
         patentSourceLabel: country === "CN" ? "中国专利公开（CN 检索）" : "Google Patents",
@@ -793,7 +811,7 @@ const WEB_MERGE_SOURCE_RANK = {
   mcp_web: 6,
   qwant_web: 7,
   mojeek_web: 8,
-  ddg_patent: 7,
+  patent_web: 7,
   ddg_web: 8,
 };
 
@@ -984,55 +1002,49 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
   const provider = providerConfig.aiProvider;
   const includeRegularSources = providerConfig.includeSources;
   const aiEnabled = opts.includeAiProvider !== false && opts.includeDeepseek !== false;
-  if (aiEnabled && provider === "deepseek" && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
+  if (aiEnabled && providerConfig.includeDeepseek && allow.has("deepseek") && getDeepseekWebSearchConfig()) {
     tasks.push(
       sourceTask("deepseek", (signal) => fetchDeepseekWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal }))
         .then((r) => ({ src: "deepseek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "deepseek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (aiEnabled && provider === "doubao" && allow.has("doubao") && getDoubaoWebSearchConfig()) {
+  if (aiEnabled && providerConfig.includeRedfoxDeepseek && allow.has("deepseek") && getRedfoxDeepseekConfig()) {
+    tasks.push(
+      sourceTask("redfox_deepseek", (signal) => fetchRedfoxDeepseekPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal }))
+        .then((r) => ({ src: "redfox_deepseek", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
+        .catch((e) => ({ src: "redfox_deepseek", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
+    );
+  }
+  if (aiEnabled && providerConfig.includeDoubao && allow.has("doubao") && getDoubaoWebSearchConfig()) {
     tasks.push(
       sourceTask("doubao", (signal) => fetchDoubaoWebPapers(searchQ, Math.min(32, Math.ceil(perSource * 1.2)), { signal }))
         .then((r) => ({ src: "doubao", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "doubao", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (includeRegularSources && allow.has("tavily") && getTavilyWebSearchConfig()) {
+  const includeSupplements = opts.includeSupplementalSources !== false;
+  if (includeRegularSources && includeSupplements && allow.has("tavily") && getTavilyWebSearchConfig()) {
     tasks.push(
       sourceTask("tavily", (signal) => fetchTavilyWebPapers(searchQ, tavilyCap, { signal }))
         .then((r) => ({ src: "tavily", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "tavily", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (includeRegularSources && allow.has("dataify") && getDataifyWebSearchConfig()) {
-    tasks.push(
-      sourceTask("dataify", (signal) => fetchDataifyWebPapers(searchQ, Math.min(64, Math.ceil(perSource * 1.35)), { signal }))
-        .then((r) => ({ src: "dataify", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
-        .catch((e) => ({ src: "dataify", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
-    );
-  }
   // Wikipedia/CORE help general and academic queries, but add definitions
   // instead of operating-rate evidence to industry metric searches.
-  if (includeRegularSources && allow.has("wikipedia") && !industryMetricQuery) {
+  if (includeRegularSources && includeSupplements && allow.has("wikipedia") && !industryMetricQuery) {
     tasks.push(
       sourceTask("wikipedia", (signal) => fetchWikipediaWebPapers(searchQ, perSource, { signal }))
         .then((r) => ({ src: "wikipedia", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "wikipedia", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
-  if (includeRegularSources && allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
+  if (includeRegularSources && includeSupplements && allow.has("core") && getCoreSearchConfig() && !industryMetricQuery) {
     tasks.push(
       sourceTask("core", (signal) => fetchCoreWebPapers(searchQ, perSource, { signal }))
         .then((r) => ({ src: "core", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "core", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
-    );
-  }
-  if (includeRegularSources && allow.has("searx")) {
-    tasks.push(
-      sourceTask("searx", (signal) => fetchSearxWebSearch(searchQ, perSource, { signal }))
-        .then((r) => ({ src: "searx", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
-        .catch((e) => ({ src: "searx", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("mcp") && isMcpUsable()) {
@@ -1054,13 +1066,6 @@ export async function fetchMergedWebPapers(query, max, opts = {}) {
       sourceTask("baidu", (signal) => fetchBaiduWebSearch(searchQ, perSource, { signal }))
         .then((r) => ({ src: "baidu", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
         .catch((e) => ({ src: "baidu", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
-    );
-  }
-  if (includeRegularSources && allow.has("ddg")) {
-    tasks.push(
-      sourceTask("ddg", (signal) => fetchDuckDuckGoSearch(searchQ, perSource, { skipBing: true, signal }))
-        .then((r) => ({ src: "ddg", papers: r.papers ?? [], note: r.note, tool: r.toolName }))
-        .catch((e) => ({ src: "ddg", papers: [], note: `err:${String(e?.message || e).slice(0, 80)}`, tool: null })),
     );
   }
   if (includeRegularSources && allow.has("qwant")) {
@@ -1239,12 +1244,12 @@ export async function fetchFinanceWebPapers(query, max, source, opts = {}) {
 /**
  * @param {string} query
  * @param {number} max
- * @param {{ forPatent?: boolean }} [opts] forPatent 为 true 时标记为 ddg_patent（专利补充检索）
+ * @param {{ forPatent?: boolean }} [opts] forPatent 为 true 时标记为 patent_web（专利补充检索）
  */
 export async function fetchDuckDuckGoSearch(query, max, opts) {
   const forPatent = Boolean(opts && opts.forPatent);
   const skipBing = Boolean(opts && opts.skipBing);
-  const sourceLabel = forPatent ? "ddg_patent" : "ddg_web";
+  const sourceLabel = forPatent ? "patent_web" : "ddg_web";
   const toolSuffix = forPatent ? "duckduckgo-patent" : "duckduckgo-lite";
   var q = String(query || "").trim();
   if (!q) return { papers: [], note: "empty-query" };
@@ -1332,11 +1337,11 @@ export async function fetchPatentPapers(query, max, opts = {}) {
   const perTaskLimit = Math.max(1, Math.ceil(resultLimit / (publicSources.length + 1)));
   const genericTask = (async () => {
     if (!cfg) {
-      return await fetchDuckDuckGoSearch(`${q} patent`, perTaskLimit, { forPatent: true, signal: opts.signal });
+      return await fetchBingWebSearch(`${q} patent`, perTaskLimit, { cnOnly: true, signal: opts.signal });
     }
     const braveCheck = argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env);
     if (braveCheck) {
-      return await fetchDuckDuckGoSearch(`${q} patent`, perTaskLimit, { forPatent: true, signal: opts.signal });
+      return await fetchBingWebSearch(`${q} patent`, perTaskLimit, { cnOnly: true, signal: opts.signal });
     }
     const out = await fetchMcpWebPapers(`${q} patent`, perTaskLimit, opts);
     return { papers: out.papers ?? [], note: out.note, toolName: out.toolName };
@@ -1357,14 +1362,11 @@ export async function fetchPatentPapers(query, max, opts = {}) {
     const scopedQuery = `${q} patent site:${source.domain}`;
     const result = cfg && !(argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env))
       ? await fetchMcpWebPapers(scopedQuery, perTaskLimit, opts)
-      : await fetchDuckDuckGoSearch(scopedQuery, perTaskLimit, {
-          forPatent: true,
-          signal: opts.signal,
-        });
+        : await fetchBingWebSearch(scopedQuery, perTaskLimit, { cnOnly: true, signal: opts.signal });
     const papers = (result.papers ?? []).map((p) => {
       const row = {
         ...p,
-        source: "ddg_patent",
+        source: "patent_web",
         venue: `Patent (${source.label})`,
         patentSource: source.id,
         patentSourceLabel: source.label,

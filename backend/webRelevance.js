@@ -503,6 +503,8 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
 
   const rawList = Array.isArray(papers) ? papers : [];
   let arr = rawList.filter((p) => shouldIncludeWebChannelPaper(p, tokens, core, full));
+  const inclusionCount = arr.length;
+  let relaxedFallbackCount = 0;
   /** 与 filterWebChannelInclusion 一致：非严格模式下按分数取前列，避免「有摘录但联网综合无入参」 */
   if (!strict && !arr.length && rawList.length > 0) {
     arr = rawList
@@ -511,6 +513,7 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.min(14, rawList.length))
       .map((x) => x.p);
+    relaxedFallbackCount = arr.length;
   }
   const scored = arr
     .map((p) => ({ p, score: scoreWebPaperForAnswer(p, tokens, core, full) }))
@@ -538,6 +541,9 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
     ...rankedWebs.slice(0, maxW).map((x) => x.p),
     ...patents.slice(0, maxP).map((x) => x.p),
   ];
+  const strongEligibleCount = picked.length;
+  let softAnchorAdded = 0;
+  let salvageAdded = 0;
 
   /** 强相关不足：从全量网页/专利中补「弱锚点」摘录（严格模式关闭，避免弱相关进作答） */
   if (!strict && picked.length < minSources) {
@@ -567,6 +573,7 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
         if (seen.has(key)) continue;
         seen.add(key);
         picked.push(x.p);
+        softAnchorAdded += 1;
       }
     };
     const wLoose = looseScored.filter(
@@ -594,7 +601,10 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.min(Math.max(minSources, 3), cap, rawList.length))
       .map((x) => x.p);
-    if (salvage.length) picked = salvage;
+    if (salvage.length) {
+      picked = salvage;
+      salvageAdded = salvage.length;
+    }
   }
 
   const scoredFinal = picked.map((p) => ({
@@ -610,6 +620,17 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
     tokens,
     filteredOut: Math.max(0, rawList.length - picked.length),
     totalIn: rawList.length,
+    diagnostics: {
+      totalIn: rawList.length,
+      inclusionCount,
+      relaxedFallbackCount,
+      strongEligibleCount,
+      softAnchorAdded,
+      salvageAdded,
+      selectedBeforeCap: picked.length,
+      selected: Math.min(picked.length, cap),
+      cap,
+    },
   };
 }
 

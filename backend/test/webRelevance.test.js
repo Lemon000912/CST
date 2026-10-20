@@ -65,4 +65,6 @@ test("multi-entity metric synthesis keeps one low-score page per covered entity"
     new Set(picked.papers.flatMap((paper) => paper._matchedEntities || [])),
     new Set(["产品甲", "产品乙", "产品丙", "产品丁"]),
   );
+  assert.equal(picked.diagnostics.totalIn, papers.length);
+  assert.equal(picked.diagnostics.selected, picked.papers.length);
 });

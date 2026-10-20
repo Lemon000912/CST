@@ -1,67 +1,77 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  extractDeepseekCitations,
-  fetchDeepseekWebPapers,
-  getDeepseekWebSearchConfig,
-} from "../deepseekWebSearch.js";
+import { fetchDeepseekWebPage, fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "../deepseekWebSearch.js";
 
-test("DeepSeek citations accept nested search_result URLs", () => {
-  const rows = extractDeepseekCitations({
-    results: [
-      { title: "国家统计局", url: "https://www.stats.gov.cn/report", snippet: "工业数据" },
-      { link: "https://example.com/a", name: "Example" },
-    ],
-  }, "answer");
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].title, "国家统计局");
+const restoreEnv = (key, value) => value === undefined ? delete process.env[key] : process.env[key] = value;
+
+test("official DeepSeek adapter is disabled without its dedicated API key", async (t) => {
+  const old = process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  t.after(() => restoreEnv("DEEPSEEK_API_KEY", old));
+  assert.equal(getDeepseekWebSearchConfig(), null);
+  assert.equal((await fetchDeepseekWebPapers("工业数据", 5)).note, "not-configured");
+  assert.equal((await fetchDeepseekWebPage("https://example.com")).error, "not-configured");
 });
 
-test("DeepSeek adapter is disabled without a server-side key", async () => {
-  const old = process.env.REDFOX_API_KEY;
-  delete process.env.REDFOX_API_KEY;
-  try {
-    assert.equal(getDeepseekWebSearchConfig(), null);
-    const result = await fetchDeepseekWebPapers("工业数据", 5);
-    assert.equal(result.note, "not-configured");
-    assert.equal(result.papers.length, 0);
-  } finally {
-    if (old === undefined) delete process.env.REDFOX_API_KEY;
-    else process.env.REDFOX_API_KEY = old;
-  }
-});
-
-test("DeepSeek adapter submits and polls a completed task", async (t) => {
-  const oldKey = process.env.REDFOX_API_KEY;
-  const oldBase = process.env.REDFOX_DEEPSEARCH_BASE;
-  const oldPoll = process.env.REDFOX_DEEPSEARCH_POLL_MS;
-  const oldAttempts = process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS;
-  const oldFetch = globalThis.fetch;
-  process.env.REDFOX_API_KEY = "test-key";
-  process.env.REDFOX_DEEPSEARCH_BASE = "https://redfox.test/deep";
-  process.env.REDFOX_DEEPSEARCH_POLL_MS = "1";
-  process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS = "2";
-  const calls = [];
+test("official Search normalizes source links and uses bearer auth", async (t) => {
+  const old = {
+    key: process.env.DEEPSEEK_API_KEY,
+    base: process.env.DEEPSEEK_TOOLS_BASE_URL,
+    fetch: globalThis.fetch,
+  };
+  process.env.DEEPSEEK_API_KEY = "test-key";
+  process.env.DEEPSEEK_TOOLS_BASE_URL = "https://deepseek.test/v1/tools";
+  let request;
   globalThis.fetch = async (url, init) => {
-    calls.push({ url: String(url), body: JSON.parse(init.body), headers: init.headers });
-    if (calls.length === 1) return new Response(JSON.stringify({ data: { taskId: "task-1" } }), { status: 200 });
-    return new Response(JSON.stringify({ data: { status: "succeeded", result: {
-      content: "答案",
-      search_result: [{ title: "来源", url: "https://example.com/report", snippet: "证据" }],
-    } } }), { status: 200 });
+    request = { url: String(url), headers: init.headers, body: JSON.parse(init.body) };
+    return new Response(JSON.stringify({ results: [
+      { title: "来源标题", url: "https://example.com/report", snippet: "页面摘要", date: "2025-04-02" },
+    ] }), { status: 200 });
   };
   t.after(() => {
-    globalThis.fetch = oldFetch;
-    if (oldKey === undefined) delete process.env.REDFOX_API_KEY; else process.env.REDFOX_API_KEY = oldKey;
-    if (oldBase === undefined) delete process.env.REDFOX_DEEPSEARCH_BASE; else process.env.REDFOX_DEEPSEARCH_BASE = oldBase;
-    if (oldPoll === undefined) delete process.env.REDFOX_DEEPSEARCH_POLL_MS; else process.env.REDFOX_DEEPSEARCH_POLL_MS = oldPoll;
-    if (oldAttempts === undefined) delete process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS; else process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS = oldAttempts;
+    restoreEnv("DEEPSEEK_API_KEY", old.key);
+    restoreEnv("DEEPSEEK_TOOLS_BASE_URL", old.base);
+    globalThis.fetch = old.fetch;
   });
   const result = await fetchDeepseekWebPapers("工业数据", 5);
-  assert.equal(result.note, "ok:1");
-  assert.equal(result.papers[0].source, "deepseek_web");
-  assert.equal(calls[0].body.source, "Deepseek WebSearch-Project");
-  assert.equal(calls[0].headers.REDFOX_API_KEY, "test-key");
-  assert.match(calls[1].url, /dsResult$/);
+  assert.equal(request.url, "https://deepseek.test/v1/tools/search");
+  assert.equal(request.headers.Authorization, "Bearer test-key");
+  assert.deepEqual(request.body, { query: "工业数据", count: 5 });
+  assert.equal(result.papers[0].absUrl, "https://example.com/report");
+  assert.equal(result.papers[0].title, "来源标题");
+  assert.equal(result.papers[0].summary, "页面摘要");
+  assert.equal(result.papers[0].year, 2025);
+});
+
+test("official Search enforces the 128 Unicode code point query limit", async (t) => {
+  const oldKey = process.env.DEEPSEEK_API_KEY;
+  const oldFetch = globalThis.fetch;
+  process.env.DEEPSEEK_API_KEY = "test-key";
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return new Response(JSON.stringify({ results: [] }), { status: 200 });
+  };
+  t.after(() => { restoreEnv("DEEPSEEK_API_KEY", oldKey); globalThis.fetch = oldFetch; });
+  await fetchDeepseekWebPapers("界".repeat(130), 99);
+  assert.equal(Array.from(body.query).length, 128);
+  assert.equal(body.count, 50);
+});
+
+test("official Fetch returns title and extracted page content", async (t) => {
+  const oldKey = process.env.DEEPSEEK_API_KEY;
+  const oldFetch = globalThis.fetch;
+  process.env.DEEPSEEK_API_KEY = "test-key";
+  globalThis.fetch = async (url, init) => {
+    assert.match(String(url), /\/fetch$/);
+    assert.deepEqual(JSON.parse(init.body), { url: "https://example.com/article" });
+    return new Response(JSON.stringify({ title: "文章标题", content: "这是一段足够长的网页正文内容，用于确认官方 Fetch 的标题和正文可以被网页抓取模块接收。" }), { status: 200 });
+  };
+  t.after(() => { restoreEnv("DEEPSEEK_API_KEY", oldKey); globalThis.fetch = oldFetch; });
+  const result = await fetchDeepseekWebPage("https://example.com/article");
+  assert.equal(result.ok, true);
+  assert.equal(result.title, "文章标题");
+  assert.match(result.text, /网页正文内容/);
+  assert.equal(result.via, "deepseek_fetch");
 });

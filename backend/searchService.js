@@ -49,11 +49,12 @@ import {
 import { extractHttpUrls, fetchDirectWebPapers } from "./directWebSearch.js";
 import { fetchDeepseekWebPapers, getDeepseekWebSearchConfig } from "./deepseekWebSearch.js";
 import { fetchDoubaoWebPapers, getDoubaoWebSearchConfig } from "./doubaoWebSearch.js";
+import { fetchRedfoxDeepseekPapers, getRedfoxDeepseekConfig } from "./redfoxDeepseekWebSearch.js";
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
   const s = String(p?.source ?? "");
-  return s === "ddg_patent" || s === "openalex_patent";
+  return s === "patent_web" || s === "ddg_patent" || s === "openalex_patent";
 }
 
 /** 网页渠道是否同时检索专利（默认 true；WEB_CHANNEL_PATENTS=0 则仅全网网页） */
@@ -177,7 +178,7 @@ function dedupeKey(p) {
       p.source === "wikipedia_web" ||
       p.source === "core" ||
       p.source === "finance_web" ||
-      p.source === "ddg_patent" ||
+      (p.source === "patent_web" || p.source === "ddg_patent") ||
       p.source === "openalex_patent") &&
     p.absUrl
   ) {
@@ -207,7 +208,7 @@ function scoreSource(x) {
   if (x.source === "ddg_web") return 2.1;
   if (x.source === "mojeek_web") return 2.08;
   if (x.source === "finance_web") return 2.4;
-  if (x.source === "ddg_patent") return 2.2;
+  if (x.source === "patent_web" || x.source === "ddg_patent") return 2.2;
   if (x.source === "openalex") return 1.05;
   /** OpenAlex 专利索引 */
   if (x.source === "openalex_patent") return 1.35;
@@ -341,7 +342,7 @@ function dropZeroRelevanceByTokens(papers, rawQuery, effectiveQuery, preferenceK
   const scored = papers.map((p) => ({ p, c: countTokenHits(p, tokens) }));
   const isPatentSrc = (p) => {
     const s = String(p?.source ?? "");
-    return s === "ddg_patent" || s === "openalex_patent";
+    return s === "patent_web" || s === "ddg_patent" || s === "openalex_patent";
   };
   const withHits = scored.filter((x) => x.c > 0 || isPatentSrc(x.p) || x.p?._entityCoverage);
   const withoutHits = scored.filter((x) => x.c === 0 && !isPatentSrc(x.p));
@@ -349,6 +350,13 @@ function dropZeroRelevanceByTokens(papers, rawQuery, effectiveQuery, preferenceK
   if (withoutHits.length < 2) return papers;
   if (withHits.length < papers.length * 0.35) return papers;
   return withHits.map((x) => x.p);
+}
+
+function recordCountStage(performanceTrace, name, input, output, details = {}) {
+  performanceTrace?.start?.(name, { input, ...details })?.({
+    output,
+    dropped: Math.max(0, Number(input || 0) - Number(output || 0)),
+  });
 }
 
 export function mergeDedupe(lists) {
@@ -425,6 +433,7 @@ function rowToApiPaper(row) {
   const venue = String(row.venue ?? row.journal ?? "").trim();
   const isPatent =
     pid.startsWith("openalex_patent:") ||
+    pid.startsWith("patent_web:") ||
     pid.startsWith("ddg_patent:") ||
     pid.startsWith("local:patent:") ||
     /\bpatent\b/i.test(venue);
@@ -660,8 +669,8 @@ function webTaskConcurrency(envName, fallback, max = 8) {
   return Math.min(max, Math.max(1, Number(process.env[envName]) || fallback));
 }
 
-function webAutoAiTimeoutMs(aiSourcesMode = false) {
-  const fallback = aiSourcesMode ? 45_000 : 180_000;
+function webAutoAiTimeoutMs(aiSourcesMode = false, provider = "") {
+  const fallback = provider === "redfox_deepseek" ? 300_000 : aiSourcesMode ? 45_000 : 180_000;
   return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || fallback));
 }
 
@@ -672,10 +681,11 @@ async function fetchAutoAiPapers(provider, query, max, signal, aiSourcesMode = f
   if (signal?.aborted) relayAbort();
   const timer = setTimeout(
     () => controller.abort(new Error(`auto ${provider} timeout`)),
-    webAutoAiTimeoutMs(aiSourcesMode),
+    webAutoAiTimeoutMs(aiSourcesMode, provider),
   );
   try {
     if (provider === "doubao") return await fetchDoubaoWebPapers(query, max, { signal: controller.signal });
+    if (provider === "redfox_deepseek") return await fetchRedfoxDeepseekPapers(query, max, { signal: controller.signal });
     return await fetchDeepseekWebPapers(query, max, { signal: controller.signal });
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -827,10 +837,16 @@ async function runWebIntelSearch(opts) {
   const webSearchQ = extractWebSearchQuery(fullRawQuery) || rawQuery;
   const providerConfig = getWebSearchProviderConfig();
   const aiProvider = providerConfig.aiProvider;
+  const aiProviders = [
+    ...(providerConfig.includeDeepseek ? ["deepseek"] : []),
+    ...(providerConfig.includeRedfoxDeepseek ? ["redfox_deepseek"] : []),
+  ];
   const aiSourcesMode = Boolean(aiProvider && providerConfig.includeSources);
-  const aiConfigured = aiProvider === "doubao"
+  const aiConfigured = aiProviders.some((provider) => provider === "doubao"
     ? Boolean(getDoubaoWebSearchConfig())
-    : Boolean(getDeepseekWebSearchConfig());
+    : provider === "redfox_deepseek"
+      ? Boolean(getRedfoxDeepseekConfig())
+    : Boolean(getDeepseekWebSearchConfig()));
   // Explicit AI-only modes submit one whole-query task and skip the regular
   // multi-source planner. Direct URLs collected from the user's query remain usable.
   if (aiProvider && !providerConfig.includeSources) {
@@ -838,21 +854,43 @@ async function runWebIntelSearch(opts) {
       sourcesUsed.push(`${aiProvider}:not_configured`);
       return { papers: directPapers, patents: [], sourcesUsed };
     }
-    const aiResult = await traceAsync(
+    const aiResults = await Promise.all(aiProviders.map((provider) => traceAsync(
       performanceTrace,
-      `search.web.${aiProvider}`,
+      `search.web.${provider}`,
       { queryChars: webSearchQ.length },
-      () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal, aiSourcesMode),
+      () => fetchAutoAiPapers(provider, webSearchQ, max, signal, aiSourcesMode),
       (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
-    );
-    if (aiResult.papers?.length) {
-      sourcesUsed.push(`web:${aiProvider}(${aiResult.papers.length})`);
-    } else {
-      sourcesUsed.push(`${aiProvider}:${aiResult.note || "empty"}`);
+    )));
+    for (let i = 0; i < aiResults.length; i += 1) {
+      const result = aiResults[i];
+      const provider = aiProviders[i];
+      if (result.papers?.length) sourcesUsed.push(`web:${provider}(${result.papers.length})`);
+      else sourcesUsed.push(`${provider}:${result.note || "empty"}`);
+    }
+    const supportTasks = [];
+    if (includePatents) {
+      supportTasks.push(fetchOpenAlexPatents(webSearchQ, 45));
+      supportTasks.push(fetchPatentPapers(webSearchQ, 45, { signal }));
+    }
+    for (const source of financeWebSources) {
+      supportTasks.push(fetchFinanceWebPapers(webSearchQ, Math.min(64, max + 32), source, { signal }));
+    }
+    const support = supportTasks.length ? await Promise.allSettled(supportTasks) : [];
+    const patents = [];
+    const extraPapers = [];
+    let index = 0;
+    if (includePatents) {
+      const openAlex = support[index++];
+      if (openAlex?.status === "fulfilled") patents.push(...(openAlex.value ?? []));
+      const patent = support[index++];
+      if (patent?.status === "fulfilled") patents.push(...(patent.value?.papers ?? []));
+    }
+    for (; index < support.length; index += 1) {
+      if (support[index]?.status === "fulfilled") extraPapers.push(...(support[index].value?.papers ?? []));
     }
     return {
-      papers: [...directPapers, ...(aiResult.papers ?? [])],
-      patents: [],
+      papers: [...directPapers, ...aiResults.flatMap((result) => result.papers ?? []), ...extraPapers],
+      patents,
       sourcesUsed,
     };
   }
@@ -961,6 +999,7 @@ async function runWebIntelSearch(opts) {
             tracePrefix: `search.web.round1.query_${i + 1}.source`,
             includeDeepseek: false,
             includeAiProvider: false,
+            includeSupplementalSources: i === 0,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
@@ -988,13 +1027,19 @@ async function runWebIntelSearch(opts) {
 
   // AI WebSearch is a whole-query research task, not a SERP engine to repeat for
   // every generated query. Run it once beside the regular source fan-out.
-  const autoAiPromise = !aiProvider || !aiConfigured || !providerConfig.includeSources
+  const autoAiPromise = !aiProviders.length || !aiConfigured || !providerConfig.includeSources
     ? Promise.resolve(null)
     : traceAsync(
         performanceTrace,
-        `search.web.${aiProvider}.auto`,
-        { queryChars: webSearchQ.length, timeoutMs: webAutoAiTimeoutMs(aiSourcesMode) },
-        () => fetchAutoAiPapers(aiProvider, webSearchQ, max, signal, aiSourcesMode),
+        `search.web.${aiProviders.join("+")}.auto`,
+        { queryChars: webSearchQ.length, timeoutMs: Math.max(...aiProviders.map((provider) => webAutoAiTimeoutMs(aiSourcesMode, provider))) },
+        async () => {
+          const results = await Promise.all(aiProviders.map((provider) => fetchAutoAiPapers(provider, webSearchQ, max, signal, aiSourcesMode)));
+          return {
+            papers: results.flatMap((result) => result.papers ?? []),
+            note: results.map((result, index) => `${aiProviders[index]}:${result.note || (result.papers?.length ? `ok:${result.papers.length}` : "empty")}`).join(","),
+          };
+        },
         (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, note: value?.note }),
       );
   const webLayerPromise = traceAsync(
@@ -1119,6 +1164,7 @@ async function runWebIntelSearch(opts) {
             tracePrefix: `search.web.round2.query_${i + 1}.source`,
             includeDeepseek: false,
             includeAiProvider: false,
+            includeSupplementalSources: false,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
@@ -1163,6 +1209,7 @@ async function runWebIntelSearch(opts) {
             tracePrefix: `search.web.book_rescue.query_${i + 1}.source`,
             includeDeepseek: false,
             includeAiProvider: false,
+            includeSupplementalSources: false,
             signal: taskSignal,
           }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0, tool: value?.toolName }),
@@ -1752,11 +1799,16 @@ export async function runPaperSearch(opts) {
     if (useMcpWeb === false) sourcesUsed.push("patents_only_skipped_mcp_web");
   }
 
+  const pipelineName = channel === "web" ? "search.web.pipeline" : "search.database.pipeline";
+  const mergeInputCount = buckets.reduce((sum, bucket) => sum + (Array.isArray(bucket) ? bucket.length : 0), 0);
   let merged = mergeDedupe(buckets);
+  recordCountStage(performanceTrace, `${pipelineName}.merge_dedupe`, mergeInputCount, merged.length, { channel });
   const explicitDirectRows = merged.filter((paper) => paper?.source === "direct_web");
-  const explicitAiRows = merged.filter((paper) => paper?.source === "deepseek_web" || paper?.source === "doubao_web");
+  // DeepSeek rows must remain subject to strict recommendation and inclusion filters.
+  const explicitAiRows = merged.filter((paper) => paper?.source === "doubao_web");
   const beforeFilter = merged.length;
   merged = dropZeroRelevanceByTokens(merged, rawQuery, effectiveQuery, opts.preferenceKeywords);
+  recordCountStage(performanceTrace, `${pipelineName}.token_relevance`, beforeFilter, merged.length, { channel });
   if (merged.length > 0 && merged.length < beforeFilter) {
     sourcesUsed.push("relevance_token_drop");
   }
@@ -1775,6 +1827,7 @@ export async function runPaperSearch(opts) {
     effectiveQuery,
     semanticIntent: queryIntent,
   });
+  recordCountStage(performanceTrace, `${pipelineName}.strict_recommend`, beforeStrict, merged.length, { channel });
   if (merged.length > 0 && merged.length < beforeStrict) {
     sourcesUsed.push("strict_recommend_filter");
   }
@@ -1796,12 +1849,16 @@ export async function runPaperSearch(opts) {
     if (embedRerank.papers?.length) merged = embedRerank.papers;
   }
   merged = applySort(merged, sort);
+  const beforeResultCap = merged.length;
   merged = channel === "web" ? preserveEntityCoverageRows(merged, max) : merged.slice(0, max);
+  recordCountStage(performanceTrace, `${pipelineName}.result_cap`, beforeResultCap, merged.length, { max, channel });
   if (channel === "web" && !patentsOnly) {
     const beforeInc = merged.length;
     const webPreInc = merged.length ? [...merged] : [];
     const inc = filterWebChannelInclusion(merged, rawQuery, effectiveQuery, max);
     merged = inc.papers;
+    const inclusionDropped = Math.max(0, beforeInc - merged.length);
+    recordCountStage(performanceTrace, `${pipelineName}.inclusion`, beforeInc, merged.length, { filterDropped: inclusionDropped, channel });
     // User supplied URLs are explicit evidence requests. Preserve successfully
     // fetched pages even when the rewritten query has too few matching tokens.
     if (explicitDirectRows.length) {
@@ -1819,7 +1876,7 @@ export async function runPaperSearch(opts) {
       merged = preserveAiProviderRows(merged, explicitAiRows, max);
       if (merged.length > beforeAi) sourcesUsed.push(`web_ai_provider_rows:${merged.length - beforeAi}`);
     }
-    if (inc.dropped > 0) sourcesUsed.push(`web_strict_drop:${inc.dropped}`);
+    if (inclusionDropped > 0) sourcesUsed.push(`web_strict_drop:${inclusionDropped}`);
     if (merged.length < beforeInc) sourcesUsed.push("web_inclusion_filter");
     if (!merged.length && webPreInc.length) {
       merged = finalizeWebPatentIntelRows(webPreInc.slice(0, max), max);
@@ -1847,6 +1904,7 @@ export async function runPaperSearch(opts) {
     }
     const beforeWi = merged.length;
     merged = finalizeWebPatentIntelRows(merged, max);
+    recordCountStage(performanceTrace, `${pipelineName}.intel_finalize`, beforeWi, merged.length, { max, channel });
     if (merged.length < beforeWi) sourcesUsed.push("web_intel_filter");
     sourcesUsed.push("web_patent_intel_rows");
   } else if (patentsOnly) {
@@ -1866,6 +1924,11 @@ export async function runPaperSearch(opts) {
               : Number(process.env.WEB_FETCH_MAX_PAGES) || 10,
         forceFetchAll: channel === "web",
         performanceTrace,
+      });
+      recordCountStage(performanceTrace, `${pipelineName}.page_fetch`, merged.length, webEnrich.papers?.length ?? merged.length, {
+        attempted: webEnrich.attempted,
+        fetched: webEnrich.fetched,
+        channel,
       });
       if (webEnrich.fetched > 0) {
         sourcesUsed.push(`web_page_fetch:${webEnrich.fetched}`);

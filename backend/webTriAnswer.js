@@ -616,6 +616,18 @@ export async function synthesizeWebTriAnswer(p) {
   if (!papers.length && Array.isArray(p.papers) && p.papers.length) {
     papers = p.papers.filter((x) => isWebPaper(x) || isPatentPaper(x)).slice(0, 8);
   }
+  p.performanceTrace?.start?.("search.web.synthesis.source_selection", {
+    totalIn: picked.totalIn,
+    inclusionCount: picked.diagnostics?.inclusionCount ?? 0,
+    relaxedFallbackCount: picked.diagnostics?.relaxedFallbackCount ?? 0,
+    strongEligibleCount: picked.diagnostics?.strongEligibleCount ?? 0,
+    softAnchorAdded: picked.diagnostics?.softAnchorAdded ?? 0,
+    salvageAdded: picked.diagnostics?.salvageAdded ?? 0,
+    selectedByPicker: picked.papers.length,
+    fallbackSelected: papers.length - picked.papers.length,
+    filteredOut: picked.filteredOut,
+    cap: picked.diagnostics?.cap ?? 0,
+  })?.({ selected: papers.length, ok: true });
 
   const sourceNoteEarly = papers.length
     ? `sources=${papers.length}/${picked.totalIn}|filtered=${picked.filteredOut}`
