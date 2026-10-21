@@ -2793,7 +2793,9 @@ export default function App({
   const [resourceTab, setResourceTab] = useState<"plugins" | "skills">("plugins");
   const [resourceCategory, setResourceCategory] = useState<string>("金融");
   const [selectedFinancePlugin, setSelectedFinancePlugin] = useState<string | null>(null);
+  const [selectedFinanceSkill, setSelectedFinanceSkill] = useState<string | null>(null);
   const [enabledFinancePlugins, setEnabledFinancePlugins] = useState<Record<string, boolean>>({});
+  const [enabledFinanceSkills, setEnabledFinanceSkills] = useState<Record<string, boolean>>({});
   const [pluginDialogNotice, setPluginDialogNotice] = useState("");
   const resourceCategories = resourceTab === "plugins" ? ["金融", "工程"] : ["金融", "产品"];
   const financePluginItems = [
@@ -2804,9 +2806,28 @@ export default function App({
   const engineeringPluginItems = [
     { name: "产品碳足迹计算", description: "本技能面向制造及供应链场景，帮助核算产品碳足迹", users: "6078 人在用", mark: "碳", samples: ["帮我核算一款产品的碳足迹", "整理产品碳足迹核算所需的数据清单", "解释产品碳足迹核算结果并指出减排环节"] },
   ];
+  const financeSkillItems = [
+    { name: "个股研究", slug: "equity-research", description: "梳理公司业务、财务趋势、竞争优势、估值假设与投资风险，形成有来源的研究摘要", users: "33.9 万人在用", mark: "研", samples: ["研究贵州茅台的基本面、近期业绩和主要风险", "分析宁德时代的竞争优势与行业位置", "整理这家公司近年财务表现并列出待核实问题"] },
+    { name: "市场热点分析", slug: "market-hotspot-analysis", description: "结合近期市场数据与事件，分析热点驱动、产业链影响、观察指标和风险", users: "20.9 万人在用", mark: "热", samples: ["分析今天市场热点及可能的驱动因素", "梳理近期人工智能板块的催化因素和风险", "总结本周市场主线并区分事实与推测"] },
+    { name: "选股工具", slug: "stock-screening", description: "把选股偏好转成透明、可复现的指标，筛选并比较候选公司及筛选局限", users: "18.8 万人在用", mark: "选", samples: ["按低估值、盈利稳定和低负债设计选股条件", "筛选适合长期跟踪的高股息公司，并说明指标", "比较这几只股票是否符合我的选股标准"] },
+    { name: "财富规划", slug: "wealth-planning", description: "围绕家庭目标、现金流、负债与风险承受能力，梳理分阶段规划和行动安排", users: "17.2 万人在用", mark: "财", samples: ["为我制定一个三年购房储蓄规划框架", "评估家庭现金流并给出应急资金安排建议", "根据我的投资期限和风险承受能力梳理资产配置思路"] },
+  ];
+  const productSkillItems = [
+    {
+      name: "工程文档编写与检查",
+      description: "根据项目资料编写或检查施工组织设计、监理记录、专项方案和工程量清单，并标出需要专业人员复核的内容",
+      users: "2.8 万人在用",
+      mark: "工",
+      samples: ["根据招标文件、图纸和清单编制工程文档", "从多份附件提取工程事实并核对缺项、编号和冲突", "检查现有方案的事实一致性和规范引用"],
+      overview: "用于基于用户提供的工程项目资料，对施工组织设计、监理记录、专项方案或工程量清单进行事实抽取、缺口核对和草案编制。涉及规范适用性、危大方案或安全责任结论必须专业人员复核。",
+      useCases: ["依据招标文件、图纸、清单和日志编制或审校工程文档。", "从多份附件提取工程事实并核对缺项、编号和冲突。", "对现有方案做事实一致性和规范引用检查。"],
+    },
+  ];
   const visiblePluginItems = resourceCategory === "工程" ? engineeringPluginItems : financePluginItems;
   const selectedPlugin = [...financePluginItems, ...engineeringPluginItems].find((item) => item.name === selectedFinancePlugin) ?? null;
+  const selectedSkill = [...financeSkillItems, ...productSkillItems].find((item) => item.name === selectedFinanceSkill) ?? null;
   const selectedPluginEnabled = selectedPlugin ? enabledFinancePlugins[selectedPlugin.name] ?? true : false;
+  const selectedSkillEnabled = selectedSkill ? enabledFinanceSkills[selectedSkill.name] ?? true : false;
   const pointsEnabled = edition === "school";
   const studentVerificationEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -4425,6 +4446,36 @@ export default function App({
           </section>
         </div>
       ) : null}
+      {selectedSkill ? (
+        <div className="fixed inset-0 z-[190] flex items-center justify-center bg-[var(--t-overlay)] px-3 py-5 backdrop-blur-sm sm:px-6" role="dialog" aria-modal="true" aria-labelledby="finance-skill-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedFinanceSkill(null); }}>
+          <section className="relative flex max-h-[min(92dvh,850px)] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-[color:var(--t-br08)] bg-[var(--t-surface)] p-5 shadow-2xl sm:p-7">
+            <button type="button" onClick={() => setSelectedFinanceSkill(null)} className="absolute right-4 top-4 rounded-md p-1 text-xl leading-none text-[var(--t-text-muted)] hover:bg-[var(--t-muted)]" aria-label="关闭技能详情">×</button>
+            <div className="flex items-center gap-4 pr-10">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-600 text-2xl font-bold text-white" aria-hidden>{selectedSkill.mark}</div>
+              <div className="min-w-0 flex-1"><h2 id="finance-skill-title" className="text-lg font-medium text-[var(--t-text)]">{selectedSkill.name}</h2><p className="mt-1 text-sm text-[var(--t-text-muted)]">{selectedSkill.description}</p></div>
+              <button type="button" role="switch" aria-checked={selectedSkillEnabled} aria-label={`${selectedSkillEnabled ? "停用" : "启用"}${selectedSkill.name}`} onClick={() => setEnabledFinanceSkills((previous) => ({ ...previous, [selectedSkill.name]: !previous[selectedSkill.name] }))} className={`relative h-7 w-12 shrink-0 rounded-full transition ${selectedSkillEnabled ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-600"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${selectedSkillEnabled ? "left-6" : "left-1"}`} /></button>
+            </div>
+            {"overview" in selectedSkill ? (
+              <div className="mt-6 rounded-xl border border-[color:var(--t-br08)] bg-[var(--t-muted)]/40 p-4 text-sm leading-7 text-[var(--t-text)] sm:p-6">
+                <p>{selectedSkill.overview}</p>
+                <h3 className="mt-4 font-semibold">使用场景</h3>
+                <h4 className="mt-3 font-medium">应使用</h4>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {selectedSkill.useCases.map((useCase) => <li key={useCase}>{useCase}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <>
+                <h3 className="mb-3 mt-7 text-sm font-medium text-[var(--t-text)]">你可以这样问</h3>
+                <div className="space-y-2 rounded-2xl bg-gradient-to-br from-sky-200 to-blue-300 p-4 dark:from-blue-950 dark:to-slate-800 sm:p-6">
+                  {selectedSkill.samples.map((sample) => <button key={sample} type="button" onClick={() => { setInput(`@${selectedSkill.name} ${sample}`); setSelectedFinanceSkill(null); setResourcePageOpen(false); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900"><span><span className="font-medium text-blue-600">@{selectedSkill.name}</span> {sample}</span><span className="shrink-0 text-lg" aria-hidden>→</span></button>)}
+                </div>
+              </>
+            )}
+            <div className="mt-7 flex items-center justify-end border-t border-[color:var(--t-br06)] pt-4"><button type="button" onClick={() => { setInput(`@${selectedSkill.name} `); setSelectedFinanceSkill(null); setResourcePageOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button></div>
+          </section>
+        </div>
+      ) : null}
       {exportPickMode && exportPickSessionId ? (
         <div
           className="fixed inset-x-0 bottom-[min(11rem,42vh)] z-[105] flex justify-center px-3 pointer-events-none sm:bottom-36"
@@ -4778,13 +4829,45 @@ export default function App({
                     </article>
                   ))}
                 </div>
-              ) : (
+              ) : resourceCategory === "产品" ? (
+                <div className="grid grid-cols-1 gap-x-3 gap-y-3 pt-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                  {productSkillItems.map((item) => (
+                    <article key={item.name} onClick={() => setSelectedFinanceSkill(item.name)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFinanceSkill(item.name); } }} tabIndex={0} role="button" className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-2 text-left transition hover:bg-[var(--t-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--t-accent-ring)]">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-lg font-semibold text-[var(--t-accent)]" aria-hidden>{item.mark}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="truncate text-[13px] font-medium text-[var(--t-text)]" title={item.name}>{item.name}</h3>
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedFinanceSkill(item.name); }} className="shrink-0 rounded-md border border-[color:var(--t-br08)] px-2 py-0.5 text-[10px] text-[var(--t-text-muted)] transition hover:border-[var(--t-accent-ring)] hover:text-[var(--t-text)]">安装</button>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-[var(--t-text-muted)]" title={item.description}>{item.description}</p>
+                        <p className="mt-1 text-[11px] text-[var(--t-text-dim)]">{item.users}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : resourceCategory === "工程" ? (
                 <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center">
                   <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-2xl text-[var(--t-text-muted)]" aria-hidden>
                     ✧
                   </div>
-                  <h3 className="text-base font-medium text-[var(--t-text)]">{resourceCategory}技能</h3>
-                  <p className="mt-2 max-w-md text-sm leading-6 text-[var(--t-text-muted)]">资源目录暂未配置，接入对应的插件和技能清单后会在这里展示。</p>
+                  <h3 className="text-base font-medium text-[var(--t-text)]">工程技能</h3>
+                  <p className="mt-2 max-w-md text-sm leading-6 text-[var(--t-text-muted)]">资源目录暂未配置，接入工程技能清单后会在这里展示。</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-x-3 gap-y-3 pt-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                  {financeSkillItems.map((item) => (
+                    <article key={item.name} onClick={() => setSelectedFinanceSkill(item.name)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFinanceSkill(item.name); } }} tabIndex={0} role="button" className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-2 text-left transition hover:bg-[var(--t-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--t-accent-ring)]">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-lg font-semibold text-[var(--t-accent)]" aria-hidden>{item.mark}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="truncate text-[13px] font-medium text-[var(--t-text)]" title={item.name}>{item.name}</h3>
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedFinanceSkill(item.name); }} className="shrink-0 rounded-md border border-[color:var(--t-br08)] px-2 py-0.5 text-[10px] text-[var(--t-text-muted)] transition hover:border-[var(--t-accent-ring)] hover:text-[var(--t-text)]">安装</button>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-[var(--t-text-muted)]" title={item.description}>{item.description}</p>
+                        <p className="mt-1 text-[11px] text-[var(--t-text-dim)]">{item.users}</p>
+                      </div>
+                    </article>
+                  ))}
                 </div>
               )}
             </section>
