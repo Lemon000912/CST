@@ -2801,7 +2801,11 @@ export default function App({
     { name: "同花顺 iFinD 金融数据", description: "查询股票、基金、债券等金融信息", users: "10.3 万人使用", mark: "同", samples: ["查询贵州茅台最近一年的行情", "对比宁德时代和比亚迪营收", "整理近期重要财经公告"] },
     { name: "东方财富妙想", description: "查询东方财富提供的金融数据", users: "3.9 万人使用", mark: "东", samples: ["分析沪深 300 近期走势", "查询热门行业资金流向", "总结最近一周市场表现"] },
   ];
-  const selectedPlugin = financePluginItems.find((item) => item.name === selectedFinancePlugin) ?? null;
+  const engineeringPluginItems = [
+    { name: "产品碳足迹计算", description: "本技能面向制造及供应链场景，帮助核算产品碳足迹", users: "6078 人在用", mark: "碳", samples: ["帮我核算一款产品的碳足迹", "整理产品碳足迹核算所需的数据清单", "解释产品碳足迹核算结果并指出减排环节"] },
+  ];
+  const visiblePluginItems = resourceCategory === "工程" ? engineeringPluginItems : financePluginItems;
+  const selectedPlugin = [...financePluginItems, ...engineeringPluginItems].find((item) => item.name === selectedFinancePlugin) ?? null;
   const selectedPluginEnabled = selectedPlugin ? enabledFinancePlugins[selectedPlugin.name] ?? true : false;
   const pointsEnabled = edition === "school";
   const studentVerificationEnabled = edition === "school";
@@ -4756,9 +4760,9 @@ export default function App({
         <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
           {resourcePageOpen ? (
             <section className="flex min-h-full w-full flex-col px-3 py-3 sm:px-5" aria-label={`${resourceTab === "plugins" ? "插件" : "技能"}资源目录`}>
-              {resourceTab === "plugins" && resourceCategory === "金融" ? (
+              {resourceTab === "plugins" ? (
                 <div className="grid grid-cols-1 gap-x-3 gap-y-3 pt-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                  {financePluginItems.map((item) => (
+                  {visiblePluginItems.map((item) => (
                     <article key={item.name} onClick={() => { setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); } }} tabIndex={0} role="button" className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-2 text-left transition hover:bg-[var(--t-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--t-accent-ring)]">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-lg font-semibold text-[var(--t-accent)]" aria-hidden>
                         {item.mark}
@@ -4766,7 +4770,7 @@ export default function App({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <h3 className="truncate text-[13px] font-medium text-[var(--t-text)]" title={item.name}>{item.name}</h3>
-                          <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); }} className="shrink-0 rounded-md border border-[color:var(--t-br08)] px-2 py-0.5 text-[10px] text-[var(--t-text-muted)] transition hover:border-[var(--t-accent-ring)] hover:text-[var(--t-text)]">安装</button>
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); }} className="shrink-0 rounded-md border border-[color:var(--t-br08)] px-2 py-0.5 text-[10px] text-[var(--t-text-muted)] transition hover:border-[var(--t-accent-ring)] hover:text-[var(--t-text)]">{resourceCategory === "工程" ? "连接" : "安装"}</button>
                         </div>
                         <p className="mt-1 truncate text-[11px] text-[var(--t-text-muted)]" title={item.description}>{item.description}</p>
                         <p className="mt-1 text-[11px] text-[var(--t-text-dim)]">{item.users}</p>
@@ -4777,9 +4781,9 @@ export default function App({
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center">
                   <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-2xl text-[var(--t-text-muted)]" aria-hidden>
-                    {resourceTab === "plugins" ? "◇" : "✧"}
+                    ✧
                   </div>
-                  <h3 className="text-base font-medium text-[var(--t-text)]">{resourceCategory}{resourceTab === "plugins" ? "插件" : "技能"}</h3>
+                  <h3 className="text-base font-medium text-[var(--t-text)]">{resourceCategory}技能</h3>
                   <p className="mt-2 max-w-md text-sm leading-6 text-[var(--t-text-muted)]">资源目录暂未配置，接入对应的插件和技能清单后会在这里展示。</p>
                 </div>
               )}
