@@ -35,6 +35,8 @@
     "test:eastmoney": "node --test scripts/test-eastmoney-login.mjs",
     "oilchem:login": "node scripts/oilchem-login.mjs",
     "test:oilchem": "node --test scripts/test-oilchem-login.mjs",
+    "sci99:login": "node scripts/sci99-login.mjs",
+    "test:sci99": "node --test scripts/test-sci99-login.mjs",
     "typecheck": "npx tsc -p frontend/tsconfig.json --noEmit",
     "build": "npm run build:school",
     "build:school": "npm run typecheck && vite build --mode school --config frontend/vite.config.ts",
