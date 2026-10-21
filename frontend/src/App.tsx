@@ -4422,7 +4422,7 @@ export default function App({
             <h3 className="mb-3 mt-7 text-sm font-medium text-[var(--t-text)]">你可以这样问</h3>
             <div className="space-y-2 rounded-2xl bg-gradient-to-br from-sky-200 to-blue-300 p-4 dark:from-blue-950 dark:to-slate-800 sm:p-6">
               {selectedPlugin.samples.map((sample) => (
-                <button key={sample} type="button" onClick={() => { setInput(`@${selectedPlugin.name} ${sample}`); setSelectedFinancePlugin(null); setPluginDialogNotice(""); setResourcePageOpen(false); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900">
+                <button key={sample} type="button" onClick={() => { setInput(`@${selectedPlugin.name} ${sample}`); setSelectedFinancePlugin(null); setPluginDialogNotice(""); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900">
                   <span><span className="font-medium text-blue-600">@{selectedPlugin.name}</span> {sample}</span><span className="shrink-0 text-lg" aria-hidden>→</span>
                 </button>
               ))}
@@ -4441,7 +4441,7 @@ export default function App({
 
             <div className="mt-7 flex items-center justify-end gap-3 border-t border-[color:var(--t-br06)] pt-4">
               <button type="button" onClick={() => setPluginDialogNotice("更多插件设置暂未开放。")} className="rounded-lg border border-[color:var(--t-br08)] px-3 py-2 text-sm text-[var(--t-text-muted)] hover:bg-[var(--t-muted)]" aria-label="更多插件操作">···</button>
-              <button type="button" onClick={() => { setInput(`@${selectedPlugin.name} `); setSelectedFinancePlugin(null); setPluginDialogNotice(""); setResourcePageOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button>
+              <button type="button" onClick={() => { setInput(`@${selectedPlugin.name} `); setSelectedFinancePlugin(null); setPluginDialogNotice(""); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button>
             </div>
           </section>
         </div>
@@ -4468,11 +4468,11 @@ export default function App({
               <>
                 <h3 className="mb-3 mt-7 text-sm font-medium text-[var(--t-text)]">你可以这样问</h3>
                 <div className="space-y-2 rounded-2xl bg-gradient-to-br from-sky-200 to-blue-300 p-4 dark:from-blue-950 dark:to-slate-800 sm:p-6">
-                  {selectedSkill.samples.map((sample) => <button key={sample} type="button" onClick={() => { setInput(`@${selectedSkill.name} ${sample}`); setSelectedFinanceSkill(null); setResourcePageOpen(false); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900"><span><span className="font-medium text-blue-600">@{selectedSkill.name}</span> {sample}</span><span className="shrink-0 text-lg" aria-hidden>→</span></button>)}
+                  {selectedSkill.samples.map((sample) => <button key={sample} type="button" onClick={() => { setInput(`@${selectedSkill.name} ${sample}`); setSelectedFinanceSkill(null); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900"><span><span className="font-medium text-blue-600">@{selectedSkill.name}</span> {sample}</span><span className="shrink-0 text-lg" aria-hidden>→</span></button>)}
                 </div>
               </>
             )}
-            <div className="mt-7 flex items-center justify-end border-t border-[color:var(--t-br06)] pt-4"><button type="button" onClick={() => { setInput(`@${selectedSkill.name} `); setSelectedFinanceSkill(null); setResourcePageOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button></div>
+            <div className="mt-7 flex items-center justify-end border-t border-[color:var(--t-br06)] pt-4"><button type="button" onClick={() => { setInput(`@${selectedSkill.name} `); setSelectedFinanceSkill(null); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button></div>
           </section>
         </div>
       ) : null}
