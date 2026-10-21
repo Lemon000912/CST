@@ -548,6 +548,13 @@ export async function initDatabase() {
       billingClient = await pgPool.connect();
       await billingClient.query("BEGIN");
       await billingClient.query(`
+        CREATE TABLE IF NOT EXISTS finance_subscriptions (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+          expires_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await billingClient.query(`
         CREATE TABLE IF NOT EXISTS point_wallets (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
           balance_units BIGINT NOT NULL,
@@ -842,6 +849,11 @@ export async function initDatabase() {
       FROM user_chat_sessions
     `);
     await db.exec(`
+      CREATE TABLE IF NOT EXISTS finance_subscriptions (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+        expires_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS point_wallets (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
         balance_units INTEGER NOT NULL,

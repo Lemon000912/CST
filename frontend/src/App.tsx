@@ -2789,7 +2789,21 @@ export default function App({
   onLogout?: () => void;
 }) {
   const { theme, setTheme } = useTheme();
-  const pointsEnabled = edition === "school" || edition === "finance";
+  const [resourcePageOpen, setResourcePageOpen] = useState(false);
+  const [resourceTab, setResourceTab] = useState<"plugins" | "skills">("plugins");
+  const [resourceCategory, setResourceCategory] = useState<string>("金融");
+  const [selectedFinancePlugin, setSelectedFinancePlugin] = useState<string | null>(null);
+  const [enabledFinancePlugins, setEnabledFinancePlugins] = useState<Record<string, boolean>>({});
+  const [pluginDialogNotice, setPluginDialogNotice] = useState("");
+  const resourceCategories = resourceTab === "plugins" ? ["金融", "工程"] : ["金融", "产品"];
+  const financePluginItems = [
+    { name: "Wind Alice 万得金融数据", description: "查询股票、基金、指数、债券、公告新闻及宏观经济数据", users: "4.9 万人使用", mark: "W", samples: ["生成五粮液近 5 年营收趋势", "查询中国去年社融月度数据", "对比中美 10 年期国债收益率"] },
+    { name: "同花顺 iFinD 金融数据", description: "查询股票、基金、债券等金融信息", users: "10.3 万人使用", mark: "同", samples: ["查询贵州茅台最近一年的行情", "对比宁德时代和比亚迪营收", "整理近期重要财经公告"] },
+    { name: "东方财富妙想", description: "查询东方财富提供的金融数据", users: "3.9 万人使用", mark: "东", samples: ["分析沪深 300 近期走势", "查询热门行业资金流向", "总结最近一周市场表现"] },
+  ];
+  const selectedPlugin = financePluginItems.find((item) => item.name === selectedFinancePlugin) ?? null;
+  const selectedPluginEnabled = selectedPlugin ? enabledFinancePlugins[selectedPlugin.name] ?? true : false;
+  const pointsEnabled = edition === "school";
   const studentVerificationEnabled = edition === "school";
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
@@ -3286,6 +3300,7 @@ export default function App({
       setExportPickSelected({});
     }
     activeIdRef.current = null;
+    setResourcePageOpen(false);
     setDraftSession(createSession());
     setActiveId(null);
     setInput("");
@@ -3301,6 +3316,7 @@ export default function App({
       setExportPickSelected({});
     }
     activeIdRef.current = id;
+    setResourcePageOpen(false);
     setActiveId(id);
     setInput("");
     setAttachments([]);
@@ -4256,7 +4272,7 @@ export default function App({
           currentId={activeKnowledgeBase?.id}
         />
       ) : null}
-      {pointsEnabled ? (
+      {pointsEnabled || edition === "finance" ? (
         <>
           {SchoolRechargeModal ? (
             <Suspense fallback={null}>
@@ -4352,6 +4368,59 @@ export default function App({
         }}
         onClose={() => setApiKeyModalOpen(false)}
       />
+      {selectedPlugin ? (
+        <div
+          className="fixed inset-0 z-[190] flex items-center justify-center bg-[var(--t-overlay)] px-3 py-5 backdrop-blur-sm sm:px-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="finance-plugin-title"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelectedFinancePlugin(null); setPluginDialogNotice(""); } }}
+        >
+          <section className="relative flex max-h-[min(92dvh,850px)] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-[color:var(--t-br08)] bg-[var(--t-surface)] p-5 shadow-2xl sm:p-7">
+            <button type="button" onClick={() => { setSelectedFinancePlugin(null); setPluginDialogNotice(""); }} className="absolute right-4 top-4 rounded-md p-1 text-xl leading-none text-[var(--t-text-muted)] hover:bg-[var(--t-muted)]" aria-label="关闭插件详情">×</button>
+            <div className="flex items-center gap-4 pr-10">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-red-600 text-3xl font-bold text-white" aria-hidden>{selectedPlugin.mark}</div>
+              <div className="min-w-0 flex-1">
+                <h2 id="finance-plugin-title" className="text-lg font-medium text-[var(--t-text)]">{selectedPlugin.name}</h2>
+                <p className="mt-1 text-sm text-[var(--t-text-muted)]">{selectedPlugin.description}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={selectedPluginEnabled}
+                aria-label={`${selectedPluginEnabled ? "停用" : "启用"}${selectedPlugin.name}`}
+                onClick={() => setEnabledFinancePlugins((previous) => ({ ...previous, [selectedPlugin.name]: !previous[selectedPlugin.name] }))}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition ${selectedPluginEnabled ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-600"}`}
+              ><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${selectedPluginEnabled ? "left-6" : "left-1"}`} /></button>
+            </div>
+
+            <h3 className="mb-3 mt-7 text-sm font-medium text-[var(--t-text)]">你可以这样问</h3>
+            <div className="space-y-2 rounded-2xl bg-gradient-to-br from-sky-200 to-blue-300 p-4 dark:from-blue-950 dark:to-slate-800 sm:p-6">
+              {selectedPlugin.samples.map((sample) => (
+                <button key={sample} type="button" onClick={() => { setInput(`@${selectedPlugin.name} ${sample}`); setSelectedFinancePlugin(null); setPluginDialogNotice(""); setResourcePageOpen(false); }} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/90 px-4 py-3 text-left text-sm text-slate-800 transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-100 dark:hover:bg-slate-900">
+                  <span><span className="font-medium text-blue-600">@{selectedPlugin.name}</span> {sample}</span><span className="shrink-0 text-lg" aria-hidden>→</span>
+                </button>
+              ))}
+            </div>
+
+            <h3 className="mb-2 mt-7 text-sm font-medium text-[var(--t-text)]">连接器 1</h3>
+            <div className="flex items-center gap-3 rounded-xl bg-[var(--t-muted)] p-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-600 text-2xl font-bold text-white" aria-hidden>{selectedPlugin.mark}</div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-[var(--t-text)]">{selectedPlugin.name}<span className="text-xs font-normal text-amber-600">未授权</span></div>
+                <p className="mt-1 truncate text-xs text-[var(--t-text-muted)]">连接器授权后可在对话中调用该插件的数据服务。</p>
+              </div>
+              <button type="button" onClick={() => setPluginDialogNotice("授权连接器尚未接入，请先完成该插件的服务配置。")} className="shrink-0 rounded-lg border border-[color:var(--t-br08)] bg-[var(--t-surface)] px-3 py-1.5 text-sm text-[var(--t-text)] transition hover:border-[var(--t-accent-ring)]">授权</button>
+            </div>
+            {pluginDialogNotice ? <p className="mt-2 text-xs text-amber-600" role="status">{pluginDialogNotice}</p> : null}
+
+            <div className="mt-7 flex items-center justify-end gap-3 border-t border-[color:var(--t-br06)] pt-4">
+              <button type="button" onClick={() => setPluginDialogNotice("更多插件设置暂未开放。")} className="rounded-lg border border-[color:var(--t-br08)] px-3 py-2 text-sm text-[var(--t-text-muted)] hover:bg-[var(--t-muted)]" aria-label="更多插件操作">···</button>
+              <button type="button" onClick={() => { setInput(`@${selectedPlugin.name} `); setSelectedFinancePlugin(null); setPluginDialogNotice(""); setResourcePageOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">在对话中试用</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {exportPickMode && exportPickSessionId ? (
         <div
           className="fixed inset-x-0 bottom-[min(11rem,42vh)] z-[105] flex justify-center px-3 pointer-events-none sm:bottom-36"
@@ -4456,13 +4525,13 @@ export default function App({
             ) : null}
           </div>
           <div className="flex shrink-0 flex-col gap-1">
-            {pointsEnabled ? (
+            {pointsEnabled || edition === "finance" ? (
               <button
                 type="button"
                 onClick={openRechargeModal}
                 className="rounded-md border border-blue-500/35 bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-500 transition hover:border-blue-500/60 hover:bg-blue-500/15"
               >
-                充值
+                {edition === "finance" ? "订阅" : "充值"}
               </button>
             ) : null}
             {onLogout ? (
@@ -4495,6 +4564,17 @@ export default function App({
             <span className="text-base leading-none font-light">+</span>
             新对话
           </button>
+          {edition !== "school" ? (
+            <button
+              type="button"
+              onClick={() => { setResourcePageOpen(true); setMobileNavOpen(false); }}
+              aria-current={resourcePageOpen ? "page" : undefined}
+              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[14px] font-medium transition ${resourcePageOpen ? "bg-[var(--t-muted)] text-[var(--t-text)]" : "text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"}`}
+            >
+              <span aria-hidden className="text-sm">◇</span>
+              插件 · 技能
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setHistorySearchOpen(true)}
@@ -4629,7 +4709,14 @@ export default function App({
           >
             <IconMenu className="h-5 w-5" />
           </button>
-          {!pointsEnabled ? (
+          {edition !== "school" && resourcePageOpen ? (
+            <nav className="flex h-full shrink-0 items-center gap-1" aria-label="资源导航">
+              {([ ["plugins", "插件"], ["skills", "技能"] ] as const).map(([tab, label]) => (
+                <button key={tab} type="button" onClick={() => { setResourceTab(tab); setResourceCategory("金融"); }} className={`h-full border-b-2 px-2 text-[13px] transition ${resourceTab === tab ? "border-[var(--t-text)] text-[var(--t-text)]" : "border-transparent text-[var(--t-text-muted)] hover:text-[var(--t-text)]"}`}>{label}</button>
+              ))}
+            </nav>
+          ) : null}
+          {edition === "enterprise" ? (
             <button
               type="button"
               onClick={() => setOtherKnowledgeBaseOpen(true)}
@@ -4642,7 +4729,7 @@ export default function App({
             </button>
           ) : null}
           <div className="min-w-0 flex-1 text-center">
-            <h1 className="truncate text-[13px] font-semibold tracking-tight text-[var(--t-text)]">{APP_NAME}</h1>
+            {!resourcePageOpen ? <h1 className="truncate text-[13px] font-semibold tracking-tight text-[var(--t-text)]">{APP_NAME}</h1> : null}
           </div>
           {pointsEnabled ? (
             <button
@@ -4658,7 +4745,46 @@ export default function App({
           )}
         </header>
 
+        {edition !== "school" && resourcePageOpen ? (
+          <nav className="flex h-10 shrink-0 items-center gap-1 border-b border-[color:var(--t-br06)] px-3" aria-label={`${resourceTab === "plugins" ? "插件" : "技能"}分类`}>
+            {resourceCategories.map((category) => (
+              <button key={category} type="button" onClick={() => setResourceCategory(category)} className={`rounded-md px-3 py-1.5 text-[12px] transition ${resourceCategory === category ? "bg-[var(--t-muted)] font-semibold text-[var(--t-text)]" : "text-[var(--t-text-muted)] hover:bg-[var(--t-muted)] hover:text-[var(--t-text)]"}`}>{category}</button>
+            ))}
+          </nav>
+        ) : null}
+
         <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
+          {resourcePageOpen ? (
+            <section className="flex min-h-full w-full flex-col px-3 py-3 sm:px-5" aria-label={`${resourceTab === "plugins" ? "插件" : "技能"}资源目录`}>
+              {resourceTab === "plugins" && resourceCategory === "金融" ? (
+                <div className="grid grid-cols-1 gap-x-3 gap-y-3 pt-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                  {financePluginItems.map((item) => (
+                    <article key={item.name} onClick={() => { setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); } }} tabIndex={0} role="button" className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-2 text-left transition hover:bg-[var(--t-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--t-accent-ring)]">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-lg font-semibold text-[var(--t-accent)]" aria-hidden>
+                        {item.mark}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="truncate text-[13px] font-medium text-[var(--t-text)]" title={item.name}>{item.name}</h3>
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedFinancePlugin(item.name); setPluginDialogNotice(""); }} className="shrink-0 rounded-md border border-[color:var(--t-br08)] px-2 py-0.5 text-[10px] text-[var(--t-text-muted)] transition hover:border-[var(--t-accent-ring)] hover:text-[var(--t-text)]">安装</button>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-[var(--t-text-muted)]" title={item.description}>{item.description}</p>
+                        <p className="mt-1 text-[11px] text-[var(--t-text-dim)]">{item.users}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[color:var(--t-br08)] bg-[var(--t-muted)] text-2xl text-[var(--t-text-muted)]" aria-hidden>
+                    {resourceTab === "plugins" ? "◇" : "✧"}
+                  </div>
+                  <h3 className="text-base font-medium text-[var(--t-text)]">{resourceCategory}{resourceTab === "plugins" ? "插件" : "技能"}</h3>
+                  <p className="mt-2 max-w-md text-sm leading-6 text-[var(--t-text-muted)]">资源目录暂未配置，接入对应的插件和技能清单后会在这里展示。</p>
+                </div>
+              )}
+            </section>
+          ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-3 py-5 sm:px-4 sm:py-6">
             {!active?.messages.length && (
               <div className="relative flex min-h-[min(52vh,520px)] flex-col items-center justify-center px-4 pb-8 pt-6 text-center sm:min-h-[48vh]">
@@ -4759,9 +4885,10 @@ export default function App({
             )}
             <div ref={bottomRef} />
           </div>
+          )}
         </div>
 
-        <div className="qp-app-input-footer relative z-10 shrink-0 border-t border-[color:var(--t-br06)] bg-[var(--t-surface)] p-2 sm:p-3">
+        {!resourcePageOpen ? <div className="qp-app-input-footer relative z-10 shrink-0 border-t border-[color:var(--t-br06)] bg-[var(--t-surface)] p-2 sm:p-3">
           <div className="mx-auto max-w-3xl">
             <div
               className="qp-input-shell"
@@ -4943,7 +5070,7 @@ export default function App({
             </div>
             {pointsEnabled ? (
               <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
-                {edition === "finance" ? "数智通金融" : "校园版"}
+                校园版
               </p>
             ) : null}
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
@@ -4954,7 +5081,7 @@ export default function App({
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
           </div>
-        </div>
+        </div> : null}
       </main>
     </div>
     </>

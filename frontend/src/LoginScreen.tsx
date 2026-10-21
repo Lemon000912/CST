@@ -318,7 +318,7 @@ export default function LoginScreen({
           <AppLogo size="lg" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
-            {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : edition === "finance" ? "数智通|金融" : "企业版"}
+            {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : edition === "finance" ? "数智通" : "企业版"}
           </p>
         </div>
 

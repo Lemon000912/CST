@@ -1,5 +1,5 @@
 /** 产品名称 */
-export const APP_NAME = import.meta.env.VITE_APP_EDITION === "finance" ? "数智通|金融" : "犀材探索";
+export const APP_NAME = import.meta.env.VITE_APP_EDITION === "finance" ? "数智通" : "犀材探索";
 /** 页面标题、侧栏等（与 APP_NAME 一致） */
 export const APP_NAME_EN = APP_NAME;
 export const APP_NAME_ZH = APP_NAME;

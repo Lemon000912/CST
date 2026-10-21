@@ -266,6 +266,10 @@ export async function fetchRechargeCatalog(): Promise<RechargeCatalog> {
     throw new ApiError("充值配置响应不完整", { status: res.status });
   }
   return {
+    plans: Array.isArray(data.plans) ? data.plans.map((item) => {
+      const plan = item as Record<string, unknown>;
+      return { id: String(plan.id), name: String(plan.name), months: finiteNumber(plan.months), amountFen: finiteNumber(plan.amountFen), amountYuan: finiteNumber(plan.amountYuan), points: 0, pointUnits: 1 };
+    }) : undefined,
     package: {
       id: String(pack.id),
       amountFen: finiteNumber(pack.amountFen),

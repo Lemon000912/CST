@@ -724,7 +724,7 @@ app.get("/api/v1/billing/balance", requireAuthenticatedUser, async (req, res) =>
 });
 
 app.get("/api/v1/billing/recharge/catalog", requireAuthenticatedUser, (_req, res) => {
-  return res.json(getRechargeCatalog());
+  return res.json(getRechargeCatalog(APP_EDITION));
 });
 
 app.post("/api/v1/billing/recharge/orders", requireAuthenticatedUser, async (req, res) => {

@@ -15,6 +15,17 @@ export const RECHARGE_PACKAGE = Object.freeze({
   pointUnits: 1_000 * POINT_UNITS,
 });
 
+export const FINANCE_SUBSCRIPTION_PLANS = Object.freeze([
+  { id: "finance_month", name: "月度订阅", months: 1, amountYuan: 398 },
+  { id: "finance_quarter", name: "季度订阅", months: 3, amountYuan: 1080 },
+  { id: "finance_half_year", name: "半年订阅", months: 6, amountYuan: 1980 },
+  { id: "finance_year", name: "年度订阅", months: 12, amountYuan: 2980 },
+].map((plan) => Object.freeze({ ...plan, amountFen: plan.amountYuan * 100, points: 0, pointUnits: 1 })));
+
+export function getFinanceSubscription(planId) {
+  return FINANCE_SUBSCRIPTION_PLANS.find((plan) => plan.id === planId) || null;
+}
+
 export function getEffectiveRechargePackage() {
   const testMode = String(process.env.WECHAT_PAY_TEST_MODE ?? "").trim().toLowerCase() === "true";
   if (!testMode) return RECHARGE_PACKAGE;
@@ -138,8 +149,13 @@ function orderTtlMs(provider) {
   return provider === "wechat" ? WECHAT_ORDER_TTL_MS : DEFAULT_ORDER_TTL_MS;
 }
 
-export function getRechargeCatalog() {
+export function getRechargeCatalog(edition = "school") {
   const availability = getPaymentProviderAvailability();
+  if (edition === "finance") return {
+    plans: FINANCE_SUBSCRIPTION_PLANS,
+    package: FINANCE_SUBSCRIPTION_PLANS[0],
+    providers: [{ id: "wechat", label: "微信支付", enabled: availability.wechat }],
+  };
   return {
     package: getEffectiveRechargePackage(),
     providers: [
@@ -178,7 +194,7 @@ export async function createRechargeOrder({
   planId = RECHARGE_PACKAGE.id,
   createProviderOrderImpl = createProviderOrder,
 }) {
-  const activePackage = getEffectiveRechargePackage();
+  const activePackage = getFinanceSubscription(planId) || getEffectiveRechargePackage();
   const normalizedUserId = requiredText(userId, "userId", 128);
   const normalizedProvider = requiredText(provider, "provider", 32).toLowerCase();
   const normalizedKey = requiredText(idempotencyKey, "idempotencyKey", 200);
@@ -218,7 +234,9 @@ export async function createRechargeOrder({
       const now = Date.now();
       const expiresAt = now + orderTtlMs(normalizedProvider);
       const amountFen = activePackage.amountFen;
-      const description = `积分充值：${activePackage.points} 积分`;
+      const description = activePackage.months
+        ? `数智通${activePackage.name}`
+        : `积分充值：${activePackage.points} 积分`;
       if (tx.dialect === "postgres") {
         await tx.run(
           `INSERT INTO point_recharge_orders
@@ -390,6 +408,26 @@ export async function completeRechargeOrder({ provider, orderNo, providerTransac
     }
     if (!["creating", "pending"].includes(String(row.status))) {
       throw new BillingError("payment-order-state-invalid", "支付订单当前状态不允许入账", 409);
+    }
+
+    const subscriptionPlan = getFinanceSubscription(String(row.package_id));
+    if (subscriptionPlan) {
+      const now = Date.now();
+      const current = tx.dialect === "postgres"
+        ? await tx.get("SELECT expires_at FROM finance_subscriptions WHERE user_id = $1 FOR UPDATE", [row.user_id])
+        : await tx.get("SELECT expires_at FROM finance_subscriptions WHERE user_id = ?", [row.user_id]);
+      const expiresAt = Math.max(now, Number(current?.expires_at) || 0) + subscriptionPlan.months * 30 * 24 * 60 * 60 * 1000;
+      if (tx.dialect === "postgres") {
+        await tx.run(`INSERT INTO finance_subscriptions(user_id, expires_at, updated_at) VALUES($1,$2,$3)
+          ON CONFLICT(user_id) DO UPDATE SET expires_at = EXCLUDED.expires_at, updated_at = EXCLUDED.updated_at`, [row.user_id, expiresAt, now]);
+        await tx.run(`UPDATE point_recharge_orders SET status='paid', provider_transaction_id=$1, paid_at=$2, updated_at=$2, code_url=NULL, failure_code=NULL WHERE id=$3`, [normalizedTransactionId, now, row.id]);
+      } else {
+        await tx.run(`INSERT INTO finance_subscriptions(user_id, expires_at, updated_at) VALUES(?,?,?)
+          ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at, updated_at=excluded.updated_at`, [row.user_id, expiresAt, now]);
+        await tx.run(`UPDATE point_recharge_orders SET status='paid', provider_transaction_id=?, paid_at=?, updated_at=?, code_url=NULL, failure_code=NULL WHERE id=?`, [normalizedTransactionId, now, now, row.id]);
+      }
+      const completedRow = await readOrderById(tx, row.id);
+      return { replayed: false, order: publicOrder(completedRow) };
     }
 
     const wallet = tx.dialect === "postgres"

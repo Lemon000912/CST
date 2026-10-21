@@ -50,6 +50,7 @@ export default function SchoolRechargeModal({
 }) {
   const [catalog, setCatalog] = useState<RechargeCatalog | null>(() => cachedRechargeCatalog);
   const [provider, setProvider] = useState<RechargeProvider>("wechat");
+  const [selectedPlanId, setSelectedPlanId] = useState("");
   const [order, setOrder] = useState<RechargeOrder | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -72,6 +73,7 @@ export default function SchoolRechargeModal({
       .then((next) => {
         if (cancelled) return;
         setCatalog(next);
+        setSelectedPlanId(next.plans?.[0]?.id ?? next.package.id);
         // 支付宝入口暂时下线；恢复时移除 id 过滤，并补回下方的支付宝占位项。
         const firstEnabled = next.providers.find((item) => item.id === "wechat" && item.enabled);
         if (firstEnabled) setProvider(firstEnabled.id);
@@ -162,13 +164,14 @@ export default function SchoolRechargeModal({
   const enabledProviders = visibleProviders.filter((item) => item.enabled);
   const providerLabel = activeCatalog?.providers.find((item) => item.id === order?.provider)?.label ?? "支付应用";
 
+  const selectedPlan = activeCatalog?.plans?.find((plan) => plan.id === selectedPlanId) ?? activeCatalog?.package;
   const startPayment = async () => {
     setCreatingOrder(true);
     setError(null);
     paidHandledRef.current = false;
     pollingStartedAtRef.current = Date.now();
     try {
-      setOrder(await createRechargeOrder(provider, activeCatalog?.package.id));
+      setOrder(await createRechargeOrder(provider, selectedPlan?.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建充值订单失败");
     } finally {
@@ -189,9 +192,9 @@ export default function SchoolRechargeModal({
       <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-[color:var(--t-br10)] bg-[var(--t-modal)] shadow-2xl shadow-black/35">
         <div className="flex items-start justify-between border-b border-[color:var(--t-br08)] px-5 py-4">
           <div>
-            <h2 className="text-[16px] font-semibold text-[var(--t-text-heading)]">积分充值</h2>
+            <h2 className="text-[16px] font-semibold text-[var(--t-text-heading)]">{activeCatalog?.plans ? "数智通订阅" : "积分充值"}</h2>
             <p className="mt-1 text-[11px] text-[var(--t-text-muted)]">
-              当前余额 {formatPoints(balance?.balance)} 积分
+              {activeCatalog?.plans ? "订阅期间不限量使用" : `当前余额 ${formatPoints(balance?.balance)} 积分`}
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-lg text-[var(--t-text-close)] hover:text-[var(--t-text-close-hover)]" aria-label="关闭充值窗口">
@@ -202,15 +205,17 @@ export default function SchoolRechargeModal({
         <div className="space-y-4 px-5 py-5">
           <div className="rounded-xl border border-[color:var(--t-br10)] bg-[var(--t-muted)] px-4 py-3">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-[13px] text-[var(--t-text-muted)]">充值套餐</span>
+              <span className="text-[13px] text-[var(--t-text-muted)]">{activeCatalog?.plans ? "选择订阅周期" : "充值套餐"}</span>
               <span className="text-[18px] font-semibold text-[var(--t-text-heading)]">
-                ¥{(activeCatalog?.package.amountYuan ?? 100).toFixed(2)}
+                ¥{(selectedPlan?.amountYuan ?? 100).toFixed(2)}
               </span>
             </div>
             <div className="mt-1 text-right text-[13px] font-medium text-[var(--t-text)]">
-              获得 {(activeCatalog?.package.points ?? 1000).toLocaleString()} 积分
+              {activeCatalog?.plans ? `${selectedPlan?.months ?? 1} 个月 · 期间不限量使用` : `获得 ${(activeCatalog?.package.points ?? 1000).toLocaleString()} 积分`}
             </div>
           </div>
+
+          {!order && activeCatalog?.plans ? <div className="grid grid-cols-2 gap-2">{activeCatalog.plans.map((plan) => <button key={plan.id} type="button" onClick={() => setSelectedPlanId(plan.id)} className={`rounded-xl border px-3 py-3 text-left text-sm ${selectedPlanId === plan.id ? "border-blue-500 bg-blue-500/10" : "border-[color:var(--t-br08)]"}`}><span className="block font-semibold">{plan.name}</span><span>¥{plan.amountYuan}</span></button>)}</div> : null}
 
           {!order ? (
             <>
