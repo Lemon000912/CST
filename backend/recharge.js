@@ -16,11 +16,17 @@ export const RECHARGE_PACKAGE = Object.freeze({
 });
 
 export const FINANCE_SUBSCRIPTION_PLANS = Object.freeze([
-  { id: "finance_month", name: "月度订阅", months: 1, amountYuan: 1080 },
-  { id: "finance_quarter", name: "季度订阅", months: 3, amountYuan: 2880 },
-  { id: "finance_half_year", name: "半年订阅", months: 6, amountYuan: 5380 },
+  { id: "finance_month", name: "月度订阅", months: 1, amountYuan: 980 },
+  { id: "finance_quarter", name: "季度订阅", months: 3, amountYuan: 2680 },
+  { id: "finance_half_year", name: "半年订阅", months: 6, amountYuan: 4980 },
   { id: "finance_year", name: "年度订阅", months: 12, amountYuan: 7980 },
-].map((plan) => Object.freeze({ ...plan, amountFen: plan.amountYuan * 100, points: 0, pointUnits: 1 })));
+].map((plan) => Object.freeze({
+  ...plan,
+  regularAmountYuan: plan.months * 980,
+  amountFen: plan.amountYuan * 100,
+  points: 0,
+  pointUnits: 1,
+})));
 
 export function getFinanceSubscription(planId) {
   return FINANCE_SUBSCRIPTION_PLANS.find((plan) => plan.id === planId) || null;

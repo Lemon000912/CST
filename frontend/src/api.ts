@@ -268,7 +268,7 @@ export async function fetchRechargeCatalog(): Promise<RechargeCatalog> {
   return {
     plans: Array.isArray(data.plans) ? data.plans.map((item) => {
       const plan = item as Record<string, unknown>;
-      return { id: String(plan.id), name: String(plan.name), months: finiteNumber(plan.months), amountFen: finiteNumber(plan.amountFen), amountYuan: finiteNumber(plan.amountYuan), points: 0, pointUnits: 1 };
+      return { id: String(plan.id), name: String(plan.name), months: finiteNumber(plan.months), amountFen: finiteNumber(plan.amountFen), amountYuan: finiteNumber(plan.amountYuan), regularAmountYuan: finiteNumber(plan.regularAmountYuan), points: 0, pointUnits: 1 };
     }) : undefined,
     package: {
       id: String(pack.id),

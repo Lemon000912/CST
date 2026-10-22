@@ -215,7 +215,13 @@ export default function SchoolRechargeModal({
             </div>
           </div>
 
-          {!order && activeCatalog?.plans ? <div className="grid grid-cols-2 gap-2">{activeCatalog.plans.map((plan) => <button key={plan.id} type="button" onClick={() => setSelectedPlanId(plan.id)} className={`rounded-xl border px-3 py-3 text-left text-sm ${selectedPlanId === plan.id ? "border-blue-500 bg-blue-500/10" : "border-[color:var(--t-br08)]"}`}><span className="block font-semibold">{plan.name}</span><span>¥{plan.amountYuan}</span></button>)}</div> : null}
+          {!order && activeCatalog?.plans ? <div className="grid grid-cols-2 gap-2">{activeCatalog.plans.map((plan) => {
+            const savings = Math.max(0, (plan.regularAmountYuan ?? plan.amountYuan) - plan.amountYuan);
+            return <button key={plan.id} type="button" onClick={() => setSelectedPlanId(plan.id)} className={`rounded-xl border px-3 py-3 text-left text-sm ${selectedPlanId === plan.id ? "border-blue-500 bg-blue-500/10" : "border-[color:var(--t-br08)]"}`}>
+              <span className="flex items-center justify-between gap-1 font-semibold"><span>{plan.name}</span>{savings > 0 ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">省 ¥{savings}</span> : null}</span>
+              <span className="mt-1 inline-flex items-baseline gap-1.5"><span>¥{plan.amountYuan}</span>{savings > 0 ? <span className="text-xs text-[var(--t-text-muted)] line-through">¥{plan.regularAmountYuan}</span> : null}</span>
+            </button>;
+          })}</div> : null}
 
           {!order ? (
             <>

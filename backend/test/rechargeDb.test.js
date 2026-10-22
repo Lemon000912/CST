@@ -134,6 +134,7 @@ test("finance subscription orders use current prices and payment extends access 
   const chargedAmounts = [];
   let expectedExpiry = Date.now();
   for (const plan of FINANCE_SUBSCRIPTION_PLANS) {
+    assert.equal(plan.regularAmountYuan, plan.months * 980);
     const order = await createRechargeOrder({
       userId,
       provider: "wechat",
@@ -160,7 +161,7 @@ test("finance subscription orders use current prices and payment extends access 
     );
     assert.ok(Math.abs(Number(subscription.expires_at) - expectedExpiry) < 5_000);
   }
-  assert.deepEqual(chargedAmounts, [108_000, 288_000, 538_000, 798_000]);
+  assert.deepEqual(chargedAmounts, [98_000, 268_000, 498_000, 798_000]);
   const wallet = await (await getSqliteDb()).get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [userId]);
   assert.equal(Number(wallet.balance_units), RECHARGE_PACKAGE.pointUnits);
 });

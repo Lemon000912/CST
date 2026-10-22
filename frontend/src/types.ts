@@ -8,7 +8,7 @@ export type PointBalance = {
 export type RechargeProvider = "alipay" | "wechat";
 
 export type RechargeCatalog = {
-  plans?: Array<{ id: string; name: string; months: number; amountFen: number; amountYuan: number; points: number; pointUnits: number }>;
+  plans?: Array<{ id: string; name: string; months: number; amountFen: number; amountYuan: number; regularAmountYuan?: number; points: number; pointUnits: number }>;
   package: {
     id: string;
     name?: string;
