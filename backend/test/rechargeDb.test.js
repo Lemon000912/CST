@@ -33,6 +33,7 @@ const {
   getRechargeOrderByNo,
   newOrderNo,
   RECHARGE_PACKAGE,
+  FINANCE_SUBSCRIPTION_PLANS,
 } = await import("../recharge.js");
 
 test.after(() => {
@@ -124,6 +125,44 @@ test("WeChat order amount comes from the server plan and its number matches the 
   assert.equal(order.status, "pending");
   assert.equal(order.balanceBeforeUnits, null);
   assert.equal(order.balanceAfterUnits, null);
+});
+
+test("finance subscription orders use current prices and payment extends access by the selected term", async () => {
+  await initDatabase();
+  const userId = "finance-plan-amount-user";
+  await createUserRecord(userId, "finance_plan_amount_user", "not-used-in-this-test");
+  const chargedAmounts = [];
+  let expectedExpiry = Date.now();
+  for (const plan of FINANCE_SUBSCRIPTION_PLANS) {
+    const order = await createRechargeOrder({
+      userId,
+      provider: "wechat",
+      planId: plan.id,
+      idempotencyKey: `finance-plan-${plan.id}`,
+      createProviderOrderImpl: async ({ amountFen }) => {
+        chargedAmounts.push(amountFen);
+        return { codeUrl: "weixin://wxpay/bizpayurl?pr=finance-test" };
+      },
+    });
+    assert.equal(order.amountFen, plan.amountYuan * 100);
+    assert.equal(order.packageId, plan.id);
+    assert.equal(order.status, "pending");
+    const paid = await completeRechargeOrder({
+      provider: "wechat",
+      orderNo: order.orderNo,
+      providerTransactionId: `finance-paid-${plan.id}`,
+      amountFen: plan.amountYuan * 100,
+    });
+    assert.equal(paid.order.status, "paid");
+    expectedExpiry += plan.months * 30 * 24 * 60 * 60 * 1000;
+    const subscription = await (await getSqliteDb()).get(
+      "SELECT expires_at FROM finance_subscriptions WHERE user_id = ?", [userId],
+    );
+    assert.ok(Math.abs(Number(subscription.expires_at) - expectedExpiry) < 5_000);
+  }
+  assert.deepEqual(chargedAmounts, [108_000, 288_000, 538_000, 798_000]);
+  const wallet = await (await getSqliteDb()).get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [userId]);
+  assert.equal(Number(wallet.balance_units), RECHARGE_PACKAGE.pointUnits);
 });
 
 test("a user cannot query another user's WeChat payment order", async () => {
