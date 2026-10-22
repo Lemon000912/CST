@@ -4775,7 +4775,7 @@ export default function App({
             <button
               type="button"
               onClick={() => setOtherKnowledgeBaseOpen(true)}
-              className="absolute left-3 hidden h-8 items-center gap-1.5 rounded-md border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-2.5 text-[11px] font-medium text-[var(--t-text-muted)] transition hover:border-[color:var(--t-accent-ring)] hover:bg-[var(--t-accent-muted)] hover:text-[var(--t-text)] lg:inline-flex"
+              className={`${resourcePageOpen ? "relative" : "absolute left-3"} hidden h-8 shrink-0 items-center gap-1.5 rounded-md border border-[color:var(--t-br08)] bg-[var(--t-muted)] px-2.5 text-[11px] font-medium text-[var(--t-text-muted)] transition hover:border-[color:var(--t-accent-ring)] hover:bg-[var(--t-accent-muted)] hover:text-[var(--t-text)] lg:inline-flex`}
               aria-label="其他数据库"
               title={activeKnowledgeBase ? `当前知识库：${activeKnowledgeBase.name}` : "其他数据库"}
             >
