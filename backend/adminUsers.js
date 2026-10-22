@@ -1,4 +1,5 @@
 import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
+import { listEnterpriseTiers } from "./enterpriseTiers.js";
 
 export class AdminUsersError extends Error {
   constructor(status, code, message) {
@@ -73,6 +74,7 @@ export async function listAdminUsers({ skip = 0, limit = 10, search = "", status
     rows = await db.all(`${listSql} LIMIT ? OFFSET ?`, [...params, normalizedLimit, normalizedSkip]);
   }
 
+  const tiersByUser = await listEnterpriseTiers(rows.map(row => String(row.id)));
   return {
     users: rows.map((row) => ({
       id: String(row.id),
@@ -82,6 +84,7 @@ export async function listAdminUsers({ skip = 0, limit = 10, search = "", status
       created_at: Number(row.created_at),
       last_active: Number(row.created_at),
       is_active: true,
+      enterprise_tiers: tiersByUser.get(String(row.id)) || 0,
     })),
     total: Number(countRow?.total || 0),
   };

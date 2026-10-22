@@ -181,6 +181,7 @@ import {
   listAdminAiQaRecords,
 } from "./adminAiQa.js";
 import { AdminUsersError, deleteAdminUser, listAdminUsers } from "./adminUsers.js";
+import { EnterpriseTierError, ensureEnterpriseAnnualQuota, setEnterpriseTier } from "./enterpriseTiers.js";
 import { recognizeStudentCard, isEligibleStudentSchool, STUDENT_CARD_MAX_BYTES, studentCardUploadMiddleware } from "./studentVerification.js";
 
 const PORT = (() => {
@@ -1031,6 +1032,7 @@ app.post("/api/v1/user/info", async (req, res) => {
 app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
   try {
     const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
+    if (billingFreeEdition) await ensureEnterpriseAnnualQuota(req.auth.userId);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1073,7 +1075,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
             operationType: "chart",
             idempotencyKey,
             requestHash,
-            costUnits: billingFreeEdition ? 0 : billingDetails.chartPointUnits,
+            costUnits: billingDetails.chartPointUnits,
             billingDetails,
             result: body,
             receipt: { parentOperationId },
@@ -1549,6 +1551,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
   let activeOperation = null;
   try {
     const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
+    if (billingFreeEdition) await ensureEnterpriseAnnualQuota(req.auth.userId);
     const idempotencyKey = requireIdempotencyKey(req);
     const parentOperationId = String(req.body?.parentOperationId ?? "").trim();
     if (!parentOperationId) {
@@ -1606,7 +1609,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        allowZeroBalance: billingFreeEdition,
+        allowZeroBalance: false,
       });
     activeOperation = begun?.operation ?? null;
 
@@ -1657,7 +1660,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        costUnits: billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
+        costUnits: calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1672,7 +1675,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
       "Content-Disposition": contentDisposition,
       "Cache-Control": "private, no-store",
       "X-Billing-Operation-Id": activeOperation.id,
-      "X-Billing-Cost-Units": String(receipt?.costUnits ?? (billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }))),
+      "X-Billing-Cost-Units": String(receipt?.costUnits ?? calculateCostUnits({ pdfCount: 1 })),
       "X-Billing-Balance-Units": String(receipt?.balanceUnits ?? ""),
       "X-Billing-Replayed": billingResult.replayed ? "true" : "false",
       "X-Parent-Operation-Id": parentOperationId,
@@ -1688,7 +1691,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationId: activeOperation.id,
         userId: req.auth.userId,
         leaseToken: activeOperation.leaseToken,
-        costUnits: billingFreeEdition ? 0 : calculateCostUnits({ pdfCount: 1 }),
+        costUnits: calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1809,6 +1812,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
   };
   const endBillingBegin = requestTrace.start("request.billing_begin");
   try {
+    if (billingFreeEdition) await ensureEnterpriseAnnualQuota(req.auth.userId);
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
       edition: APP_EDITION,
@@ -1824,11 +1828,9 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: billingFreeEdition,
+      allowZeroBalance: false,
     });
-    if (billingFreeEdition) {
-      startingBalanceUnits = Number.MAX_SAFE_INTEGER;
-    } else if (!begun.replayed) {
+    if (!begun.replayed) {
       startingBalanceUnits = begun.balance?.balanceUnits
         ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     }
@@ -1956,7 +1958,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           edition: APP_EDITION,
           paused: true,
         };
-        const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
+        const costUnits = calculateCostUnits({
           characterCount: billingDetails.characterCount,
           pdfCount: billingDetails.deepPaperCount,
         });
@@ -2158,7 +2160,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       if (pointsExhausted) return;
       pointsExhausted = true;
       synthesisAbortController.abort();
-      send("points_exhausted", { message: "积分已用完，请充值后继续回答。" });
+      send("points_exhausted", { message: billingFreeEdition ? "本年度企业积分额度已使用完，请联系管理员调整挡位。" : "积分已用完，请充值后继续回答。" });
     };
     const synthesisStream = createSynthesisStreamEmitter(send, {
       maxVisibleCodePoints: startingBalanceUnits,
@@ -2343,7 +2345,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       ...searchBillingDetails(billingPayload),
       edition: APP_EDITION,
     };
-    const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
+    const costUnits = calculateCostUnits({
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });
@@ -2385,7 +2387,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         ? (includeSynthesis ? "synth:no-papers" : "synth:skipped")
         : (pointsExhausted ? "synth:points_exhausted" : (synthesisNote ?? (fullSynthesis ? "synth:stream_ok" : "synth:stream_failed"))),
       pointsExhausted,
-      billingMessage: pointsExhausted ? "积分已用完，请充值后继续回答。" : undefined,
+      billingMessage: pointsExhausted ? (billingFreeEdition ? "本年度企业积分额度已使用完，请联系管理员调整挡位。" : "积分已用完，请充值后继续回答。") : undefined,
       synthesisPlan: plan,
       synthesisModels,
       webAnswerDrafts,
@@ -2426,6 +2428,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
   let activeOperation = null;
   try {
     const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
+    if (billingFreeEdition) await ensureEnterpriseAnnualQuota(req.auth.userId);
     const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = stableRequestHash({
       edition: APP_EDITION,
@@ -2442,7 +2445,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: billingFreeEdition,
+      allowZeroBalance: false,
     });
     if (begun.replayed) {
       return res.json({
@@ -2453,9 +2456,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       });
     }
     activeOperation = begun.operation;
-    const startingBalanceUnits = billingFreeEdition
-      ? Number.MAX_SAFE_INTEGER
-      : begun.balance?.balanceUnits ?? (await getPointBalance(req.auth.userId)).balanceUnits;
+    const startingBalanceUnits = begun.balance?.balanceUnits ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     res.locals.searchBillingOperation = activeOperation;
     const originalJson = res.json.bind(res);
     res.json = async (body) => {
@@ -2466,14 +2467,14 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             ...body,
             ...budgeted.payload,
             pointsExhausted: budgeted.pointsExhausted,
-            billingMessage: budgeted.pointsExhausted ? "积分已用完，请充值后继续回答。" : undefined,
+            billingMessage: budgeted.pointsExhausted ? (billingFreeEdition ? "本年度企业积分额度已使用完，请联系管理员调整挡位。" : "积分已用完，请充值后继续回答。") : undefined,
             ...(budgeted.limited && budgeted.pointsExhausted ? { synthesisPlan: null, webAnswerDrafts: undefined } : {}),
           };
           const billingDetails = {
             ...searchBillingDetails(responseBody),
             edition: APP_EDITION,
           };
-          const costUnits = billingFreeEdition ? 0 : calculateCostUnits({
+          const costUnits = calculateCostUnits({
             characterCount: billingDetails.characterCount,
             pdfCount: billingDetails.deepPaperCount,
           });
@@ -3170,6 +3171,16 @@ app.get("/api/v1/admin/users", async (req, res) => {
     console.error("[admin/users] error:", e);
     const status = e instanceof AdminUsersError ? e.status : 500;
     return res.status(status).json({ success: false, code: e.code, message: e.message });
+  }
+});
+
+app.put("/api/v1/admin/enterprise-tiers/:id", async (req, res) => {
+  try {
+    const data = await setEnterpriseTier({ userId: req.params.id, tiers: req.body?.tiers });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const status = error instanceof EnterpriseTierError ? error.status : 500;
+    return res.status(status).json({ success: false, code: error.code || "enterprise-tier-error", message: error.message || "挡位设置失败" });
   }
 });
 

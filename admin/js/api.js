@@ -153,6 +153,13 @@ class ApiClient {
         return data.data || data;
     }
 
+    async setEnterpriseTier(userId, tiers) {
+        const data = await this.request(`/admin/enterprise-tiers/${encodeURIComponent(userId)}`, {
+            method: 'PUT', body: JSON.stringify({ tiers })
+        });
+        return data.data || data;
+    }
+
     // 积分账户列表和平台统计
     async getPointUsers(params = {}) {
         const query = new URLSearchParams(params).toString();

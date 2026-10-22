@@ -104,7 +104,7 @@ export class UsersPage {
         this.usersOnPage = users;
 
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;">暂无数据</td></tr>';
             return;
         }
 
@@ -121,6 +121,7 @@ export class UsersPage {
                         ${user.is_active ? '活跃' : '禁用'}
                     </span>
                 </td>
+                <td><button class="btn-action" type="button" data-set-enterprise-tier="${this.escapeHtml(user.id)}" title="设置年度积分挡位">${Number(user.enterprise_tiers || 0)} 档 · 设置</button></td>
                 <td class="actions">
                     <button class="btn-action delete" type="button" data-delete-user="${this.escapeHtml(user.id)}" title="删除用户">
                         <i class="fas fa-trash"></i>
@@ -131,6 +132,18 @@ export class UsersPage {
     }
 
     async handleTableClick(event) {
+        const tierButton = event.target.closest('[data-set-enterprise-tier]');
+        if (tierButton) {
+            const userId = tierButton.dataset.setEnterpriseTier;
+            const user = this.usersOnPage.find(item => String(item.id) === userId);
+            const input = window.prompt(`为 ${user?.username || '该用户'} 设置年度挡位（每档 166,666 积分，0 表示不分配）：`, String(user?.enterprise_tiers || 0));
+            if (input == null) return;
+            if (!/^\d+$/.test(input) || Number(input) > 10000) { window.alert('请输入 0 到 10000 的整数挡位'); return; }
+            tierButton.disabled = true;
+            try { await api.setEnterpriseTier(userId, Number(input)); await this.loadData(); }
+            catch (error) { window.alert(error.message || '挡位设置失败'); tierButton.disabled = false; }
+            return;
+        }
         const button = event.target.closest('[data-delete-user]');
         if (!button) return;
 
@@ -176,7 +189,7 @@ export class UsersPage {
     setLoading(loading) {
         const tbody = document.getElementById('users-table-body');
         if (tbody && loading) {
-            tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>';
         }
     }
 
