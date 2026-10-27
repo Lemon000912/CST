@@ -237,8 +237,10 @@ function passesRelevanceGate(p, tokens, prefN, opts) {
 
   const minRatio = prefN >= 2 ? 0.14 : prefN >= 1 ? 0.12 : 0.1;
   const minHits = tokens.length >= 5 ? 2 : 1;
-  const webMinRatio = prefN >= 1 ? 0.22 : 0.2;
-  const webMinHits = 2;
+  // 网页搜索的摘要经常只有半句或同义表达，至少命中一个有效词即可
+  // 进入候选池；最终收录阶段仍会继续拦截明显跑题页面。
+  const webMinRatio = prefN >= 1 ? 0.16 : 0.12;
+  const webMinHits = 1;
   const webChannel = opts?.channel === "web";
 
   if (isPatentSource(p)) {
@@ -262,7 +264,7 @@ function passesRelevanceGate(p, tokens, prefN, opts) {
       if (recall) {
         return (hitCount >= 1 && r >= 0.06) || hitCount >= 2 || alias >= 45;
       }
-      return (hitCount >= webMinHits && r >= 0.14) || (hitCount >= 3) || (r >= webMinRatio && hitCount >= 1);
+      return (hitCount >= webMinHits && r >= 0.08) || hitCount >= 2 || (r >= webMinRatio && hitCount >= 1);
     }
     if (hitCount >= webMinHits) return true;
     if (r >= webMinRatio) return true;
@@ -387,7 +389,8 @@ export function strictRecommendFilterAndRank(papers, mergedTokens, max, opts) {
     if (channel === "web") {
       if (isObviousWebNoise(p, tokens, opts?.rawQuery)) score -= 2000;
       if (WEB_OFFTOPIC_RE_FOR_FILTER.test(`${p.title || ""} ${p.summary || ""}`)) score -= 2500;
-      if (hits < 2 && rel < 0.16) score -= 400;
+      // 不把低命中候选直接打成负分，否则外部搜索有结果时可能被整批清空。
+      // 明显跑题页面仍由上面的噪声规则和最终收录过滤剔除。
     }
     return { p, score, rel, hits, nt: norm(p.title) };
   });
