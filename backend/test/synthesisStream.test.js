@@ -68,6 +68,35 @@ test("raw structured JSON keeps trailing human-readable text", () => {
   assert.equal(parsed.planNote, "synth_plan:ok_inline_no_data");
 });
 
+test("legacy metric aliases are recognized as structured plan fields", () => {
+  const parsed = parseSynthesisOutput(
+    "正文结论\n\n```json\n{\"metrics\":[{\"metric\":\"温度\",\"value\":\"100\",\"unit\":\"℃\"}]}\n```",
+  );
+  assert.equal(parsed.planNote, "synth_plan:ok");
+  assert.equal(parsed.plan?.extractedData?.[0]?.metric, "温度");
+  assert.equal(parsed.plan?.extractedData?.[0]?.value, "100");
+});
+
+test("finalization derives structured data and steps from markdown when JSON is omitted", () => {
+  const finalized = finalizeSynthesisMarkdown(
+    "## 关键数据与指标\n\n| 指标 | 数值 | 单位 | 条件 | 来源 |\n| --- | --- | --- | --- | --- |\n| 产率 | 92 | % | 800℃ | [2] |\n\n## 工序流程\n\n1. 混合原料\n2. 在 800℃ 烧结",
+  );
+  assert.equal(finalized.planNote, "synth_plan:derived_from_markdown");
+  assert.deepEqual(finalized.plan?.extractedData, [
+    { metric: "产率", value: "92", unit: "%", condition: "800℃", source_ref: "[2]" },
+  ]);
+  assert.deepEqual(finalized.plan?.steps, [
+    { step_no: 1, action: "混合原料" },
+    { step_no: 2, action: "在 800℃ 烧结" },
+  ]);
+});
+
+test("finalization returns an empty structured plan rather than no plan", () => {
+  const finalized = finalizeSynthesisMarkdown("## 核心结论\n\n没有可核对的数字或工艺步骤。");
+  assert.deepEqual(finalized.plan, { extractedData: [], steps: [] });
+  assert.equal(finalized.planNote, "synth_plan:derived_from_markdown");
+});
+
 test("synthesis stream hides a split structured JSON footer and reconciles final markdown", () => {
   const events = [];
   const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));
@@ -105,6 +134,16 @@ test("synthesis stream hides an unfenced raw structured JSON footer", () => {
 
   assert.equal(events.filter((x) => x.event === "synthesis_token").map((x) => x.data.token).join(""), "正文结论\n\n");
   assert.equal(JSON.stringify(events).includes("extractedData"), false);
+});
+
+test("synthesis stream hides raw JSON footers that use legacy metric aliases", () => {
+  const events = [];
+  const stream = createSynthesisStreamEmitter((event, data) => events.push({ event, data }));
+  stream.push("正文结论\n\n{\"metrics\":[{\"metric\":\"年份\",\"value\":\"1991\"}]}");
+  stream.finish("正文结论");
+
+  assert.equal(events.filter((item) => item.event === "synthesis_token").map((item) => item.data.token).join(""), "正文结论\n\n");
+  assert.equal(JSON.stringify(events).includes("metrics"), false);
 });
 
 test("synthesis stream emits normal text incrementally without a replacement", () => {

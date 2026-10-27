@@ -3,7 +3,7 @@ const PRIVATE_JSON_FENCE_RE = /```[ \t]{1,8}json[ \t]*(?:\r?\n|(?=\{))/i;
 const HOLD_BACK_CHARS = Math.max(16, Math.max(...PRIVATE_TAIL_MARKERS.map((marker) => marker.length)) - 1);
 
 function rawJsonFooterStart(text) {
-  const m = String(text ?? "").match(/(?:^|\n)[ \t]*\{(?=[\s\S]{0,240}"(?:extractedData|steps)"\s*:)/i);
+  const m = String(text ?? "").match(/(?:^|\n)[ \t]*\{(?=[\s\S]{0,240}"(?:extractedData|steps|metrics|data_points|numeric_facts)"\s*:)/i);
   if (!m || m.index == null) return -1;
   const brace = String(text).indexOf("{", m.index);
   return brace >= 0 ? brace : -1;

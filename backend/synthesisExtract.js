@@ -55,7 +55,9 @@ export function normalizeSynthesisPlan(obj) {
 }
 
 function looksLikeStructuredPlan(text, start) {
-  return /"(?:extractedData|steps)"\s*:/i.test(String(text).slice(start, start + 1200));
+  return /"(?:extractedData|steps|metrics|data_points|numeric_facts)"\s*:/i.test(
+    String(text).slice(start, start + 1200),
+  );
 }
 
 /** Find the end of a JSON object without being confused by braces in strings. */
@@ -93,7 +95,8 @@ function parseStructuredObjectAt(text, start) {
   try {
     const parsed = JSON.parse(String(text).slice(start, end));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    if (!("steps" in parsed) && !("extractedData" in parsed)) return null;
+    if (!("steps" in parsed) && !("extractedData" in parsed) &&
+        !("metrics" in parsed) && !("data_points" in parsed) && !("numeric_facts" in parsed)) return null;
     return { end, plan: normalizeSynthesisPlan(parsed), parseError: false };
   } catch {
     return { end, plan: null, parseError: true };
@@ -104,6 +107,78 @@ function joinVisibleParts(before, after) {
   const left = String(before ?? "").trim();
   const right = String(after ?? "").trim();
   return [left, right].filter(Boolean).join("\n\n");
+}
+
+function markdownCell(line) {
+  return String(line ?? "")
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function markdownHeaderIndex(headers, patterns) {
+  return headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
+}
+
+function extractMarkdownData(markdown) {
+  const lines = String(markdown ?? "").split(/\r?\n/);
+  const rows = [];
+  for (let i = 0; i < lines.length - 2; i += 1) {
+    if (!lines[i].includes("|") || !/^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) continue;
+    const headers = markdownCell(lines[i]);
+    const metricCol = markdownHeaderIndex(headers, [/指标|参数|metric|name/i]);
+    const valueCol = markdownHeaderIndex(headers, [/数值|数值原文|value|结果/i]);
+    if (metricCol < 0 || valueCol < 0) continue;
+    const unitCol = markdownHeaderIndex(headers, [/单位|unit/i]);
+    const conditionCol = markdownHeaderIndex(headers, [/条件|样品|材料|condition|sample/i]);
+    const sourceCol = markdownHeaderIndex(headers, [/来源|引用|source|ref/i]);
+    for (let j = i + 2; j < lines.length && lines[j].includes("|"); j += 1) {
+      const cells = markdownCell(lines[j]);
+      const metric = String(cells[metricCol] ?? "").trim();
+      const value = String(cells[valueCol] ?? "").trim();
+      if (!metric || !value || /^[-: ]+$/.test(metric + value)) continue;
+      rows.push({
+        metric,
+        value,
+        ...(unitCol >= 0 && cells[unitCol] ? { unit: cells[unitCol] } : {}),
+        ...(conditionCol >= 0 && cells[conditionCol] ? { condition: cells[conditionCol] } : {}),
+        ...(sourceCol >= 0 && cells[sourceCol] ? { source_ref: cells[sourceCol] } : {}),
+      });
+      if (rows.length >= 80) return rows;
+    }
+    i += 1;
+  }
+  return rows;
+}
+
+function extractMarkdownSteps(markdown) {
+  const lines = String(markdown ?? "").split(/\r?\n/);
+  const steps = [];
+  let inStepsSection = false;
+  for (const line of lines) {
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      inStepsSection = /工序|工艺|制备|流程|步骤/.test(heading[1]);
+      continue;
+    }
+    if (!inStepsSection) continue;
+    const item = line.match(/^\s*(?:(\d+)[.、)）]|[-*+]\s+)\s*(.+?)\s*$/);
+    if (!item) continue;
+    const action = String(item[2] ?? item[1] ?? "").trim();
+    if (action) steps.push({ step_no: steps.length + 1, action });
+    if (steps.length >= 80) break;
+  }
+  return steps;
+}
+
+function deriveSynthesisPlan(markdown) {
+  const normalized = normalizeMalformedMarkdownTables(markdown);
+  return normalizeSynthesisPlan({
+    extractedData: extractMarkdownData(normalized),
+    steps: extractMarkdownSteps(normalized),
+  });
 }
 
 /**
@@ -215,14 +290,18 @@ export const WEB_MARKDOWN_DATA_SECTION =
 
 export const SYNTH_JSON_FOOTER =
   "\n\n【结构化 JSON（强制，放在全文最末）】\n" +
-  "正文与表格写完后，**单独**输出一个 ```json 代码块```（勿穿插在段落中），内容为单个对象：\n" +
+  "正文与表格写完后，**必须**另起一行输出以下结构的 ```json 代码块```；不能省略代码块，也不能在代码块后继续写正文：\n" +
+  "```json\n{\"extractedData\":[],\"steps\":[]}\n```\n" +
+  "将模板中的数组替换为实际内容，必须保留 extractedData 与 steps 这两个顶层字段：\n" +
   '- **extractedData**（数组，必填）：摘录中出现的每个可量化指标一条；字段 metric（指标名）、value（数值原文）、unit（单位，可空）、condition（条件/样品，可空）、source_ref（如 "[3]" 或 DOI）、context（原文短句，可空）。与「关键数据与指标」表一致。\n' +
   "- **steps**（数组）：涉及**配方、工艺、工序、制备、烧结、混料**等时**必填** { step_no, action, inputs?, outputs? }，按时间顺序；无工序则 [].\n" +
   "无数字时 extractedData 为 []。只输出合法 JSON，不要用 metrics/data 等其它顶层键名替代 extractedData。\n";
 
 export const WEB_JSON_FOOTER =
   "\n\n【结构化 JSON（强制，全文最末）】\n" +
-  "单独输出 ```json 代码块```，对象含 **extractedData**（同上，source_ref 用 [n]）与 **steps**（工艺/配方相关时按先后填写，无工序则 []）。与上文「工序流程」小节一致。\n";
+  "正文与表格写完后，**必须**另起一行输出以下结构的 ```json 代码块```；不能省略代码块，也不能在代码块后继续写正文：\n" +
+  "```json\n{\"extractedData\":[],\"steps\":[]}\n```\n" +
+  "将模板中的数组替换为实际内容，必须保留 extractedData 与 steps 这两个顶层字段。extractedData 说明同上（source_ref 用 [n]），steps 按工序顺序填写；无工序时为 []，并与上文「工序流程」一致。\n";
 
 /**
  * @param {string | null | undefined} markdown
@@ -232,9 +311,10 @@ export function finalizeSynthesisMarkdown(markdown) {
   const md = String(markdown ?? "").trim();
   if (!md) return { markdown: null, plan: null, planNote: null };
   const parsed = parseSynthesisOutput(md);
+  const plan = parsed.plan ?? deriveSynthesisPlan(parsed.markdown);
   return {
     markdown: parsed.markdown ? normalizeMalformedMarkdownTables(parsed.markdown) : null,
-    plan: parsed.plan,
-    planNote: parsed.planNote,
+    plan,
+    planNote: parsed.plan ? parsed.planNote : "synth_plan:derived_from_markdown",
   };
 }
