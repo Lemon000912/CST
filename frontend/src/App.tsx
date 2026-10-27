@@ -1600,7 +1600,6 @@ function AssistantBlock({
       : "";
 
   const intro = buildSearchResultIntro(msg, n, scope, tail);
-
   const proseBase =
     "font-sans prose-sans prose-sm max-w-none prose-p:leading-relaxed prose-headings:font-semibold prose-a:[color:var(--t-prose-link)]";
   const proseTheme = theme === "light" ? "prose prose-slate" : "prose prose-invert";
@@ -2836,11 +2835,14 @@ export default function App({
   });
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
+  const [sessionHydrationRetry, setSessionHydrationRetry] = useState(0);
   const [sessionSaveEpoch, setSessionSaveEpoch] = useState(0);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverSaveRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverSaveInflightRef = useRef<Promise<void> | null>(null);
   const serverSaveQueuedRef = useRef(false);
   const sessionsRef = useRef(sessions);
+  const deletedSessionIdsRef = useRef<Set<string>>(new Set());
   sessionsRef.current = sessions;
   const [draftSession, setDraftSession] = useState<ChatSession>(() => createSession());
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -3064,6 +3066,7 @@ export default function App({
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | null = null;
     const hydrate = async () => {
       if (!getAuthToken()) {
         if (!cancelled) setSessionsHydrated(true);
@@ -3086,29 +3089,39 @@ export default function App({
         }
       }
       if (cancelled) return;
-      if (remote) {
-        if (remote.sessions.length > 0 || local.length > 0) {
-          const persisted = recoverInterruptedSearchSessions(mergeChatSessions(local, remote.sessions));
-          // Hydration can finish after the user has already sent a message. Merge
-          // into the live state so the delayed server response cannot erase it.
-          setSessions((current) => {
-            const merged = mergeChatSessions(persisted, current);
-            return removeEmptySessions(merged);
-          });
-        }
-        setSessionSyncState({
-          revision: remote.revision,
-          schemaVersion: remote.schemaVersion,
-          updatedAt: remote.updatedAt,
+      if (!remote) {
+        // Keep local persistence active, but do not PUT until a successful GET
+        // establishes the server revision. A later retry can then merge instead
+        // of overwriting a history that was merely hidden by a transient outage.
+        setSessionSyncState(null);
+        setSessionsHydrated(true);
+        retryTimer = window.setTimeout(() => {
+          if (!cancelled) setSessionHydrationRetry((value) => value + 1);
+        }, 5000);
+        return;
+      }
+      if (remote.sessions.length > 0 || local.length > 0) {
+        const persisted = recoverInterruptedSearchSessions(mergeChatSessions(local, remote.sessions));
+        // Hydration can finish after the user has already sent a message. Merge
+        // into the live state so the delayed server response cannot erase it.
+        setSessions((current) => {
+          const merged = mergeChatSessions(persisted, current);
+          return removeEmptySessions(merged);
         });
       }
+      setSessionSyncState({
+        revision: remote.revision,
+        schemaVersion: remote.schemaVersion,
+        updatedAt: remote.updatedAt,
+      });
       setSessionsHydrated(true);
     };
     void hydrate();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [edition]);
+  }, [edition, sessionHydrationRetry]);
 
   useEffect(() => {
     if (!sessionsHydrated) return;
@@ -3130,9 +3143,15 @@ export default function App({
       }
       const baseRevision = sessionSyncState?.revision ?? null;
       const payload = sessionsPayloadForServer(persistedSessions);
+      const deletedSessionIds = [...deletedSessionIdsRef.current];
       const doSave = async (): Promise<void> => {
-        const result = await saveChatSessionsToServer(payload, undefined, baseRevision);
+        const result = await saveChatSessionsToServer(payload, undefined, baseRevision, deletedSessionIds);
         if (result.ok) {
+          for (const id of deletedSessionIds) {
+            if (!sessionsRef.current.some((session) => session.id === id)) {
+              deletedSessionIdsRef.current.delete(id);
+            }
+          }
           if (typeof result.revision === "number") {
             setSessionSyncState((prev) => ({
               revision: result.revision!,
@@ -3145,7 +3164,8 @@ export default function App({
             serverRevision: result.revision,
           });
           const serverSessions = Array.isArray(result.sessions) ? result.sessions : [];
-          const merged = mergeChatSessions(serverSessions, sessionsRef.current);
+          const merged = mergeChatSessions(serverSessions, sessionsRef.current)
+            .filter((session) => !deletedSessionIdsRef.current.has(session.id));
           const persistedMerged = removeEmptySessions(merged);
           setSessions(persistedMerged);
           saveSessions(persistedMerged, getAuthProfile()?.userId, edition);
@@ -3155,14 +3175,28 @@ export default function App({
             sessionsPayloadForServer(persistedMerged),
             undefined,
             retryRevision,
+            [...deletedSessionIdsRef.current],
           );
           if (retryResult.ok && typeof retryResult.revision === "number") {
+            for (const id of deletedSessionIdsRef.current) {
+              if (!sessionsRef.current.some((session) => session.id === id)) {
+                deletedSessionIdsRef.current.delete(id);
+              }
+            }
             setSessionSyncState((prev) => ({
               revision: retryResult.revision!,
               schemaVersion: prev?.schemaVersion ?? 1,
               updatedAt: retryResult.updatedAt ?? Date.now(),
             }));
           }
+        } else if (result.retryable) {
+          // A temporary outage after hydration must not leave the last edit
+          // unsaved forever when the user makes no further changes.
+          if (serverSaveRetryTimerRef.current) clearTimeout(serverSaveRetryTimerRef.current);
+          serverSaveRetryTimerRef.current = setTimeout(() => {
+            serverSaveRetryTimerRef.current = null;
+            setSessionSaveEpoch((epoch) => epoch + 1);
+          }, 5000);
         }
       };
       serverSaveInflightRef.current = doSave().finally(() => {
@@ -3175,6 +3209,10 @@ export default function App({
     }, 1200);
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
+      if (serverSaveRetryTimerRef.current) {
+        clearTimeout(serverSaveRetryTimerRef.current);
+        serverSaveRetryTimerRef.current = null;
+      }
     };
   }, [edition, sessions, sessionsHydrated, sessionSyncState, sessionSaveEpoch]);
 
@@ -3433,6 +3471,7 @@ export default function App({
 
   const deleteSession = (id: string, e: ReactMouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
+    deletedSessionIdsRef.current.add(id);
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       if (id === activeId) {

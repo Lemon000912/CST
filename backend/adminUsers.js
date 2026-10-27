@@ -127,6 +127,7 @@ export async function deleteAdminUser({ userId, adminUserId } = {}) {
       "user_downloaded_paper",
       "user_answer_feedback",
       "user_chat_sessions_by_edition",
+      "user_chat_session_items",
       "user_chat_sessions",
       "query_log",
       "feedback",

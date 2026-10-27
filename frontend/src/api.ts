@@ -985,8 +985,7 @@ export async function fetchChatSessionsFromServer(): Promise<{
   const res = await fetch("/api/v1/chat/sessions", { headers: headersJson() });
   if (res.status === 401) return null;
   if (!res.ok) {
-    console.warn("[api] fetchChatSessions failed", res.status);
-    return null;
+    throw new Error(`读取会话失败（${res.status}）`);
   }
   const data = (await res.json()) as {
     sessions?: ChatSession[];
@@ -1007,12 +1006,15 @@ export async function saveChatSessionsToServer(
   sessions: ChatSession[],
   updatedAt?: number,
   baseRevision?: number | null,
+  deletedSessionIds?: string[],
 ): Promise<{
   ok: boolean;
   revision?: number;
   updatedAt?: number;
   conflict?: boolean;
   sessions?: ChatSession[];
+  status?: number;
+  retryable?: boolean;
 }> {
   const res = await fetch("/api/v1/chat/sessions", {
     method: "PUT",
@@ -1021,9 +1023,10 @@ export async function saveChatSessionsToServer(
       sessions,
       updatedAt: updatedAt ?? Date.now(),
       ...(baseRevision != null ? { baseRevision } : {}),
+      ...(deletedSessionIds?.length ? { deletedSessionIds } : {}),
     }),
   });
-  if (res.status === 401) return { ok: false };
+  if (res.status === 401) return { ok: false, status: res.status };
   if (res.status === 409) {
     try {
       const j = (await res.json()) as {
@@ -1040,7 +1043,7 @@ export async function saveChatSessionsToServer(
         updatedAt: Number(j.updatedAt) || 0,
       };
     } catch {
-      return { ok: false, conflict: true };
+      return { ok: false, conflict: true, status: res.status };
     }
   }
   if (!res.ok) {
@@ -1052,7 +1055,11 @@ export async function saveChatSessionsToServer(
       /* ignore */
     }
     console.warn("[api] saveChatSessions:", err);
-    return { ok: false };
+    return {
+      ok: false,
+      status: res.status,
+      retryable: res.status === 408 || res.status === 425 || res.status === 429 || res.status >= 500,
+    };
   }
   try {
     const j = (await res.json()) as { ok?: boolean; revision?: number; updatedAt?: number };

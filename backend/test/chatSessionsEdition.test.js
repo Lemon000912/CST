@@ -35,6 +35,7 @@ legacyDb.close();
 
 const {
   createUserRecord,
+  getSqliteDb,
   getUserChatSessions,
   initDatabase,
   saveUserChatSessions,
@@ -53,6 +54,14 @@ test("chat sessions are isolated by application edition", async (t) => {
     (await getUserChatSessions("legacy-edition-user", "enterprise"))?.sessionsJson,
     '[{"id":"legacy-enterprise"}]',
   );
+  const migratedItems = await getSqliteDb();
+  assert.equal(
+    (await migratedItems.get(
+      "SELECT COUNT(*) AS count FROM user_chat_session_items WHERE user_id = ? AND edition = ?",
+      ["legacy-edition-user", "enterprise"],
+    ))?.count,
+    1,
+  );
 
   await saveUserChatSessions(userId, '[{"id":"school"}]', Date.now(), null, "school");
   await saveUserChatSessions(userId, '[{"id":"enterprise"}]', Date.now(), null, "enterprise");
@@ -61,4 +70,41 @@ test("chat sessions are isolated by application edition", async (t) => {
   assert.equal((await getUserChatSessions(userId, "school"))?.sessionsJson, '[{"id":"school"}]');
   assert.equal((await getUserChatSessions(userId, "enterprise"))?.sessionsJson, '[{"id":"enterprise"}]');
   assert.equal((await getUserChatSessions(userId, "finance"))?.sessionsJson, '[{"id":"finance"}]');
+});
+
+test("stale conditional chat-session writes return the durable server snapshot", async () => {
+  const userId = "revision-session-user";
+  await createUserRecord(userId, "revision_session_user", "unused");
+
+  const first = await saveUserChatSessions(userId, '[{"id":"first"}]', Date.now(), null, "school");
+  assert.equal(first.ok, true);
+  assert.equal(first.revision, 1);
+
+  const second = await saveUserChatSessions(userId, '[{"id":"second"}]', Date.now(), first.revision, "school", ["first"]);
+  assert.equal(second.ok, true);
+  assert.equal(second.revision, 2);
+
+  const stale = await saveUserChatSessions(userId, '[{"id":"stale"}]', Date.now(), first.revision, "school");
+  assert.equal(stale.ok, false);
+  assert.equal(stale.conflict, true);
+  assert.equal(stale.revision, 2);
+  assert.equal(stale.sessions_json, '[{"id":"second"}]');
+});
+
+test("chat session items remain isolated by user and edition", async () => {
+  const firstUser = "item-isolation-user-a";
+  const secondUser = "item-isolation-user-b";
+  await createUserRecord(firstUser, "item_isolation_user_a", "unused");
+  await createUserRecord(secondUser, "item_isolation_user_b", "unused");
+
+  await saveUserChatSessions(firstUser, '[{"id":"same-session","title":"A"}]', Date.now(), null, "school");
+  await saveUserChatSessions(secondUser, '[{"id":"same-session","title":"B"}]', Date.now(), null, "school");
+  await saveUserChatSessions(firstUser, '[{"id":"same-session","title":"Finance A"}]', Date.now(), null, "finance");
+
+  const updated = await saveUserChatSessions(firstUser, '[{"id":"same-session","title":"A updated"}]', Date.now(), null, "school");
+  assert.equal(updated.ok, true);
+
+  assert.match((await getUserChatSessions(firstUser, "school"))?.sessionsJson ?? "", /"title":"A updated"/);
+  assert.match((await getUserChatSessions(secondUser, "school"))?.sessionsJson ?? "", /"title":"B"/);
+  assert.match((await getUserChatSessions(firstUser, "finance"))?.sessionsJson ?? "", /"title":"Finance A"/);
 });

@@ -860,11 +860,24 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
     }
     const rawBase = req.body?.baseRevision;
     const baseRevision = rawBase != null && rawBase !== "" ? Number(rawBase) : null;
+    const deletedSessionIds = Array.isArray(req.body?.deletedSessionIds)
+      ? req.body.deletedSessionIds.slice(0, 500)
+      : [];
     const json = JSON.stringify(sessions);
-    if (json.length > 6_000_000) {
-      return res.status(413).json({ error: "会话数据过大，请导出后清理部分旧对话" });
+    // Keep this below express.json's 24mb request limit while leaving enough
+    // room for long research answers and a substantial history. The database
+    // stores TEXT, so the previous 6mb application cap was the limiting factor.
+    if (Buffer.byteLength(json, "utf8") > 20_000_000) {
+      return res.status(413).json({ error: "会话数据过大，请先导出后再清理部分旧对话" });
     }
-    const result = await saveUserChatSessions(userId, json, Date.now(), baseRevision, APP_EDITION);
+    const result = await saveUserChatSessions(
+      userId,
+      json,
+      Date.now(),
+      baseRevision,
+      APP_EDITION,
+      deletedSessionIds,
+    );
     if (result.conflict) {
       let parsedSessions = [];
       try {

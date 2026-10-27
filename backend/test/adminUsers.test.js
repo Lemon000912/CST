@@ -57,6 +57,10 @@ test("admin users include phone and permanent deletion purges account data", asy
     ["admin-users-target", "[]", now, 1, 1],
   );
   await db.run(
+    "INSERT INTO user_chat_session_items (user_id, edition, session_id, session_json, updated_at) VALUES (?,?,?,?,?)",
+    ["admin-users-target", "school", "session-target", '{"id":"session-target"}', now],
+  );
+  await db.run(
     "INSERT INTO query_log (user_id, query, filters, result_count, latency_ms, ts) VALUES (?,?,?,?,?,?)",
     ["admin-users-target", "private query", "{}", 1, 10, now],
   );
@@ -83,6 +87,7 @@ test("admin users include phone and permanent deletion purges account data", asy
     "user_wechat_identities",
     "user_skill",
     "user_chat_sessions",
+    "user_chat_session_items",
     "query_log",
     "point_ledger",
     "point_operations",
