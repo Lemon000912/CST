@@ -40,3 +40,27 @@ test("Redfox DeepSeek WebSearch submits, polls and normalizes citations", async 
     globalThis.fetch = old.fetch;
   }
 });
+
+test("Redfox DeepSeek WebSearch surfaces API-level submit failures", async () => {
+  const old = {
+    key: process.env.REDFOX_API_KEY,
+    base: process.env.REDFOX_DEEPSEARCH_BASE,
+    fetch: globalThis.fetch,
+  };
+  try {
+    process.env.REDFOX_API_KEY = "redfox-test-key";
+    process.env.REDFOX_DEEPSEARCH_BASE = "https://redfox.test/story/api/deepSearch";
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      code: 3203,
+      data: null,
+      msg: "接口执行异常: 本接口已升级为仅支持付费调用",
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const result = await fetchRedfoxDeepseekPapers("query", 5);
+    assert.equal(result.note, "submit_error:3203:接口执行异常: 本接口已升级为仅支持付费调用");
+    assert.equal(result.papers.length, 0);
+  } finally {
+    if (old.key === undefined) delete process.env.REDFOX_API_KEY; else process.env.REDFOX_API_KEY = old.key;
+    if (old.base === undefined) delete process.env.REDFOX_DEEPSEARCH_BASE; else process.env.REDFOX_DEEPSEARCH_BASE = old.base;
+    globalThis.fetch = old.fetch;
+  }
+});

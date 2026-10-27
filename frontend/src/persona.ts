@@ -25,6 +25,8 @@ export const ENTERPRISE_PERSONA_LIST: PersonaOption[] = [
   { id: "enterprise_tech", label: "技术/研发" },
   { id: "enterprise_supplier_sales", label: "供应商/销售" },
   { id: "enterprise_project_application", label: "撰写/项目申报" },
+  { id: "enterprise_executive", label: "高管/总经理" },
+  { id: "enterprise_chairman", label: "高管/董事长" },
 ];
 
 export const FINANCE_PERSONA_LIST: PersonaOption[] = [
