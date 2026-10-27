@@ -17,6 +17,13 @@ process.env.NODE_ENV = "test";
 const initSqlJs = await import("sql.js");
 const SQL = await initSqlJs.default();
 const legacyDb = new SQL.Database();
+legacyDb.run(`CREATE TABLE user_chat_sessions (
+  user_id TEXT PRIMARY KEY,
+  sessions_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0,
+  schema_version INTEGER NOT NULL DEFAULT 1
+)`);
 legacyDb.run(`CREATE TABLE user_chat_sessions_by_edition (
   user_id TEXT NOT NULL,
   edition TEXT NOT NULL CHECK (edition IN ('school', 'enterprise')),
@@ -29,6 +36,33 @@ legacyDb.run(`CREATE TABLE user_chat_sessions_by_edition (
 legacyDb.run(`INSERT INTO user_chat_sessions_by_edition
   (user_id, edition, sessions_json, updated_at) VALUES (?, ?, ?, ?)`, [
   "legacy-edition-user", "enterprise", '[{"id":"legacy-enterprise"}]', Date.now(),
+]);
+legacyDb.run(`INSERT INTO user_chat_sessions
+  (user_id, sessions_json, updated_at) VALUES (?, ?, ?)`, [
+  "merge-user", JSON.stringify([
+    { id: "old-only", updatedAt: 150 },
+    { id: "shared", title: "old", updatedAt: 100 },
+    { id: "already-new", title: "old", updatedAt: 100 },
+  ]), 100,
+]);
+legacyDb.run(`INSERT INTO user_chat_sessions_by_edition
+  (user_id, edition, sessions_json, updated_at) VALUES (?, ?, ?, ?)`, [
+  "merge-user", "school", JSON.stringify([
+    { id: "edition-only", updatedAt: 200 },
+    { id: "shared", title: "new", updatedAt: 200 },
+  ]), 200,
+]);
+legacyDb.run(`CREATE TABLE user_chat_session_items (
+  user_id TEXT NOT NULL,
+  edition TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  session_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, edition, session_id)
+)`);
+legacyDb.run(`INSERT INTO user_chat_session_items
+  (user_id, edition, session_id, session_json, updated_at) VALUES (?, ?, ?, ?, ?)`, [
+  "merge-user", "school", "already-new", JSON.stringify({ id: "already-new", title: "durable", updatedAt: 300 }), 300,
 ]);
 fs.writeFileSync(sqliteFile, Buffer.from(legacyDb.export()));
 legacyDb.close();
@@ -62,6 +96,15 @@ test("chat sessions are isolated by application edition", async (t) => {
     ))?.count,
     1,
   );
+
+  const merged = JSON.parse((await getUserChatSessions("merge-user", "school"))?.sessionsJson ?? "[]");
+  assert.deepEqual(merged.map((session) => session.id).sort(), ["already-new", "edition-only", "old-only", "shared"]);
+  assert.equal(merged.find((session) => session.id === "shared")?.title, "new");
+  assert.equal(merged.find((session) => session.id === "already-new")?.title, "durable");
+
+  await initDatabase();
+  const mergedAfterRestart = JSON.parse((await getUserChatSessions("merge-user", "school"))?.sessionsJson ?? "[]");
+  assert.deepEqual(mergedAfterRestart.map((session) => session.id).sort(), ["already-new", "edition-only", "old-only", "shared"]);
 
   await saveUserChatSessions(userId, '[{"id":"school"}]', Date.now(), null, "school");
   await saveUserChatSessions(userId, '[{"id":"enterprise"}]', Date.now(), null, "enterprise");

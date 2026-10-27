@@ -2222,8 +2222,18 @@ async function migrateLegacyChatSessionItems() {
   await withDatabaseTransaction(async (tx) => {
     const rows = await tx.all(
       tx.dialect === "postgres"
-        ? `SELECT user_id, edition, sessions_json, updated_at FROM user_chat_sessions_by_edition`
-        : `SELECT user_id, edition, sessions_json, updated_at FROM user_chat_sessions_by_edition`,
+        ? `SELECT user_id, 'school' AS edition, sessions_json, updated_at, 0 AS source_order
+           FROM user_chat_sessions
+           UNION ALL
+           SELECT user_id, edition, sessions_json, updated_at, 1 AS source_order
+           FROM user_chat_sessions_by_edition
+           ORDER BY user_id, edition, source_order`
+        : `SELECT user_id, 'school' AS edition, sessions_json, updated_at, 0 AS source_order
+           FROM user_chat_sessions
+           UNION ALL
+           SELECT user_id, edition, sessions_json, updated_at, 1 AS source_order
+           FROM user_chat_sessions_by_edition
+           ORDER BY user_id, edition, source_order`,
     );
     for (const row of rows) {
       for (const item of chatSessionItemsFromJson(row.sessions_json, Number(row.updated_at) || Date.now())) {
@@ -2233,12 +2243,14 @@ async function migrateLegacyChatSessionItems() {
                  (user_id, edition, session_id, session_json, updated_at)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (user_id, edition, session_id) DO UPDATE SET
-                 session_json = EXCLUDED.session_json, updated_at = EXCLUDED.updated_at`
+                 session_json = EXCLUDED.session_json, updated_at = EXCLUDED.updated_at
+               WHERE EXCLUDED.updated_at >= user_chat_session_items.updated_at`
             : `INSERT INTO user_chat_session_items
                  (user_id, edition, session_id, session_json, updated_at)
                VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(user_id, edition, session_id) DO UPDATE SET
-                 session_json = excluded.session_json, updated_at = excluded.updated_at`,
+                 session_json = excluded.session_json, updated_at = excluded.updated_at
+               WHERE excluded.updated_at >= user_chat_session_items.updated_at`,
           [row.user_id, row.edition, item.id, item.json, item.updatedAt],
         );
       }
@@ -2253,6 +2265,18 @@ async function migrateLegacyChatSessionItems() {
                WHERE user_id = ? AND edition = ?`,
           [row.user_id, row.edition],
         );
+        if (row.edition === "school") {
+          await tx.run(
+            tx.dialect === "postgres"
+              ? `UPDATE user_chat_sessions
+                 SET sessions_json = '[]', schema_version = 3
+                 WHERE user_id = $1`
+              : `UPDATE user_chat_sessions
+                 SET sessions_json = '[]', schema_version = 3
+                 WHERE user_id = ?`,
+            [row.user_id],
+          );
+        }
       }
     }
   });
