@@ -31,8 +31,8 @@ export function getRedfoxDeepseekConfig() {
     resultUrl: `${base}/dsResult`,
     timeoutMs: Math.min(120_000, Math.max(5000, Number(process.env.REDFOX_DEEPSEARCH_TIMEOUT_MS) || 30_000)),
     pollIntervalMs: Math.min(30_000, Math.max(500, Number(process.env.REDFOX_DEEPSEARCH_POLL_MS) || 5000)),
-    // 红狐任务异常时不再默认轮询 5 分钟；8 次 × 5 秒约 40 秒。
-    maxAttempts: Math.min(120, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS) || 8)),
+    // 红狐任务异常时不再默认轮询 5 分钟；14 次 × 5 秒约 70 秒。
+    maxAttempts: Math.min(120, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS) || 14)),
     maxResults: Math.min(60, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_RESULTS) || 32)),
   };
 }

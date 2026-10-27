@@ -155,7 +155,7 @@ export function parseHtmlToPageResult(html, pageUrl, finalUrl) {
   };
 }
 
-async function fetchWebPageTextDirect(url, timeoutMs) {
+async function fetchWebPageTextDirect(url, timeoutMs, signal) {
   const u = String(url ?? "").trim();
   const ua =
     String(process.env.WEB_FETCH_USER_AGENT ?? "").trim() ||
@@ -172,6 +172,7 @@ async function fetchWebPageTextDirect(url, timeoutMs) {
           "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         },
         redirect: "follow",
+        signal,
       },
       timeoutMs,
     );
@@ -199,11 +200,32 @@ export async function fetchWebPageText(url, timeoutMs = 14_000) {
   const u = String(url ?? "").trim();
   if (!isFetchableUrl(u)) return { ok: false, error: "url_not_fetchable", title: "", text: "" };
 
-  const direct = await fetchWebPageTextDirect(u, timeoutMs);
-  if (direct.ok) return direct;
-  const official = await fetchDeepseekWebPage(u);
-  if (official.ok) return { ...official, title: official.title || direct.title || u };
-  return { ...direct, error: `${direct.error}; deepseek_fetch:${official.error}` };
+  // Direct fetch and the DeepSeek fallback share one deadline. Without this
+  // budget, a slow direct request can be followed by another full provider
+  // timeout and make one page hold the whole search for minutes.
+  const totalTimeoutMs = Math.min(
+    45_000,
+    Math.max(5_000, Number(process.env.WEB_PAGE_TOTAL_TIMEOUT_MS) || 30_000),
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error(`web page total timeout after ${totalTimeoutMs}ms`)),
+    totalTimeoutMs,
+  );
+  try {
+    const direct = await fetchWebPageTextDirect(u, timeoutMs, controller.signal);
+    if (direct.ok) return direct;
+    let official;
+    try {
+      official = await fetchDeepseekWebPage(u, { signal: controller.signal });
+    } catch (error) {
+      official = { ok: false, error: String(error?.message || error).slice(0, 120) };
+    }
+    if (official.ok) return { ...official, title: official.title || direct.title || u };
+    return { ...direct, error: `${direct.error}; deepseek_fetch:${official.error}` };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

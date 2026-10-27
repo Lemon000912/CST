@@ -671,8 +671,8 @@ function webTaskConcurrency(envName, fallback, max = 8) {
 
 function webAutoAiTimeoutMs(aiSourcesMode = false, provider = "") {
   const isRedfox = provider === "redfox_deepseek";
-  const fallback = isRedfox ? 45_000 : aiSourcesMode ? 45_000 : 180_000;
-  const ceiling = isRedfox ? 60_000 : 300_000;
+  const fallback = isRedfox ? 70_000 : aiSourcesMode ? 45_000 : 180_000;
+  const ceiling = isRedfox ? 90_000 : 300_000;
   return Math.min(ceiling, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || fallback));
 }
 
