@@ -670,8 +670,10 @@ function webTaskConcurrency(envName, fallback, max = 8) {
 }
 
 function webAutoAiTimeoutMs(aiSourcesMode = false, provider = "") {
-  const fallback = provider === "redfox_deepseek" ? 300_000 : aiSourcesMode ? 45_000 : 180_000;
-  return Math.min(300_000, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || fallback));
+  const isRedfox = provider === "redfox_deepseek";
+  const fallback = isRedfox ? 45_000 : aiSourcesMode ? 45_000 : 180_000;
+  const ceiling = isRedfox ? 60_000 : 300_000;
+  return Math.min(ceiling, Math.max(30_000, Number(process.env.WEB_AUTO_DEEPSEEK_TIMEOUT_MS) || fallback));
 }
 
 async function fetchAutoAiPapers(provider, query, max, signal, aiSourcesMode = false) {

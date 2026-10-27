@@ -7,6 +7,20 @@ function cleanText(value, max = 5000) {
   return String(value ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function submitFailureNote(body) {
+  const payload = asRecord(body);
+  const code = payload.code ?? payload.errorCode ?? payload.statusCode;
+  const message = cleanText(payload.msg ?? payload.message ?? payload.error ?? payload.failReason, 240);
+  if (code !== undefined && message) return `submit_error:${String(code)}:${message}`;
+  if (message) return `submit_error:${message}`;
+  if (code !== undefined) return `submit_error:${String(code)}`;
+  return "submit_missing_task_id";
+}
+
 export function getRedfoxDeepseekConfig() {
   const apiKey = String(process.env.REDFOX_API_KEY ?? "").trim();
   if (!apiKey) return null;
@@ -17,7 +31,8 @@ export function getRedfoxDeepseekConfig() {
     resultUrl: `${base}/dsResult`,
     timeoutMs: Math.min(120_000, Math.max(5000, Number(process.env.REDFOX_DEEPSEARCH_TIMEOUT_MS) || 30_000)),
     pollIntervalMs: Math.min(30_000, Math.max(500, Number(process.env.REDFOX_DEEPSEARCH_POLL_MS) || 5000)),
-    maxAttempts: Math.min(120, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS) || 60)),
+    // 红狐任务异常时不再默认轮询 5 分钟；8 次 × 5 秒约 40 秒。
+    maxAttempts: Math.min(120, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_ATTEMPTS) || 8)),
     maxResults: Math.min(60, Math.max(1, Number(process.env.REDFOX_DEEPSEARCH_MAX_RESULTS) || 32)),
   };
 }
@@ -42,7 +57,9 @@ async function postJson(url, body, cfg, signal) {
     const raw = await response.text();
     let data;
     try { data = JSON.parse(raw); } catch { data = raw; }
-    return response.ok ? { ok: true, data } : { ok: false, note: `http_${response.status}` };
+    return response.ok
+      ? { ok: true, data }
+      : { ok: false, data, note: `http_${response.status}` };
   } catch (error) {
     if (signal?.aborted) throw error;
     return { ok: false, note: controller.signal.aborted ? "timeout" : `err:${String(error?.message || error).slice(0, 100)}` };
@@ -117,8 +134,16 @@ export async function fetchRedfoxDeepseekPapers(query, max = 32, opts = {}) {
   try {
     const submit = await postJson(cfg.submitUrl, { inquiryText: q, source: "Deepseek WebSearch-GitHub" }, cfg, opts.signal);
     if (!submit.ok) return { papers: [], note: submit.note, toolName: "redfox-deepseek" };
-    const taskId = String(submit.data?.data?.taskId ?? "").trim();
-    if (!taskId) return { papers: [], note: "submit_missing_task_id", toolName: "redfox-deepseek" };
+    const submitBody = asRecord(submit.data);
+    const submitData = asRecord(submitBody.data);
+    const taskId = String(
+      submitData.taskId
+        ?? submitData.task_id
+        ?? submitBody.taskId
+        ?? submitBody.task_id
+        ?? "",
+    ).trim();
+    if (!taskId) return { papers: [], note: submitFailureNote(submitBody), toolName: "redfox-deepseek" };
     for (let attempt = 0; attempt < cfg.maxAttempts; attempt += 1) {
       await wait(cfg.pollIntervalMs, opts.signal);
       const poll = await postJson(cfg.resultUrl, { taskId }, cfg, opts.signal);
