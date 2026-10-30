@@ -296,6 +296,9 @@ html {
 
   .qp-user-bubble {
     @apply max-w-[min(720px,85%)] rounded-[1.25rem] rounded-br-md border px-4 py-3 text-[14px] leading-relaxed shadow-md;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     border-color: var(--t-user-bubble-border);
     background: linear-gradient(145deg, var(--t-user-bubble-from), var(--t-user-bubble-to));
     color: var(--t-text-user);
