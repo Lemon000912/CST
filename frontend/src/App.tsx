@@ -869,7 +869,8 @@ function paperExcerptBody(p: Paper, maxChars: number): string {
 function PaperCard({
   p,
   onPdfFulfill,
-  pdfDisabled,
+  billingDisabled,
+  pdfBusy = null,
   pointsEnabled = true,
   open,
   onOpenChange,
@@ -877,7 +878,8 @@ function PaperCard({
 }: {
   p: Paper;
   onPdfFulfill?: (p: Paper, mode: "open" | "save") => void | Promise<void>;
-  pdfDisabled?: boolean;
+  billingDisabled?: boolean;
+  pdfBusy?: "current" | "other" | null;
   pointsEnabled?: boolean;
   open: boolean;
   onOpenChange: (next: boolean) => void;
@@ -887,6 +889,12 @@ function PaperCard({
   const [oaBusy, setOaBusy] = useState(false);
   const [oaErr, setOaErr] = useState<string | null>(null);
   const [patentSourceCopied, setPatentSourceCopied] = useState(false);
+  const pdfDisabled = !!billingDisabled || pdfBusy != null;
+  const pdfDisabledTitle = pdfBusy === "current"
+    ? "正在验证并获取 PDF，请稍候"
+    : pdfBusy === "other"
+      ? "另一份 PDF 正在获取，请稍候"
+      : billingDisabled ? "积分不足，暂不能获取 PDF" : undefined;
   const abs =
     p.summary.length > maxExcerptChars ? `${p.summary.slice(0, maxExcerptChars)}…` : p.summary;
   const authors =
@@ -1015,28 +1023,26 @@ function PaperCard({
               <button
                 type="button"
                 disabled={pdfDisabled}
-                className="inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                aria-busy={pdfBusy === "current"}
+                className={`inline-flex items-center rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-[var(--t-text)] hover:bg-surface-hover disabled:opacity-45 ${pdfBusy ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"}`}
                 onClick={() => void onPdfFulfill?.(p, "open")}
-                title={pdfDisabled
-                  ? "积分已用完，暂不能获取 PDF"
-                  : p.pdfCached
+                title={pdfDisabledTitle ?? (p.pdfCached
                     ? pointsEnabled ? "PDF 已预先验证并保存；打开后收费 1 积分" : "PDF 已预先验证并保存"
-                    : pointsEnabled ? "经服务端验证并获取 PDF，成功后收费 1 积分" : "经服务端验证并获取 PDF"}
+                    : pointsEnabled ? "经服务端验证并获取 PDF，成功后收费 1 积分" : "经服务端验证并获取 PDF")}
               >
-                PDF
+                {pdfBusy === "current" ? "获取中…" : "PDF"}
               </button>
               <button
                 type="button"
                 disabled={pdfDisabled}
-                className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-45"
+                aria-busy={pdfBusy === "current"}
+                className={`inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-45 ${pdfBusy ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"}`}
                 onClick={() => void onPdfFulfill?.(p, "save")}
-                title={pdfDisabled
-                  ? "积分已用完，暂不能获取 PDF"
-                  : p.pdfCached
+                title={pdfDisabledTitle ?? (p.pdfCached
                     ? pointsEnabled ? "直接下载已缓存 PDF，收费 1 积分" : "直接下载已缓存 PDF"
-                    : pointsEnabled ? "成功获取并验证 PDF 后保存，收费 1 积分" : "成功获取并验证 PDF 后保存"}
+                    : pointsEnabled ? "成功获取并验证 PDF 后保存，收费 1 积分" : "成功获取并验证 PDF 后保存")}
               >
-                下载
+                {pdfBusy === "current" ? "获取中…" : "下载"}
               </button>
             </>
           ) : null}
@@ -1075,13 +1081,13 @@ function PaperCard({
                   }
                 })();
               }}
-              title={
+              title={pdfDisabledTitle ?? (
                 p.pdfSourceId || p.sourceId
                   ? pointsEnabled
                     ? "通过服务端验证并获取 OA PDF，成功后收费 1 积分"
                     : "通过服务端验证并获取 OA PDF"
                   : "仅查询 Unpaywall 外部链接；落地页不表示已完成收费 PDF 交付"
-              }
+              )}
               className="inline-flex items-center rounded-lg border border-[color:var(--t-br10)] bg-[var(--t-muted)] px-3 py-1.5 text-xs font-medium text-[var(--t-text)] hover:bg-[var(--t-muted-hover)] disabled:opacity-50"
             >
               {oaBusy ? LOADING_OA : "OA PDF（Unpaywall）"}
@@ -1538,6 +1544,7 @@ function AssistantBlock({
   regenerateDisabled = false,
   onPdfFulfill,
   billingDisabled,
+  pdfBusyKey,
   pointsEnabled = true,
   feedbackLock,
   chartBusy,
@@ -1559,6 +1566,7 @@ function AssistantBlock({
   regenerateDisabled?: boolean;
   onPdfFulfill?: (msg: ChatMessage, p: Paper, mode: "open" | "save") => void | Promise<void>;
   billingDisabled?: boolean;
+  pdfBusyKey?: string | null;
   pointsEnabled?: boolean;
   feedbackLock?: 1 | -1;
   chartBusy?: boolean;
@@ -2348,7 +2356,8 @@ function AssistantBlock({
                       });
                     }}
                     onPdfFulfill={(paper, mode) => onPdfFulfill?.(msg, paper, mode)}
-                    pdfDisabled={billingDisabled}
+                    billingDisabled={billingDisabled}
+                    pdfBusy={pdfBusyKey == null ? null : pdfBusyKey === `${msg.id}:${k}` ? "current" : "other"}
                     pointsEnabled={pointsEnabled}
                   />
                 );
@@ -2909,6 +2918,7 @@ export default function App({
   const [activeKnowledgeBase, setActiveKnowledgeBase] = useState<EnterpriseKnowledgeBase | null>(null);
   const [studentVerification, setStudentVerification] = useState<StudentVerification>({ verified: false, status: null });
   const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
+  const pdfRequestInFlight = useRef(false);
 
   const active = useMemo(
     () => (activeId ? sessions.find((s) => s.id === activeId) ?? null : draftSession),
@@ -3804,8 +3814,9 @@ export default function App({
       return;
     }
     const busyKey = `${msg.id}:${paperRowKey(p)}`;
-    if (pdfBusyKey === busyKey) return;
+    if (pdfRequestInFlight.current) return;
     const idempotencyKey = createIdempotencyKey();
+    pdfRequestInFlight.current = true;
     setPdfBusyKey(busyKey);
     try {
       const result = await fulfillPdf({
@@ -3853,9 +3864,10 @@ export default function App({
         }
       }
     } finally {
+      pdfRequestInFlight.current = false;
       setPdfBusyKey(null);
     }
-  }, [applyReceipt, patchMessageMeta, pdfBusyKey, pointBalance?.balance, pointsEnabled]);
+  }, [applyReceipt, patchMessageMeta, pointBalance?.balance, pointsEnabled]);
 
   const send = async (
     text: string,
@@ -4973,7 +4985,8 @@ export default function App({
                         regenerateDisabled={busy}
                         feedbackLock={feedbackByMessage[m.id]}
                         onPdfFulfill={handlePdfFulfill}
-                        billingDisabled={billingDisabled || pdfBusyKey != null}
+                        billingDisabled={billingDisabled}
+                        pdfBusyKey={pdfBusyKey}
                         pointsEnabled={pointsEnabled}
                         chartBusy={chartBusyMessageId === m.id}
                         onMatplotlibChart={handleMatplotlibChart}
