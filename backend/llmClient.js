@@ -3,6 +3,7 @@ import {
   geminiGenerateContentUrl,
   openAiChatCompletionsUrl,
 } from "./llmProviders.js";
+import { createLlmDiagnostics } from "./llmDiagnostics.js";
 
 /**
  * 流式文本生成（async generator）。
@@ -229,12 +230,12 @@ export function normalizeLlmUsage(json, protocol) {
   };
 }
 
-async function generateTextStreamingResult(provider, request) {
+async function generateTextStreamingResult(provider, request, attempt) {
   const controller = new AbortController();
   const timeoutMs = Math.min(360_000, Math.max(1_000, Number(request.timeoutMs) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutId = setTimeout(() => { attempt.cancelled("timeout"); controller.abort(); }, timeoutMs);
   const externalSignal = request.signal;
-  const abort = () => controller.abort();
+  const abort = () => { attempt.cancelled("caller"); controller.abort(); };
   let emitted = false;
   externalSignal?.addEventListener?.("abort", abort, { once: true });
 
@@ -269,11 +270,13 @@ async function generateTextStreamingResult(provider, request) {
       signal: controller.signal,
       body: JSON.stringify(body),
     });
+    attempt.headers(response);
 
     if (!response.ok) {
       const raw = await response.text();
       let json = null;
       try { json = raw ? JSON.parse(raw) : null; } catch {}
+      attempt.payload(json, isGemini, false);
       return {
         ok: false,
         status: response.status,
@@ -313,6 +316,7 @@ async function generateTextStreamingResult(provider, request) {
       if (!payload || payload === "[DONE]") return;
       let json;
       try { json = JSON.parse(payload); } catch { return; }
+      attempt.payload(json, isGemini, true);
       const delta = streamText(json, isGemini);
       if (delta) {
         text += delta;
@@ -329,6 +333,7 @@ async function generateTextStreamingResult(provider, request) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      attempt.chunk();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
@@ -377,7 +382,7 @@ async function generateTextStreamingResult(provider, request) {
   }
 }
 
-export async function generateText(provider, request = {}) {
+export async function generateText(provider, request = {}, diagnostics = createLlmDiagnostics(provider, request)) {
   if (!provider?.apiKey || !provider?.baseUrl || !provider?.model) {
     return {
       ok: false,
@@ -400,18 +405,23 @@ export async function generateText(provider, request = {}) {
   }
 
   if (typeof request.onTextDelta === "function") {
-    const streamed = await generateTextStreamingResult(provider, request);
+    const streamed = await diagnostics.run("stream", request, (attempt) => generateTextStreamingResult(provider, request, attempt));
     if (request.signal?.aborted) return streamed;
     if (streamed.ok || !streamed.streamFallbackRecommended) return streamed;
     // Some OpenAI-compatible gateways support SSE but reject stream_options.
     if (provider.protocol !== LLM_PROTOCOLS.GEMINI && !request.omitStreamOptions) {
-      const compatibilityStream = await generateTextStreamingResult(provider, {
+      diagnostics.retry(streamed, "stream_without_options");
+      const compatibilityRequest = {
         ...request,
         omitStreamOptions: true,
-      });
+      };
+      const compatibilityStream = await diagnostics.run("stream_without_options", compatibilityRequest, (attempt) => generateTextStreamingResult(provider, compatibilityRequest, attempt));
       if (compatibilityStream.ok || !compatibilityStream.streamFallbackRecommended) {
         return compatibilityStream;
       }
+      diagnostics.retry(compatibilityStream, "non_stream");
+    } else {
+      diagnostics.retry(streamed, "non_stream");
     }
     // Gateways without SSE retain the established non-streaming behavior.
     const {
@@ -419,14 +429,18 @@ export async function generateText(provider, request = {}) {
       omitStreamOptions: _omitStreamOptions,
       ...nonStreamingRequest
     } = request;
-    return generateText(provider, nonStreamingRequest);
+    return generateText(provider, nonStreamingRequest, diagnostics);
   }
 
+  return diagnostics.run("non_stream", request, (attempt) => generateTextNonStreamingResult(provider, request, attempt));
+}
+
+async function generateTextNonStreamingResult(provider, request, attempt) {
   const controller = new AbortController();
   const timeoutMs = Math.min(360_000, Math.max(1_000, Number(request.timeoutMs) || 120_000));
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutId = setTimeout(() => { attempt.cancelled("timeout"); controller.abort(); }, timeoutMs);
   const externalSignal = request.signal;
-  const abort = () => controller.abort();
+  const abort = () => { attempt.cancelled("caller"); controller.abort(); };
   externalSignal?.addEventListener?.("abort", abort, { once: true });
 
   try {
@@ -456,12 +470,14 @@ export async function generateText(provider, request = {}) {
       signal: controller.signal,
       body: JSON.stringify(body),
     });
+    attempt.headers(response);
 
     const raw = await response.text();
     let json = null;
     try {
       json = raw ? JSON.parse(raw) : null;
     } catch {}
+    attempt.payload(json, isGemini, false);
 
     if (!response.ok) {
       return {

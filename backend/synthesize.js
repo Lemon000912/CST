@@ -248,10 +248,11 @@ async function runSingleSynthesisModel(args) {
       `synthesis.literature.${String(args.provider?.slot || "single").replace(/[^a-z0-9_-]/gi, "_")}`,
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        performanceTrace: args.performanceTrace,
         signal: args.signal,
         timeoutMs: ms,
         temperature: 0.3,
-        maxTokens: 6000,
+        maxTokens: args.provider?.slot === "A" ? 16000 : 6000,
         system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid,
         messages: [
         {
@@ -335,10 +336,11 @@ async function mergeConsensusMarkdown(args) {
       arbitrator ? "synthesis.literature.C_arbitration" : "synthesis.literature.consensus",
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
+        performanceTrace: args.performanceTrace,
         signal: args.signal,
         timeoutMs: ms,
         temperature: arbitrator ? 0.12 : 0.15,
-        maxTokens: arbitrator ? 8500 : 2200,
+        maxTokens: arbitrator ? 16000 : 2200,
         system: arbitrator ? systemArb : systemMerge,
         messages: [
         {
