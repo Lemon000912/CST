@@ -8,6 +8,7 @@ export class AiQaPage {
         this.records = [];
         this.searchQuery = '';
         this.status = '';
+        this.edition = '';
         this.from = '';
         this.to = '';
         this.searchTimer = null;
@@ -37,6 +38,11 @@ export class AiQaPage {
         });
         this.listen(byId('ai-qa-status'), 'change', (event) => {
             this.status = event.target.value;
+            this.currentPage = 1;
+            this.loadRecords();
+        });
+        this.listen(byId('ai-qa-edition'), 'change', (event) => {
+            this.edition = event.target.value;
             this.currentPage = 1;
             this.loadRecords();
         });
@@ -87,6 +93,7 @@ export class AiQaPage {
         const params = {};
         if (this.searchQuery) params.search = this.searchQuery;
         if (this.status) params.status = this.status;
+        if (this.edition) params.edition = this.edition;
         if (this.from) params.from = new Date(`${this.from}T00:00:00`).getTime();
         if (this.to) params.to = new Date(`${this.to}T23:59:59.999`).getTime();
         return params;
@@ -94,7 +101,7 @@ export class AiQaPage {
 
     async loadRecords() {
         const body = document.getElementById('ai-qa-table-body');
-        if (body) body.innerHTML = '<tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>';
         try {
             const data = await api.getAiQaRecords({
                 ...this.filterParams(),
@@ -110,7 +117,7 @@ export class AiQaPage {
             this.renderRecords();
             this.renderPagination();
         } catch (error) {
-            if (body) body.innerHTML = `<tr><td colspan="6" class="ai-qa-empty"><i class="fas fa-circle-exclamation"></i><span>${this.escapeHtml(error.message || '加载问答记录失败')}</span></td></tr>`;
+            if (body) body.innerHTML = `<tr><td colspan="7" class="ai-qa-empty"><i class="fas fa-circle-exclamation"></i><span>${this.escapeHtml(error.message || '加载问答记录失败')}</span></td></tr>`;
         }
     }
 
@@ -120,12 +127,13 @@ export class AiQaPage {
         if (count) count.textContent = `${this.total.toLocaleString('zh-CN')} 条记录`;
         if (!body) return;
         if (!this.records.length) {
-            body.innerHTML = '<tr><td colspan="6" class="ai-qa-empty"><i class="fas fa-inbox"></i><span>没有符合条件的问答记录</span></td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="ai-qa-empty"><i class="fas fa-inbox"></i><span>没有符合条件的问答记录</span></td></tr>';
             return;
         }
         body.innerHTML = this.records.map((record) => `<tr>
             <td><div class="ai-qa-user"><strong>${this.escapeHtml(record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div></td>
             <td><button type="button" class="ai-qa-question" data-ai-qa-detail="${this.escapeHtml(record.operationId)}">${this.escapeHtml(record.question || '（无文本问题）')}</button><small class="ai-qa-operation">${this.escapeHtml(record.operationId)}</small></td>
+            <td><span class="ai-qa-edition ai-qa-edition-${this.escapeHtml(record.edition || 'unknown')}">${this.escapeHtml(record.editionLabel || this.formatEdition(record.edition))}</span></td>
             <td><span class="ai-qa-status ${record.status}">${record.status === 'stopped' ? '已停止' : '成功'}</span></td>
             <td><strong class="ai-qa-cost">-${this.formatPoints(record.cost)}</strong></td>
             <td><span class="ai-qa-date">${this.formatDate(record.completedAt)}</span></td>
@@ -144,11 +152,13 @@ export class AiQaPage {
     resetFilters() {
         this.searchQuery = '';
         this.status = '';
+        this.edition = '';
         this.from = '';
         this.to = '';
         this.currentPage = 1;
         document.getElementById('ai-qa-search').value = '';
         document.getElementById('ai-qa-status').value = '';
+        document.getElementById('ai-qa-edition').value = '';
         document.getElementById('ai-qa-from').value = '';
         document.getElementById('ai-qa-to').value = '';
         this.loadRecords();
@@ -168,7 +178,7 @@ export class AiQaPage {
                     <div><span>用户</span><strong>${this.escapeHtml(record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div>
                     <div><span>请求状态</span><strong>${record.status === 'stopped' ? '已停止' : '成功'}</strong><small>${contacts}</small></div>
                     <div><span>消耗积分</span><strong>${this.formatPoints(record.cost)}</strong><small>余额 ${record.balanceAfter == null ? '-' : this.formatPoints(record.balanceAfter)}</small></div>
-                    <div><span>完成时间</span><strong>${this.formatDate(record.completedAt)}</strong><small>${this.escapeHtml(record.channel || '-')} · ${this.escapeHtml(record.edition || '-')}</small></div>
+                    <div><span>完成时间</span><strong>${this.formatDate(record.completedAt)}</strong><small>${this.escapeHtml(record.channel || '-')} · ${this.escapeHtml(record.editionLabel || this.formatEdition(record.edition))}</small></div>
                 </div>
                 <section class="ai-qa-detail-section"><h4>用户问题</h4><pre>${this.escapeHtml(record.question || '（无文本问题）')}</pre></section>
                 <section class="ai-qa-detail-section"><h4>AI 回答</h4><pre>${this.escapeHtml(record.answer || '（无普通回答）')}</pre></section>
@@ -216,6 +226,10 @@ export class AiQaPage {
         const date = new Date(Number(value));
         if (Number.isNaN(date.getTime())) return '-';
         return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    formatEdition(value) {
+        return ({ school: '校园版', enterprise: '企业版', finance: '金融版' })[value] || '未知版本';
     }
 
     escapeHtml(value) {

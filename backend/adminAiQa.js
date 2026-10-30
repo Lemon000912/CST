@@ -3,6 +3,11 @@ import { getSqliteDb, pgPool } from "./db.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+const EDITION_LABELS = Object.freeze({
+  school: "校园版",
+  enterprise: "企业版",
+  finance: "金融版",
+});
 
 export class AdminAiQaError extends Error {
   constructor(status, code, message) {
@@ -31,7 +36,16 @@ function normalizeTimestamp(value, field) {
   return number;
 }
 
-function normalizeFilters({ search = "", status = "", from = null, to = null } = {}) {
+function normalizeEdition(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (["school", "校园版"].includes(normalized)) return "school";
+  if (["enterprise", "企业版"].includes(normalized)) return "enterprise";
+  if (["finance", "financial", "金融版", "数智通金融", "数智通 金融", "数智通|金融"].includes(normalized)) return "finance";
+  return "";
+}
+
+function normalizeFilters({ search = "", status = "", edition = "", from = null, to = null } = {}) {
   const normalizedStatus = ["success", "stopped"].includes(status) ? status : "";
   const normalizedFrom = normalizeTimestamp(from, "开始日期");
   const normalizedTo = normalizeTimestamp(to, "结束日期");
@@ -41,6 +55,7 @@ function normalizeFilters({ search = "", status = "", from = null, to = null } =
   return {
     search: String(search || "").trim().slice(0, 200),
     status: normalizedStatus,
+    edition: normalizeEdition(edition),
     from: normalizedFrom,
     to: normalizedTo,
   };
@@ -113,6 +128,7 @@ function buildWhere(db, filters) {
       clauses.push(`(LOWER(u.username) LIKE ${bind(lowerTerm)} OR LOWER(u.id) LIKE ${bind(lowerTerm)} OR LOWER(o.id) LIKE ${bind(lowerTerm)} OR LOWER(COALESCE(${json.question}, '')) LIKE ${bind(lowerTerm)})`);
     }
   }
+  if (filters.edition) clauses.push(`LOWER(COALESCE(${json.edition}, '')) = ${bind(filters.edition)}`);
   if (filters.status === "stopped") clauses.push(json.paused);
   if (filters.status === "success") clauses.push(`NOT (${json.paused})`);
   if (filters.from !== null) clauses.push(`o.completed_at >= ${bind(filters.from)}`);
@@ -131,6 +147,7 @@ function ledgerJoinSql() {
 
 function publicListRecord(row) {
   const costUnits = safeInteger(row.cost_units, "消耗积分");
+  const edition = normalizeEdition(row.edition) || String(row.edition || "").trim().toLowerCase();
   return {
     id: String(row.operation_id),
     operationId: String(row.operation_id),
@@ -140,6 +157,8 @@ function publicListRecord(row) {
     answerPreview: String(row.answer_preview || ""),
     deepAnswerPreview: String(row.deep_answer_preview || ""),
     status: row.is_paused ? "stopped" : "success",
+    edition,
+    editionLabel: EDITION_LABELS[edition] || (edition ? "其他版本" : "未知版本"),
     costUnits,
     cost: formatPointUnits(costUnits),
     ledgerId: row.ledger_id ? String(row.ledger_id) : null,
@@ -153,6 +172,7 @@ function publicListRecord(row) {
 }
 
 function publicDetailRecord(row) {
+  const edition = normalizeEdition(row.edition) || String(row.edition || "").trim().toLowerCase();
   return {
     ...publicListRecord({
       ...row,
@@ -164,7 +184,8 @@ function publicDetailRecord(row) {
     answer: String(row.answer || ""),
     deepAnswer: String(row.deep_answer || ""),
     channel: String(row.channel || ""),
-    edition: String(row.edition || ""),
+    edition,
+    editionLabel: EDITION_LABELS[edition] || (edition ? "其他版本" : "未知版本"),
     ledgerCreatedAt: safeInteger(row.ledger_created_at, "流水时间", { nullable: true }),
   };
 }
@@ -201,6 +222,7 @@ export async function listAdminAiQaRecords({ skip = 0, limit = DEFAULT_PAGE_SIZE
             ${questionPreview} AS question,
             ${answerPreview} AS answer_preview,
             ${deepAnswerPreview} AS deep_answer_preview,
+            ${json.edition} AS edition,
             CASE WHEN ${json.paused} THEN 1 ELSE 0 END AS is_paused
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
@@ -263,6 +285,7 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
             o.created_at, o.completed_at, l.id AS ledger_id, l.balance_after_units,
             ${json.question} AS question, ${json.answer} AS answer,
             ${json.deepAnswer} AS deep_answer,
+            ${json.edition} AS edition,
             CASE WHEN ${json.paused} THEN 1 ELSE 0 END AS is_paused
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
@@ -271,7 +294,7 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
      ORDER BY o.completed_at DESC, o.id DESC`,
     params,
   );
-  const header = ["用户名", "用户ID", "用户问题", "AI回答", "深度研究回答", "状态", "消耗积分", "计费操作ID", "积分流水ID", "提交时间", "完成时间", "变动后余额"];
+  const header = ["版本", "用户名", "用户ID", "用户问题", "AI回答", "深度研究回答", "状态", "消耗积分", "计费操作ID", "积分流水ID", "提交时间", "完成时间", "变动后余额"];
   const lines = [header.map(csvCell).join(",")];
   for (const row of rows) {
     const costUnits = safeInteger(row.cost_units, "消耗积分");
@@ -279,6 +302,7 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
       ? ""
       : formatPointUnits(safeInteger(row.balance_after_units, "变动后余额"));
     lines.push([
+      EDITION_LABELS[normalizeEdition(row.edition)] || String(row.edition || "未知版本"),
       row.username,
       row.user_id,
       row.question,

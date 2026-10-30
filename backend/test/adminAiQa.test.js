@@ -20,14 +20,14 @@ const {
   listAdminAiQaRecords,
 } = await import("../adminAiQa.js");
 
-async function completeOperation({ userId, key, type = "search", costUnits, result }) {
+async function completeOperation({ userId, key, type = "search", edition = "school", costUnits, result }) {
   return completeImmediateBillableOperation({
     userId,
     operationType: type,
     idempotencyKey: key,
     requestHash: stableRequestHash({ key, type }),
     costUnits,
-    billingDetails: { edition: "school", characterCount: costUnits },
+    billingDetails: { edition, characterCount: costUnits },
     result,
   });
 }
@@ -62,6 +62,28 @@ test("AI QA admin records include only new charged search operations", async (t)
       adminQa: { version: 1, question: "给我一个实验方案" },
     },
   });
+  const enterprise = await completeOperation({
+    userId,
+    key: "qa-enterprise-0001",
+    edition: "enterprise",
+    costUnits: 8,
+    result: {
+      synthesis: "企业版回答",
+      channel: "web",
+      adminQa: { version: 1, question: "企业版问题" },
+    },
+  });
+  const finance = await completeOperation({
+    userId,
+    key: "qa-finance-0001",
+    edition: "finance",
+    costUnits: 9,
+    result: {
+      synthesis: "金融版回答",
+      channel: "web",
+      adminQa: { version: 1, question: "金融版问题" },
+    },
+  });
   await completeOperation({
     userId,
     key: "qa-zero-0001",
@@ -89,13 +111,26 @@ test("AI QA admin records include only new charged search operations", async (t)
   });
 
   const listed = await listAdminAiQaRecords({ limit: 20 });
-  assert.equal(listed.total, 2);
+  assert.equal(listed.total, 4);
   assert.deepEqual(new Set(listed.records.map((record) => record.question)), new Set([
     "如何制备这种材料？",
     "给我一个实验方案",
+    "企业版问题",
+    "金融版问题",
   ]));
   assert.ok(listed.records.every((record) => record.costUnits > 0));
   assert.ok(listed.records.every((record) => record.ledgerId));
+  assert.equal(listed.records.find((record) => record.operationId === enterprise.operation.id).edition, "enterprise");
+  assert.equal(listed.records.find((record) => record.operationId === finance.operation.id).editionLabel, "金融版");
+
+  const enterpriseRecords = await listAdminAiQaRecords({ edition: "enterprise" });
+  assert.equal(enterpriseRecords.total, 1);
+  assert.equal(enterpriseRecords.records[0].question, "企业版问题");
+  assert.ok(enterpriseRecords.records.every((record) => record.edition === "enterprise"));
+  const financeRecords = await listAdminAiQaRecords({ edition: "finance" });
+  assert.equal(financeRecords.total, 1);
+  assert.equal(financeRecords.records[0].question, "金融版问题");
+  assert.ok(financeRecords.records.every((record) => record.edition === "finance"));
 
   const stopped = await listAdminAiQaRecords({ status: "stopped" });
   assert.equal(stopped.total, 1);
@@ -112,9 +147,13 @@ test("AI QA admin records include only new charged search operations", async (t)
   assert.equal(detail.deepAnswer, "深度研究回答");
   assert.equal(detail.cost, "1.00");
   assert.ok(detail.ledgerId);
+  const enterpriseDetail = await getAdminAiQaRecord(enterprise.operation.id);
+  assert.equal(enterpriseDetail.edition, "enterprise");
+  assert.equal(enterpriseDetail.editionLabel, "企业版");
 
   const csv = await exportAdminAiQaRecords({ search: "实验方案" });
   assert.match(csv, /^\uFEFF/);
+  assert.match(csv, /版本/);
   assert.match(csv, /给我一个实验方案/);
   assert.match(csv, /用户停止前生成的部分回答/);
   assert.doesNotMatch(csv, /上线前历史回答/);

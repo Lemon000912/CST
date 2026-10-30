@@ -3261,6 +3261,7 @@ app.get("/api/v1/admin/ai-qa", async (req, res) => {
       limit: req.query.limit,
       search: req.query.search,
       status: req.query.status,
+      edition: req.query.edition,
       from: req.query.from,
       to: req.query.to,
     });
@@ -3277,6 +3278,7 @@ app.get("/api/v1/admin/ai-qa/export", async (req, res) => {
     const csv = await exportAdminAiQaRecords({
       search: req.query.search,
       status: req.query.status,
+      edition: req.query.edition,
       from: req.query.from,
       to: req.query.to,
     });

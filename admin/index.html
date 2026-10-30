@@ -307,6 +307,12 @@
                                 <option value="success">成功</option>
                                 <option value="stopped">已停止</option>
                             </select>
+                            <select id="ai-qa-edition" title="应用版本">
+                                <option value="">全部版本</option>
+                                <option value="school">校园版</option>
+                                <option value="enterprise">企业版</option>
+                                <option value="finance">金融版</option>
+                            </select>
                             <label class="ai-qa-date-input"><span>起</span><input id="ai-qa-from" type="date" title="开始日期"></label>
                             <label class="ai-qa-date-input"><span>止</span><input id="ai-qa-to" type="date" title="结束日期"></label>
                             <button id="ai-qa-reset" class="ai-qa-secondary-button" type="button" title="重置筛选">
@@ -316,8 +322,8 @@
 
                         <div class="ai-qa-table-wrap">
                             <table class="data-table ai-qa-table">
-                                <thead><tr><th>用户</th><th>用户问题</th><th>状态</th><th>消耗积分</th><th>完成时间</th><th>详情</th></tr></thead>
-                                <tbody id="ai-qa-table-body"><tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr></tbody>
+                                <thead><tr><th>用户</th><th>用户问题</th><th>版本</th><th>状态</th><th>消耗积分</th><th>完成时间</th><th>详情</th></tr></thead>
+                                <tbody id="ai-qa-table-body"><tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr></tbody>
                             </table>
                         </div>
                         <div class="ai-qa-pagination">
