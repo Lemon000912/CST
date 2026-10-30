@@ -38,6 +38,7 @@ function isWebPaper(p) {
   const s = String(p?.source ?? "");
   return (
     s === "mcp_web" ||
+    s === "direct_web" ||
     s === "ddg_web" ||
     s === "dataify_web" ||
     s === "baidu_web" ||
@@ -54,7 +55,7 @@ function isWebPaper(p) {
 }
 
 function excerptMaxForPaper(p) {
-  if (String(p?.webFetchNote ?? "") === "fetched") {
+  if (/^fetched(?::|$)/i.test(String(p?.webFetchNote ?? "").trim())) {
     return Math.min(4000, Math.max(1500, Number(process.env.WEB_SYNTH_EXCERPT_FETCHED) || 3200));
   }
   return Math.min(2000, Math.max(600, Number(process.env.WEB_SYNTH_EXCERPT_SNIPPET) || 1200));
@@ -68,8 +69,9 @@ function paperBlock(p, idx) {
     ? `\n【数值证据】${p.webEvidence.join("；")}`
     : "";
   const abst = `${evidence}${String(p.summary ?? p.abstract ?? "")}`.slice(0, excerptMaxForPaper(p));
+  const fetched = /^fetched(?::|$)/i.test(String(p?.webFetchNote ?? "").trim());
   const fetchTag =
-    String(p.webFetchNote ?? "") === "fetched"
+    fetched
       ? "（已抓取网页正文）"
       : String(p.webFetchNote ?? "").trim()
         ? `（抓取:${String(p.webFetchNote).slice(0, 40)}）`
@@ -720,11 +722,15 @@ export async function synthesizeWebTriAnswer(p) {
   }
 
   const excerptList = papers.map((x, i) => paperBlock(x, i + 1)).join("\n\n---\n\n");
+  const explicitSourceCount = papers.filter(
+    (paper) => String(paper?.source ?? "") === "direct_web" && /^https?:\/\//i.test(String(paper?.absUrl ?? "").trim()),
+  ).length;
   const userPromptBody = buildWebAnswerUserPrompt({
     userQuery,
     conversationContext: p.conversationContext,
     coreQuery: picked.coreQuery,
     excerptList,
+    explicitSourceCount,
     usedCount: papers.length,
     totalCount: picked.totalIn,
     filteredOut: picked.filteredOut,

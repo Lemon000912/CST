@@ -36,6 +36,15 @@ function isFetchableUrl(url) {
   return true;
 }
 
+function isWeixinArticleUrl(url) {
+  try {
+    const host = new URL(String(url ?? "").trim()).hostname.toLowerCase();
+    return host === "mp.weixin.qq.com" || host.endsWith(".weixin.qq.com");
+  } catch {
+    return false;
+  }
+}
+
 function decodeHtmlEntities(s) {
   return String(s ?? "")
     .replace(/&nbsp;/gi, " ")
@@ -213,6 +222,22 @@ export async function fetchWebPageText(url, timeoutMs = 14_000) {
     totalTimeoutMs,
   );
   try {
+    // 微信公众号页面经常对普通服务器出口返回验证页。对公开文章优先
+    // 使用已配置的模型侧 Fetch 服务，成功后再回退到普通直连；这不会
+    // 绕过登录权限，只是避免把本地直连的验证码页误当成文章正文。
+    if (isWeixinArticleUrl(u)) {
+      let official;
+      try {
+        official = await fetchDeepseekWebPage(u, { signal: controller.signal });
+      } catch (error) {
+        official = { ok: false, error: String(error?.message || error).slice(0, 120) };
+      }
+      if (official.ok) return official;
+      const direct = await fetchWebPageTextDirect(u, timeoutMs, controller.signal);
+      if (direct.ok) return direct;
+      return { ...direct, error: `${direct.error}; deepseek_fetch:${official.error}` };
+    }
+
     const direct = await fetchWebPageTextDirect(u, timeoutMs, controller.signal);
     if (direct.ok) return direct;
     let official;

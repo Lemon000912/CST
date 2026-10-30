@@ -139,6 +139,16 @@ function papers() {
   }];
 }
 
+function explicitUrlPapers() {
+  return [{
+    source: "direct_web",
+    title: "用户指定网页正文",
+    summary: "这是一段来自用户明确指定 URL 的正文摘录，用于验证模型优先使用该链接内容生成综合回答。",
+    absUrl: "https://mp.weixin.qq.com/s/example-article",
+    webFetchNote: "fetched:direct",
+  }];
+}
+
 function providerEnv(baseUrl) {
   return {
     WEB_TRI_MODE: "tri",
@@ -201,6 +211,21 @@ test("web tri runs two drafts then C arbitration", async () => {
       });
       assert.equal(result.llmUsage.slots.merge, undefined);
       assert.equal(result.llmUsage.total.totalTokens, 47);
+    });
+  });
+});
+
+test("web tri tells the model to prioritize a successfully fetched user URL", async () => {
+  await withMockLlm(async ({ baseUrl, calls }) => {
+    await withEnv(providerEnv(baseUrl), async () => {
+      await synthesizeWebTriAnswer({
+        userQuery: "请根据这个链接的正文回答 https://mp.weixin.qq.com/s/example-article",
+        papers: explicitUrlPapers(),
+      });
+      const prompt = JSON.stringify(calls[0]?.body ?? {});
+      assert.match(prompt, /用户指定链接/);
+      assert.match(prompt, /优先依据这些摘录回答/);
+      assert.match(prompt, /example-article/);
     });
   });
 });

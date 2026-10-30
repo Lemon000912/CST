@@ -93,6 +93,19 @@ function isWebPaper(p) {
   return WEB_SOURCES.has(String(p?.source ?? ""));
 }
 
+/**
+ * 用户在本轮请求中明确提供并成功读取的网页。
+ * 这类来源是用户要求模型阅读的上下文，即使 URL、标题与问题的词面
+ * 重合较少，也不能被普通网页相关度筛选掉。
+ */
+function isExplicitWebPaper(p) {
+  return (
+    String(p?.source ?? "") === "direct_web" &&
+    /^https?:\/\//i.test(String(p?.absUrl ?? "").trim()) &&
+    String(p?.summary ?? p?.abstract ?? "").trim().length >= 30
+  );
+}
+
 function isPatentPaper(p) {
   return PATENT_SOURCES.has(String(p?.source ?? ""));
 }
@@ -502,7 +515,19 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
   );
 
   const rawList = Array.isArray(papers) ? papers : [];
+  const explicitDirect = rawList.filter(isExplicitWebPaper);
+  const explicitKeys = new Set(
+    explicitDirect.map((p) => String(p?.absUrl ?? "").trim().split("#")[0].toLowerCase()),
+  );
   let arr = rawList.filter((p) => shouldIncludeWebChannelPaper(p, tokens, core, full));
+  // 用户指定的 URL 是本轮的直接上下文，绕过普通相关度/跑题筛选，
+  // 但只保留已经成功提取到足够正文的页面。
+  if (explicitDirect.length) {
+    arr = [
+      ...explicitDirect,
+      ...arr.filter((p) => !explicitKeys.has(String(p?.absUrl ?? "").trim().split("#")[0].toLowerCase())),
+    ];
+  }
   const inclusionCount = arr.length;
   let relaxedFallbackCount = 0;
   /** 与 filterWebChannelInclusion 一致：非严格模式下按分数取前列，避免「有摘录但联网综合无入参」 */
@@ -525,6 +550,18 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
       /^https?:\/\//i.test(String(x.p.absUrl ?? "").trim()) &&
       x.score >= minWeb,
   );
+  // 显式来源不受普通网页最低分限制，确保“读这个链接再回答”不会退化成
+  // 只使用搜索引擎的其它结果。
+  const selectedWebKeys = new Set(
+    webs.map((x) => String(x.p?.absUrl ?? "").trim().split("#")[0].toLowerCase()),
+  );
+  for (const x of scored.filter((item) => isExplicitWebPaper(item.p))) {
+    const key = String(x.p?.absUrl ?? "").trim().split("#")[0].toLowerCase();
+    if (!selectedWebKeys.has(key)) {
+      webs.unshift(x);
+      selectedWebKeys.add(key);
+    }
+  }
   let patents = scored.filter((x) => isPatentPaper(x.p) && x.score >= minPatent);
 
   let maxP = Math.min(6, patents.length);
@@ -611,7 +648,11 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
     p,
     s: scoreWebPaperForAnswer(p, tokens, core, full),
   }));
-  scoredFinal.sort((a, b) => b.s - a.s);
+  scoredFinal.sort((a, b) => {
+    const aExplicit = isExplicitWebPaper(a.p) ? 1 : 0;
+    const bExplicit = isExplicitWebPaper(b.p) ? 1 : 0;
+    return bExplicit - aExplicit || b.s - a.s;
+  });
   picked = scoredFinal.map((x) => x.p);
 
   return {
@@ -627,6 +668,7 @@ export function pickWebPatentPapersForSynthesis(papers, userQuery, max = 22, eff
       strongEligibleCount,
       softAnchorAdded,
       salvageAdded,
+      explicitDirectCount: explicitDirect.length,
       selectedBeforeCap: picked.length,
       selected: Math.min(picked.length, cap),
       cap,
@@ -642,11 +684,16 @@ export function buildWebAnswerUserPrompt(args) {
   const full = String(args.userQuery ?? "").trim().slice(0, 2500);
   const convo = String(args.conversationContext ?? "").trim().slice(0, 2800);
   const list = String(args.excerptList ?? "").trim().slice(0, 32_000);
+  const explicitSourceCount = Math.max(0, Number(args.explicitSourceCount) || 0);
   const corpHint = CORPORATE_WEB_INTENT_RE.test(`${core}\n${full}`)
     ? "【意图约束】用户问题涉及**企业 / 产品 / 上市主体 / 主营业务**。若下列摘录主要为城市旅游、景点攻略、娱乐八卦、与城市概况类百科且**未出现**可核对的公司名、股票代码、业务段，则**禁止**据此撰写产品或业务正文；首段须明确「当前摘录与问题类型不匹配」，并逐条列出「未在检索摘录中找到：…」。\n\n"
     : "";
+  const explicitSourceHint = explicitSourceCount
+    ? `【用户指定链接】下列摘录中有 ${explicitSourceCount} 条来自用户直接提供并成功读取的 URL。必须优先依据这些摘录回答；其它网页只能作为补充，不能用搜索结果覆盖或臆测用户链接正文未出现的事实。\n\n`
+    : "";
   return (
     corpHint +
+    explicitSourceHint +
     (convo
       ? `【本对话上文（须结合此理解指代与延续话题；勿扩写无关内容）】\n${convo}\n\n`
       : "") +

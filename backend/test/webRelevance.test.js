@@ -68,3 +68,28 @@ test("multi-entity metric synthesis keeps one low-score page per covered entity"
   assert.equal(picked.diagnostics.totalIn, papers.length);
   assert.equal(picked.diagnostics.selected, picked.papers.length);
 });
+
+test("explicitly fetched user URL is retained and ranked before unrelated web pages", () => {
+  const direct = {
+    source: "direct_web",
+    title: "用户指定文章",
+    summary: "这是一篇来自用户指定链接的完整正文摘录，包含足够内容供模型基于原文回答用户问题。",
+    absUrl: "https://mp.weixin.qq.com/s/example-article",
+  };
+  const unrelated = {
+    source: "ddg_web",
+    title: "其它网页",
+    summary: "这是一个与用户指定文章主题不完全相关的搜索结果页面。",
+    absUrl: "https://example.com/unrelated",
+  };
+
+  const picked = pickWebPatentPapersForSynthesis(
+    [unrelated, direct],
+    "请根据这个链接的正文分析文章观点 https://mp.weixin.qq.com/s/example-article",
+    6,
+  );
+
+  assert.equal(picked.diagnostics.explicitDirectCount, 1);
+  assert.equal(picked.papers[0].source, "direct_web");
+  assert.equal(picked.papers[0].absUrl, direct.absUrl);
+});
