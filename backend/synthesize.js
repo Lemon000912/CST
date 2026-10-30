@@ -421,8 +421,9 @@ export async function synthesizeFromPapers(p) {
       performanceTrace: p.performanceTrace,
       signal: p.signal,
     };
+    let literaturePreviewEmitted = false;
     const [ra, rb] = await Promise.all([
-      runSingleSynthesisModel({ ...base, provider: triCfg.A }),
+      runSingleSynthesisModel({ ...base, provider: triCfg.A, onTextDelta: typeof p.onTextDelta === "function" ? (delta) => { literaturePreviewEmitted = true; return p.onTextDelta(delta); } : undefined }),
       runSingleSynthesisModel({ ...base, provider: triCfg.B }),
     ]);
     const synthesisModels = {
@@ -484,7 +485,7 @@ export async function synthesizeFromPapers(p) {
       outputAvoidanceHint: avoidHint || undefined,
       arbitratorMode: true,
       excerptPatentCount,
-      onTextDelta: p.onTextDelta,
+      onTextDelta: literaturePreviewEmitted ? undefined : p.onTextDelta,
       performanceTrace: p.performanceTrace,
       signal: p.signal,
     });
@@ -492,18 +493,8 @@ export async function synthesizeFromPapers(p) {
     if (!merged.markdown) {
       const pick =
         (ra.markdown?.length || 0) >= (rb.markdown?.length || 0) ? ra.markdown : rb.markdown;
-      if (pick && primary) {
-        const fb = await synthesisFallbackWithTriKeys(base, primary, triCfg);
-        if (fb.markdown) {
-          return {
-            markdown: fb.markdown,
-            plan: fb.plan ?? pickBranchPlan(ra, rb),
-            planNote: fb.planNote ?? merged.planNote ?? null,
-            note: `synth:tri_arb_failed_then_single:${merged.note}·${fb.note}`,
-            synthesisModels: { ...synthesisModels, mode: "tri_fallback_single_after_arb" },
-          };
-        }
-      }
+      // Keep the already generated draft when arbitration fails.
+
       if (pick) {
         const useRa = pick === ra.markdown;
         return {

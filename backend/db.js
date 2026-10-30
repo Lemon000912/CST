@@ -1,3 +1,4 @@
+import { databaseSearchFastEnabled, searchPapersFast, searchDoiFast } from "./databaseSearchFast.js";
 /**
  * db.js
  * 统一数据库访问层：PostgreSQL（优先）或 SQLite（降级）
@@ -1591,6 +1592,8 @@ export async function findDoiRecord(doi) {
 }
 
 export async function searchDoiRecords(q, limit = 50) {
+  if (databaseSearchFastEnabled()) return searchDoiFast(pgPool, q, limit);
+
   if (!pgPool) return [];
   // 支持化学式（如 TiO2）、普通单词、中文
   const words = String(q ?? "").toLowerCase().match(/[a-z0-9\u4e00-\u9fff]{2,}/g) || [];
@@ -1631,6 +1634,8 @@ export async function searchCategoryPapers(category, q, limit = 20) {
 }
 
 export async function searchFullPapers(q, limit = 50) {
+  if (databaseSearchFastEnabled()) return searchPapersFast(pgPool, q, limit);
+
   if (!pgPool) return [];
   // Some material_kb snapshots use doi_records plus category tables and do
   // not contain the newer optional `papers` table. Treat that layout as a

@@ -1,3 +1,5 @@
+import { databaseSearchFastEnabled } from "./databaseSearchFast.js";
+import { observeSearchJob, runBoundedDatabaseWeb, runBoundedDatabaseEnrichment } from "./databaseSearchScheduling.js";
 import { upsertPapers, searchLocalPapers, searchDoiRecords, searchFullPapers, isPostgres } from "./db.js";
 import { enrichPapersWithWebPageContent } from "./webPageIngest.js";
 import { buildArxivSearchQuery, fetchArxiv, mapArxivSort } from "./arxiv.js";
@@ -1511,6 +1513,17 @@ export async function runPaperSearch(opts) {
   if (channel === "database") {
     // 1. 如果连接了 PostgreSQL (material_kb)，优先查询 DOI 记录（277万条）
     if (isPostgres()) {
+    if (databaseSearchFastEnabled()) {
+      const doi = extractDoiCandidate(rawQuery) || extractDoiCandidate(effectiveQuery);
+      const localJobs = [
+        traceAsync(performanceTrace, "search.database.papers_sql", {}, () => searchFullPapers(doi || effectiveQuery, max), rows => ({ results: rows.length })),
+        doi ? traceAsync(performanceTrace, "search.database.doi_sql", {}, () => searchDoiRecords(doi, max), rows => ({ results: rows.length })) : Promise.resolve([]),
+      ];
+      const [papersJob, doiJob] = await Promise.allSettled(localJobs);
+      if (papersJob.status === "fulfilled" && papersJob.value.length) { sourcesUsed.push("material_kb_papers"); buckets.push(papersJob.value.map(materialKbRowToApiPaper)); }
+      if (doiJob.status === "fulfilled" && doiJob.value.length) { sourcesUsed.push("material_kb_doi"); buckets.push(doiJob.value.map(doiRecordToApiPaper)); }
+      if (papersJob.status === "rejected" || doiJob.status === "rejected") sourcesUsed.push("material_kb_error");
+    } else {
       try {
         console.log("[search] Querying doi_records with:", effectiveQuery);
         const doiRows = await searchDoiRecords(effectiveQuery, max);
@@ -1532,7 +1545,8 @@ export async function runPaperSearch(opts) {
         console.warn("[search] material_kb query failed", e?.message || e);
         sourcesUsed.push("material_kb_error");
       }
-    }
+     }
+  }
 
     // 2. 仅在未配置 PostgreSQL 时查询本地 SQLite。
     // sql.js 不能由校园版和企业版两个服务进程同时打开同一个文件。
@@ -1595,6 +1609,48 @@ export async function runPaperSearch(opts) {
     }
     
     // 第1层：快速核心源（通常响应快）
+    const databaseParallelJobs = databaseSearchFastEnabled() ? {
+      scopus: observeSearchJob(raceWithTimeout([
+      { name: 'scopus', promise: traceAsync(performanceTrace, "search.database.scopus", {}, () => fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)), (rows) => ({ results: rows?.length ?? 0 })) }
+    ], 18000, { signal })),
+      supplemental: observeSearchJob((() => { const supplementalTasks = [];
+
+    supplementalTasks.push({
+      name: "europepmc",
+      promise: traceAsync(performanceTrace, "search.database.europepmc", {}, () => fetchEuropePmcWorks(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
+    });
+
+    // 专利 + 全网网页：默认合并（useMcpWeb 为 false 时跳过外呼，便于离线/合规场景）
+    if (useMcpWeb !== false && includePatents) {
+      // OpenAlex 专利 API（独立调用，结果标记为 openalex_patent）
+      supplementalTasks.push({
+        name: "openalex_patents",
+        promise: traceAsync(performanceTrace, "search.database.openalex_patents", {}, () => fetchOpenAlexPatents(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
+      });
+      supplementalTasks.push({
+        name: "patents",
+        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
+      });
+    }
+
+     return raceWithTimeout(supplementalTasks, 18000, { signal }); })()),
+      web: useMcpWeb !== false ? observeSearchJob(runBoundedDatabaseWeb((signal) => { const includePatents = false; return runWebIntelSearch({
+        fullRawQuery: fullContextQuery,
+        rawQuery,
+        effectiveQuery,
+        max,
+        useMcpWeb: true,
+        includePatents,
+        financeWebSources: opts.financeWebSources,
+        llmHints: {
+          apiKey: opts.openaiApiKey,
+          model: opts.openaiModel,
+          chatCompletionsUrl: opts.llmChatCompletionsUrl,
+        },
+        performanceTrace,
+        signal,
+      }); }, signal)) : Promise.resolve(null),
+    } : null;
     const layer1Results = await raceWithTimeout([
       { name: 'arxiv', promise: traceAsync(performanceTrace, "search.database.arxiv", {}, () => fetchArxiv({ searchQuery: aq, max: Math.min(70, max + 25), sort: arxivSort }), (rows) => ({ results: rows?.length ?? 0 })) },
       { name: 'crossref', promise: traceAsync(performanceTrace, "search.database.crossref", {}, () => fetchCrossrefWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
@@ -1620,9 +1676,9 @@ export async function runPaperSearch(opts) {
     }
     
     // 第2层：高质量源 Scopus（通常较慢但质量高）
-    const scopusResult = await raceWithTimeout([
+    const scopusResult = await (databaseParallelJobs ? databaseParallelJobs.scopus : raceWithTimeout([
       { name: 'scopus', promise: traceAsync(performanceTrace, "search.database.scopus", {}, () => fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)), (rows) => ({ results: rows?.length ?? 0 })) }
-    ], 18000, { signal }); // 18秒超时
+    ], 18000, { signal })); // 18秒超时
     throwIfSearchAborted(signal);
     
     let scopusSearch = [];
@@ -1654,7 +1710,7 @@ export async function runPaperSearch(opts) {
     // 第3层：始终获取专利、网页等非文献资源（与文献合并呈现）
     let patentSearch = [], europeSearch = [];
     
-    const supplementalTasks = [];
+    const supplementalResults = await (databaseParallelJobs ? databaseParallelJobs.supplemental : (() => { const supplementalTasks = [];
 
     supplementalTasks.push({
       name: "europepmc",
@@ -1674,7 +1730,7 @@ export async function runPaperSearch(opts) {
       });
     }
     
-    const supplementalResults = await raceWithTimeout(supplementalTasks, 18000, { signal });
+     return raceWithTimeout(supplementalTasks, 18000, { signal }); })());
     throwIfSearchAborted(signal);
     
     for (const r of supplementalResults) {
@@ -1710,7 +1766,7 @@ export async function runPaperSearch(opts) {
 
     /** 数据库渠道：并行全网多路检索，与文献/自建库结果合并 */
     if (useMcpWeb !== false) {
-      const webIntel = await runWebIntelSearch({
+      const webIntel = await (databaseParallelJobs ? databaseParallelJobs.web : runWebIntelSearch({
         fullRawQuery: fullContextQuery,
         rawQuery,
         effectiveQuery,
@@ -1725,7 +1781,7 @@ export async function runPaperSearch(opts) {
         },
         performanceTrace,
         signal,
-      });
+      }));
       if (webIntel.sourcesUsed.length) sourcesUsed.push(...webIntel.sourcesUsed);
       if (webIntel.papers.length) {
         buckets.push(webIntel.papers);
@@ -1917,7 +1973,7 @@ export async function runPaperSearch(opts) {
   try {
     try {
       const hasWebInMerged = merged.some((p) => isWebPageResultPaper(p));
-      const webEnrich = await enrichPapersWithWebPageContent(merged, {
+      const webEnrich = await (databaseSearchFastEnabled() && channel === "database" ? traceAsync(performanceTrace, "search.database.page_enrichment", {}, () => runBoundedDatabaseEnrichment((signal) => enrichPapersWithWebPageContent(merged, { ...({
         maxPages:
           channel === "web"
             ? Math.min(40, Math.max(20, Number(process.env.WEB_FETCH_MAX_PAGES) || 24))
@@ -1926,7 +1982,16 @@ export async function runPaperSearch(opts) {
               : Number(process.env.WEB_FETCH_MAX_PAGES) || 10,
         forceFetchAll: channel === "web",
         performanceTrace,
-      });
+      }), maxPages: 4, timeoutMs: 5000, totalTimeoutMs: 8000, skipCompleteSnippets: true, signal }), merged, signal), value => ({ fetched: value.fetched, timedOut: Boolean(value.timedOut) })) : enrichPapersWithWebPageContent(merged, {
+        maxPages:
+          channel === "web"
+            ? Math.min(40, Math.max(20, Number(process.env.WEB_FETCH_MAX_PAGES) || 24))
+            : hasWebInMerged
+              ? Math.min(28, Math.max(10, Number(process.env.DB_WEB_FETCH_MAX_PAGES) || 18))
+              : Number(process.env.WEB_FETCH_MAX_PAGES) || 10,
+        forceFetchAll: channel === "web",
+        performanceTrace,
+      }));
       recordCountStage(performanceTrace, `${pipelineName}.page_fetch`, merged.length, webEnrich.papers?.length ?? merged.length, {
         attempted: webEnrich.attempted,
         fetched: webEnrich.fetched,
@@ -1942,7 +2007,7 @@ export async function runPaperSearch(opts) {
       console.warn("[search] web_page_fetch failed:", e?.message || e);
       sourcesUsed.push("web_page_fetch:error");
     }
-    await upsertPapers(toIngestRows(merged), `batch:${channel}:${started}`);
+    (databaseSearchFastEnabled() && channel === "database" ? observeSearchJob(traceAsync(performanceTrace, "search.database.persist", {}, () => upsertPapers(toIngestRows(merged), `batch:${channel}:${started}`)).catch(error => console.warn("[database-fast] result persistence failed", { code: error?.code }))) : await upsertPapers(toIngestRows(merged), `batch:${channel}:${started}`));
   } catch (e) {
     console.error("[search] upsert failed", e);
   }

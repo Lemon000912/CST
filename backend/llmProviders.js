@@ -131,7 +131,7 @@ export function resolvePrimaryProvider(hints = {}) {
   });
 }
 
-export function resolveProviderSlot(slot, hints = {}) {
+function resolveProviderSlotBase(slot, hints = {}) {
   const id = String(slot ?? "").trim().toUpperCase();
   if (!/^[ABC]$/.test(id)) return null;
 
@@ -235,4 +235,12 @@ export function geminiGenerateContentUrl(provider) {
   if (/:generateContent$/i.test(base)) return base;
   const model = encodeURIComponent(String(provider?.model ?? "").replace(/^models\//i, ""));
   return `${base.replace(/\/$/, "")}/models/${model}:generateContent`;
+}
+
+export function resolveProviderSlot(...args) {
+  const provider = resolveProviderSlotBase(...args);
+  if (!provider) return provider;
+  const slot = String(args[0] ?? provider.slot ?? "").toUpperCase();
+  const protocol = String(process.env["LLM_PROVIDER_" + slot + "_PROTOCOL"] ?? "").trim();
+  return ["openai_chat_completions", "gemini_generate_content"].includes(protocol) ? { ...provider, protocol } : provider;
 }

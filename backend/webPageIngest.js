@@ -205,7 +205,7 @@ async function fetchWebPageTextDirect(url, timeoutMs, signal) {
  * @param {string} url
  * @param {number} timeoutMs
  */
-export async function fetchWebPageText(url, timeoutMs = 14_000) {
+async function fetchWebPageTextBase(url, timeoutMs = 14_000) {
   const u = String(url ?? "").trim();
   if (!isFetchableUrl(u)) return { ok: false, error: "url_not_fetchable", title: "", text: "" };
 
@@ -273,9 +273,9 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
   const shortSnippet = webCandidates.filter(
     (p) => String(p.summary ?? p.abstract ?? "").trim().length < minSnippet,
   );
-  const targets = forceFetchAll
+  const targets = opts.skipCompleteSnippets ? shortSnippet.slice(0, maxPages) : (forceFetchAll
     ? webCandidates.slice(0, maxPages)
-    : (shortSnippet.length ? shortSnippet : webCandidates).slice(0, maxPages);
+    : (shortSnippet.length ? shortSnippet : webCandidates).slice(0, maxPages));
 
   let fetched = 0;
   let skipped = list.filter((p) => isWebPaper(p)).length - targets.length;
@@ -300,7 +300,7 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
       opts.performanceTrace,
       "search.web_page_fetch.item",
       { source: String(t.source ?? ""), urlHost: (() => { try { return new URL(url).hostname; } catch { return ""; } })() },
-      () => fetchWebPageText(url, timeoutMs),
+      () => fetchWebPageText(url, timeoutMs, { signal: opts.signal, totalTimeoutMs: opts.totalTimeoutMs }),
       (value) => ({ ok: Boolean(value?.ok), via: value?.via, error: value?.error }),
     );
     return { key, row, got };
@@ -353,4 +353,31 @@ export async function enrichPapersWithWebPageContent(papers, opts = {}) {
     errors,
     attempted: targets.length,
   };
+}
+
+export async function fetchWebPageText(url, timeoutMs = 14000, opts = {}) {
+  if (!opts.signal && !opts.totalTimeoutMs) return fetchWebPageTextBase(url, timeoutMs);
+  const u = String(url ?? "").trim();
+  if (!isFetchableUrl(u)) return { ok: false, error: "url_not_fetchable", title: "", text: "" };
+  const budget = Math.min(45000, Math.max(1000, Number(opts.totalTimeoutMs) || 8000));
+  const controller = new AbortController();
+  let timer, abortHandler;
+  const fallback = { ok: false, error: "page_deadline", title: "", text: "" };
+  const deadline = new Promise(resolve => {
+    abortHandler = () => { controller.abort(opts.signal.reason); resolve(fallback); };
+    opts.signal?.addEventListener("abort", abortHandler, { once: true });
+    timer = setTimeout(() => { controller.abort(new Error("page deadline")); resolve(fallback); }, budget);
+  });
+  if (opts.signal?.aborted) abortHandler();
+  const work = async () => {
+    if (controller.signal.aborted) return fallback;
+    const direct = await fetchWebPageTextDirect(u, Math.min(timeoutMs, budget), controller.signal);
+    if (direct.ok || controller.signal.aborted) return direct.ok ? direct : fallback;
+    try {
+      const official = await fetchDeepseekWebPage(u, { signal: controller.signal });
+      return official.ok ? { ...official, title: official.title || direct.title || u } : direct;
+    } catch { return direct; }
+  };
+  try { return await Promise.race([work(), deadline]); }
+  finally { clearTimeout(timer); opts.signal?.removeEventListener("abort", abortHandler); }
 }

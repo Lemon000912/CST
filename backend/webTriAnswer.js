@@ -519,7 +519,7 @@ async function arbitrateTwoWebAnswers(args) {
       { model: args.provider?.model, streaming: typeof args.onTextDelta === "function" },
       () => generateText(args.provider, {
         signal: args.signal,
-        timeoutMs: synthesisTimeoutMs(),
+        timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
         temperature: 0.1,
         maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
         system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid,
