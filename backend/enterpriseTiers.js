@@ -1,4 +1,5 @@
 import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
+import { getConfiguredAppEdition } from "./appEdition.js";
 
 export const ENTERPRISE_TIER_POINTS = 166_666;
 export const ENTERPRISE_TIER_UNITS = ENTERPRISE_TIER_POINTS * 20;
@@ -57,7 +58,7 @@ export async function setEnterpriseTier({ userId, tiers }) {
   await ensureEnterpriseTierSchema();
   const now = Date.now(), year = new Date().getFullYear(), quotaUnits = count * ENTERPRISE_TIER_UNITS;
   return withDatabaseTransaction(async tx => {
-    const user = await tx.get(tx.dialect === "postgres" ? "SELECT id FROM users WHERE id = $1" : "SELECT id FROM users WHERE id = ?", [id]);
+    const user = await tx.get(tx.dialect === "postgres" ? "SELECT id FROM users WHERE id = $1 AND edition = $2" : "SELECT id FROM users WHERE id = ? AND edition = ?", [id, getConfiguredAppEdition()]);
     if (!user) throw new EnterpriseTierError(404, "user-not-found", "用户不存在");
     const params = [id, count, year, now];
     await tx.run(tx.dialect === "postgres"

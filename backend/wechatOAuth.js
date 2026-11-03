@@ -311,14 +311,14 @@ function pruneTickets(now = Date.now()) {
 export function createWechatTicket(payload) {
   pruneTickets();
   const token = randomBytes(32).toString("base64url");
-  tickets.set(token, { ...payload, expiresAt: Date.now() + TICKET_TTL_MS });
+  tickets.set(token, { ...payload, edition: getConfiguredAppEdition(), expiresAt: Date.now() + TICKET_TTL_MS });
   return { token, expiresIn: Math.floor(TICKET_TTL_MS / 1000) };
 }
 
 export function getWechatTicket(token) {
   pruneTickets();
   const ticket = tickets.get(String(token ?? ""));
-  return ticket ? { ...ticket } : null;
+  return ticket?.edition === getConfiguredAppEdition() ? { ...ticket } : null;
 }
 
 export function consumeWechatTicket(token) {
@@ -332,7 +332,7 @@ export function updateWechatTicket(token, patch) {
   const normalized = String(token ?? "");
   const current = getWechatTicket(normalized);
   if (!current) return null;
-  const updated = { ...current, ...patch, expiresAt: current.expiresAt };
+  const updated = { ...current, ...patch, edition: current.edition, expiresAt: current.expiresAt };
   tickets.set(normalized, updated);
   return { ...updated };
 }

@@ -1,3 +1,5 @@
+import { getConfiguredAppEdition } from "./appEdition.js";
+
 const DEFAULT_SCENE = "CST_REGISTER";
 const DEFAULT_CODE_TYPE = 6;
 const DEFAULT_EXPIRE_SECONDS = 300;
@@ -29,6 +31,14 @@ function boundedInteger(raw, fallback, min, max) {
 function verificationCodeType(raw) {
   const value = Number(raw);
   return [4, 6, 8].includes(value) ? value : DEFAULT_CODE_TYPE;
+}
+
+function verificationScene(config, options) {
+  const purpose = options.purpose ?? "register";
+  if (!["register", "password-reset", "wechat-bind"].includes(purpose)) {
+    throw new TypeError("Unsupported SMS verification purpose");
+  }
+  return `${config.scene}_${getConfiguredAppEdition()}_${purpose.replaceAll("-", "_")}`;
 }
 
 export function getSmsVerificationConfig() {
@@ -129,7 +139,7 @@ export async function sendRegisterVerificationCode(phone, options = {}) {
       Sign: config.sign,
       TemplateID: config.templateId,
       PhoneNumber: String(phone),
-      Scene: config.scene,
+      Scene: verificationScene(config, options),
       UserExtCode: config.userExtCode,
       Tag: config.tag,
       CodeType: config.codeType,
@@ -171,7 +181,7 @@ export async function checkRegisterVerificationCode(phone, code, options = {}) {
     const response = await service.CheckVerifyCode({
       SmsAccount: config.smsAccount,
       PhoneNumber: String(phone),
-      Scene: config.scene,
+      Scene: verificationScene(config, options),
       Code: normalizedCode,
     });
     const failure = providerFailure(response);

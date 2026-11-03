@@ -10,6 +10,8 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureServerPdfSchema, ensureSearchTrgmIndexes } from "./serverPdfSchema.js";
+import { getConfiguredAppEdition } from "./appEdition.js";
+import { migrateAccountEditions } from "./accountEditionMigration.js";
 
 dotenv.config();
 
@@ -126,7 +128,7 @@ function makeSqliteFacade(raw, transaction) {
     get: (sql, params = []) => withSqliteAccess(() => raw.get(sql, params)),
     all: (sql, params = []) => withSqliteAccess(() => raw.all(sql, params)),
     exec: (sql) => withSqliteAccess(() => raw.exec(sql)),
-    _transaction: (callback) => withSqliteAccess(() => transaction(callback)),
+    _transaction: (callback, options) => withSqliteAccess(() => transaction(callback, options)),
   };
 }
 
@@ -145,7 +147,8 @@ export async function getSqliteDb() {
           all: (sql, params = []) => db.all(sql, params),
           exec: (sql) => db.exec(sql),
         };
-        return makeSqliteFacade(raw, async (callback) => {
+        return makeSqliteFacade(raw, async (callback, { foreignKeysOff = false } = {}) => {
+          if (foreignKeysOff) await raw.exec("PRAGMA foreign_keys = OFF");
           await raw.exec("BEGIN IMMEDIATE");
           const tx = { dialect: "sqlite", ...raw };
           try {
@@ -159,6 +162,8 @@ export async function getSqliteDb() {
               // Preserve the transaction error.
             }
             throw error;
+          } finally {
+            await raw.exec("PRAGMA foreign_keys = ON");
           }
         });
       }
@@ -209,6 +214,10 @@ export async function getSqliteDb() {
             // Preserve the original persistence error.
           }
           throw error;
+        } finally {
+          // sql.js export resets connection pragmas. Keep constraints active
+          // after every persisted write, including the edition foreign key.
+          enableSqlJsForeignKeys();
         }
       };
 
@@ -259,9 +268,10 @@ export async function getSqliteDb() {
             persistSqlJsDb();
           },
         },
-        async (callback) => {
+        async (callback, { foreignKeysOff = false } = {}) => {
           const snapshot = db.export();
           try {
+            await raw.exec(`PRAGMA foreign_keys = ${foreignKeysOff ? "OFF" : "ON"}`);
             await raw.exec("BEGIN IMMEDIATE");
             const result = await callback({ dialect: "sqlite", ...raw });
             await raw.exec("COMMIT");
@@ -276,6 +286,8 @@ export async function getSqliteDb() {
             db = new SQL.Database(snapshot);
             enableSqlJsForeignKeys();
             throw error;
+          } finally {
+            enableSqlJsForeignKeys();
           }
         },
       );
@@ -387,9 +399,6 @@ export async function initDatabase() {
       `);
       await pgPool.query(`UPDATE users SET created_at = $1 WHERE created_at IS NULL`, [Date.now()]);
       await pgPool.query(`ALTER TABLE users ALTER COLUMN created_at SET NOT NULL`);
-      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users (username)`);
-      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email)`);
-      await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique ON users (phone)`);
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_wechat_identities (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
@@ -401,10 +410,7 @@ export async function initDatabase() {
           updated_at BIGINT NOT NULL
         )
       `);
-      await pgPool.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS user_wechat_identities_unionid_unique
-        ON user_wechat_identities (unionid) WHERE unionid IS NOT NULL
-      `);
+      await withDatabaseTransaction(migrateAccountEditions);
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS user_skill (
           user_id TEXT PRIMARY KEY,
@@ -758,6 +764,7 @@ export async function initDatabase() {
         updated_at INTEGER NOT NULL
       )
     `);
+    await db._transaction(migrateAccountEditions, { foreignKeysOff: true });
     await db.exec(`
       CREATE TABLE IF NOT EXISTS user_skill (
         user_id TEXT PRIMARY KEY,
@@ -1095,8 +1102,8 @@ export async function createUserRecord(id, username, passwordHash, email = null,
   return withDatabaseTransaction(async (tx) => {
     if (tx.dialect === "postgres") {
       await tx.run(
-        `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [id, username, passwordHash, email, phone, ts],
+        `INSERT INTO users (id, username, password_hash, email, phone, created_at, edition) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [id, username, passwordHash, email, phone, ts, getConfiguredAppEdition()],
       );
       await tx.run(
         `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES ($1,$2,$3,$3)`,
@@ -1110,8 +1117,8 @@ export async function createUserRecord(id, username, passwordHash, email = null,
       );
     } else {
       await tx.run(
-        `INSERT INTO users (id, username, password_hash, email, phone, created_at) VALUES (?,?,?,?,?,?)`,
-        [id, username, passwordHash, email, phone, ts],
+        `INSERT INTO users (id, username, password_hash, email, phone, created_at, edition) VALUES (?,?,?,?,?,?,?)`,
+        [id, username, passwordHash, email, phone, ts, getConfiguredAppEdition()],
       );
       await tx.run(
         `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES (?,?,?,?)`,
@@ -1275,9 +1282,9 @@ export async function findUserByWechatIdentity(identity) {
       `SELECT u.id, u.username, u.email, u.phone, u.created_at
          FROM user_wechat_identities w
          JOIN users u ON u.id = w.user_id
-        WHERE w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2)
+        WHERE u.edition = $3 AND w.edition = u.edition AND (w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2))
         LIMIT 1`,
-      [normalized.openid, normalized.unionid],
+      [normalized.openid, normalized.unionid, getConfiguredAppEdition()],
     );
     return result.rows[0] || null;
   }
@@ -1286,9 +1293,9 @@ export async function findUserByWechatIdentity(identity) {
     `SELECT u.id, u.username, u.email, u.phone, u.created_at
        FROM user_wechat_identities w
        JOIN users u ON u.id = w.user_id
-      WHERE w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)
+      WHERE (w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)) AND u.edition = ? AND w.edition = u.edition
       LIMIT 1`,
-    [normalized.openid, normalized.unionid, normalized.unionid],
+    [normalized.openid, normalized.unionid, normalized.unionid, getConfiguredAppEdition()],
   );
 }
 
@@ -1306,17 +1313,17 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
         `SELECT u.id, u.username, u.email, u.phone
            FROM user_wechat_identities w
            JOIN users u ON u.id = w.user_id
-          WHERE w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2)
+          WHERE u.edition = $3 AND w.edition = u.edition AND (w.openid = $1 OR ($2::text IS NOT NULL AND w.unionid = $2))
           LIMIT 1 FOR UPDATE`,
-        [normalized.openid, normalized.unionid],
+        [normalized.openid, normalized.unionid, getConfiguredAppEdition()],
       )
       : await tx.get(
         `SELECT u.id, u.username, u.email, u.phone
            FROM user_wechat_identities w
            JOIN users u ON u.id = w.user_id
-          WHERE w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)
+          WHERE (w.openid = ? OR (? IS NOT NULL AND w.unionid = ?)) AND u.edition = ? AND w.edition = u.edition
           LIMIT 1`,
-        [normalized.openid, normalized.unionid, normalized.unionid],
+        [normalized.openid, normalized.unionid, normalized.unionid, getConfiguredAppEdition()],
       );
     if (linked) {
       if (String(linked.phone ?? "") !== normalizedPhone) {
@@ -1330,12 +1337,12 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
 
     let user = tx.dialect === "postgres"
       ? await tx.get(
-        "SELECT id, username, email, phone FROM users WHERE phone = $1 FOR UPDATE",
-        [normalizedPhone],
+        "SELECT id, username, email, phone FROM users WHERE phone = $1 AND edition = $2 FOR UPDATE",
+        [normalizedPhone, getConfiguredAppEdition()],
       )
       : await tx.get(
-        "SELECT id, username, email, phone FROM users WHERE phone = ?",
-        [normalizedPhone],
+        "SELECT id, username, email, phone FROM users WHERE phone = ? AND edition = ?",
+        [normalizedPhone, getConfiguredAppEdition()],
       );
     let created = false;
 
@@ -1347,15 +1354,15 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
         );
       }
       const usernameTaken = tx.dialect === "postgres"
-        ? await tx.get("SELECT id FROM users WHERE username = $1", [newUser.username])
-        : await tx.get("SELECT id FROM users WHERE username = ?", [newUser.username]);
+        ? await tx.get("SELECT id FROM users WHERE username = $1 AND edition = $2", [newUser.username, getConfiguredAppEdition()])
+        : await tx.get("SELECT id FROM users WHERE username = ? AND edition = ?", [newUser.username, getConfiguredAppEdition()]);
       if (usernameTaken) {
         throw new WechatIdentityLinkError("用户名已被注册", "wechat-username-taken");
       }
       if (newUser.email) {
         const emailTaken = tx.dialect === "postgres"
-          ? await tx.get("SELECT id FROM users WHERE email = $1", [newUser.email])
-          : await tx.get("SELECT id FROM users WHERE email = ?", [newUser.email]);
+          ? await tx.get("SELECT id FROM users WHERE email = $1 AND edition = $2", [newUser.email, getConfiguredAppEdition()])
+          : await tx.get("SELECT id FROM users WHERE email = ? AND edition = ?", [newUser.email, getConfiguredAppEdition()]);
         if (emailTaken) {
           throw new WechatIdentityLinkError("邮箱已被注册", "wechat-email-taken");
         }
@@ -1363,9 +1370,9 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
 
       if (tx.dialect === "postgres") {
         await tx.run(
-          `INSERT INTO users (id, username, password_hash, email, phone, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts],
+          `INSERT INTO users (id, username, password_hash, email, phone, created_at, edition)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts, getConfiguredAppEdition()],
         );
         await tx.run(
           `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
@@ -1380,9 +1387,9 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
         );
       } else {
         await tx.run(
-          `INSERT INTO users (id, username, password_hash, email, phone, created_at)
-           VALUES (?,?,?,?,?,?)`,
-          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts],
+          `INSERT INTO users (id, username, password_hash, email, phone, created_at, edition)
+           VALUES (?,?,?,?,?,?,?)`,
+          [newUser.id, newUser.username, newUser.passwordHash, newUser.email ?? null, normalizedPhone, ts, getConfiguredAppEdition()],
         );
         await tx.run(
           `INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at)
@@ -1418,16 +1425,16 @@ export async function bindWechatIdentityByVerifiedPhone({ identity, phone, newUs
     if (tx.dialect === "postgres") {
       await tx.run(
         `INSERT INTO user_wechat_identities
-         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$6)`,
-        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts],
+         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at, edition)
+         VALUES ($1,$2,$3,$4,$5,$6,$6,$7)`,
+        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts, getConfiguredAppEdition()],
       );
     } else {
       await tx.run(
         `INSERT INTO user_wechat_identities
-         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?)`,
-        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts, ts],
+         (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at, edition)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [user.id, normalized.openid, normalized.unionid, normalized.nickname, normalized.avatarUrl, ts, ts, getConfiguredAppEdition()],
       );
     }
     return { user, created, alreadyLinked: false };
@@ -1500,15 +1507,15 @@ async function backfillPointWallets() {
 export async function findUserByUsernameKey(username) {
   if (pgPool) {
     const r = await pgPool.query(
-      `SELECT id, username, password_hash, created_at FROM users WHERE username = $1`,
-      [username]
+      `SELECT id, username, password_hash, created_at FROM users WHERE username = $1 AND edition = $2`,
+      [username, getConfiguredAppEdition()]
     );
     return r.rows[0] || null;
   } else {
     const db = await getSqliteDb();
     return await db.get(
-      `SELECT id, username, password_hash, created_at FROM users WHERE username = ?`,
-      [username]
+      `SELECT id, username, password_hash, created_at FROM users WHERE username = ? AND edition = ?`,
+      [username, getConfiguredAppEdition()]
     );
   }
 }
@@ -1516,26 +1523,26 @@ export async function findUserByUsernameKey(username) {
 export async function findUserById(id) {
   if (pgPool) {
     const r = await pgPool.query(
-      `SELECT id, username, created_at FROM users WHERE id = $1`,
-      [id]
+      `SELECT id, username, created_at FROM users WHERE id = $1 AND edition = $2`,
+      [id, getConfiguredAppEdition()]
     );
     return r.rows[0] || null;
   } else {
     const db = await getSqliteDb();
     return await db.get(
-      `SELECT id, username, created_at FROM users WHERE id = ?`,
-      [id]
+      `SELECT id, username, created_at FROM users WHERE id = ? AND edition = ?`,
+      [id, getConfiguredAppEdition()]
     );
   }
 }
 
 export async function listAllUsers() {
   if (pgPool) {
-    const r = await pgPool.query(`SELECT id, username, created_at FROM users ORDER BY created_at DESC`);
+    const r = await pgPool.query(`SELECT id, username, created_at FROM users WHERE edition = $1 ORDER BY created_at DESC`, [getConfiguredAppEdition()]);
     return r.rows;
   } else {
     const db = await getSqliteDb();
-    return await db.all(`SELECT id, username, created_at FROM users ORDER BY created_at DESC`);
+    return await db.all(`SELECT id, username, created_at FROM users WHERE edition = ? ORDER BY created_at DESC`, [getConfiguredAppEdition()]);
   }
 }
 
@@ -1916,8 +1923,8 @@ export async function updateUserInfo(userId, userInfo) {
     if (userInfo.email !== undefined) { fields.push(`email = $${idx++}`); values.push(userInfo.email); }
     if (userInfo.phone !== undefined) { fields.push(`phone = $${idx++}`); values.push(userInfo.phone); }
     if (fields.length === 0) return;
-    values.push(userId);
-    await pgPool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+    values.push(userId, getConfiguredAppEdition());
+    await pgPool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} AND edition = $${idx + 1}`, values);
   } else {
     const db = await getSqliteDb();
     const fields = [];
@@ -1925,8 +1932,8 @@ export async function updateUserInfo(userId, userInfo) {
     if (userInfo.email !== undefined) { fields.push('email = ?'); values.push(userInfo.email); }
     if (userInfo.phone !== undefined) { fields.push('phone = ?'); values.push(userInfo.phone); }
     if (fields.length === 0) return;
-    values.push(userId);
-    await db.run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
+    values.push(userId, getConfiguredAppEdition());
+    await db.run(`UPDATE users SET ${fields.join(', ')} WHERE id = ? AND edition = ?`, values);
   }
 }
 
@@ -1936,29 +1943,29 @@ export async function updateUserPassword(userId, passwordHash) {
   if (!normalizedUserId || !normalizedHash) return false;
   return withDatabaseTransaction(async (tx) => {
     const result = tx.dialect === "postgres"
-      ? await tx.run("UPDATE users SET password_hash = $1 WHERE id = $2", [normalizedHash, normalizedUserId])
-      : await tx.run("UPDATE users SET password_hash = ? WHERE id = ?", [normalizedHash, normalizedUserId]);
+      ? await tx.run("UPDATE users SET password_hash = $1 WHERE id = $2 AND edition = $3", [normalizedHash, normalizedUserId, getConfiguredAppEdition()])
+      : await tx.run("UPDATE users SET password_hash = ? WHERE id = ? AND edition = ?", [normalizedHash, normalizedUserId, getConfiguredAppEdition()]);
     return Number(result?.changes ?? 0) > 0;
   });
 }
 
 export async function findUserByPhone(phone) {
   if (pgPool) {
-    const r = await pgPool.query('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = $1', [phone]);
+    const r = await pgPool.query('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = $1 AND edition = $2', [phone, getConfiguredAppEdition()]);
     return r.rows[0] || null;
   } else {
     const db = await getSqliteDb();
-    return await db.get('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = ?', [phone]);
+    return await db.get('SELECT id, username, email, phone, password_hash, created_at FROM users WHERE phone = ? AND edition = ?', [phone, getConfiguredAppEdition()]);
   }
 }
 
 export async function findUserByEmail(email) {
   if (pgPool) {
-    const r = await pgPool.query('SELECT id, username, email, phone, created_at FROM users WHERE email = $1', [email]);
+    const r = await pgPool.query('SELECT id, username, email, phone, created_at FROM users WHERE email = $1 AND edition = $2', [email, getConfiguredAppEdition()]);
     return r.rows[0] || null;
   } else {
     const db = await getSqliteDb();
-    return await db.get('SELECT id, username, email, phone, created_at FROM users WHERE email = ?', [email]);
+    return await db.get('SELECT id, username, email, phone, created_at FROM users WHERE email = ? AND edition = ?', [email, getConfiguredAppEdition()]);
   }
 }
 

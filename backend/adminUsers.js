@@ -1,5 +1,6 @@
 import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
 import { listEnterpriseTiers } from "./enterpriseTiers.js";
+import { getConfiguredAppEdition } from "./appEdition.js";
 
 export class AdminUsersError extends Error {
   constructor(status, code, message) {
@@ -33,8 +34,8 @@ export async function listAdminUsers({ skip = 0, limit = 10, search = "", status
   const normalizedSearch = String(search || "").trim().slice(0, 100);
   const normalizedStatus = ["0", "1"].includes(String(status)) ? String(status) : "";
   const db = await getReadDb();
-  const clauses = [];
-  const params = [];
+  const clauses = [db.dialect === "postgres" ? "u.edition = $1" : "u.edition = ?"];
+  const params = [getConfiguredAppEdition()];
 
   if (normalizedStatus === "0") clauses.push("1 = 0");
   if (normalizedSearch) {
@@ -103,9 +104,9 @@ export async function deleteAdminUser({ userId, adminUserId } = {}) {
   return withDatabaseTransaction(async (tx) => {
     const user = await tx.get(
       tx.dialect === "postgres"
-        ? "SELECT id, username FROM users WHERE id = $1 FOR UPDATE"
-        : "SELECT id, username FROM users WHERE id = ?",
-      [normalizedUserId],
+        ? "SELECT id, username FROM users WHERE id = $1 AND edition = $2 FOR UPDATE"
+        : "SELECT id, username FROM users WHERE id = ? AND edition = ?",
+      [normalizedUserId, getConfiguredAppEdition()],
     );
     if (!user) {
       throw new AdminUsersError(404, "user-not-found", "用户不存在");

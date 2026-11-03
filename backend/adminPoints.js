@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { formatPointUnits, POINT_UNITS } from "./billing.js";
 import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
+import { getConfiguredAppEdition } from "./appEdition.js";
 
 const LOW_BALANCE_UNITS = 100 * POINT_UNITS;
 const MAX_ADJUSTMENT_POINTS = 10_000_000;
@@ -97,8 +98,8 @@ export async function listAdminPointUsers({ skip = 0, limit = 10, search = "", s
   const normalizedSearch = String(search || "").trim().slice(0, 100);
   const normalizedStatus = ["empty", "low", "healthy"].includes(status) ? status : "";
   const db = await getReadDb();
-  const clauses = [balanceStatusSql(normalizedStatus)];
-  const countParams = [];
+  const clauses = [balanceStatusSql(normalizedStatus), db.dialect === "postgres" ? "u.edition = $1" : "u.edition = ?"];
+  const countParams = [getConfiguredAppEdition()];
 
   if (normalizedSearch) {
     if (db.dialect === "postgres") {
@@ -153,17 +154,17 @@ export async function listAdminPointUsers({ skip = 0, limit = 10, search = "", s
            COUNT(*) AS wallet_count,
            COALESCE(SUM(balance_units), 0) AS total_balance_units,
            COUNT(*) FILTER (WHERE balance_units <= ${LOW_BALANCE_UNITS}) AS attention_count,
-           COALESCE((SELECT SUM(CASE WHEN delta_units > 0 THEN delta_units ELSE 0 END) FROM point_ledger WHERE created_at >= $1), 0) AS today_credited_units,
-           COALESCE((SELECT SUM(CASE WHEN delta_units < 0 THEN -delta_units ELSE 0 END) FROM point_ledger WHERE created_at >= $1), 0) AS today_debited_units
-         FROM point_wallets`
+           COALESCE((SELECT SUM(CASE WHEN delta_units > 0 THEN delta_units ELSE 0 END) FROM point_ledger l JOIN users u ON u.id = l.user_id WHERE l.created_at >= $1 AND u.edition = $2), 0) AS today_credited_units,
+           COALESCE((SELECT SUM(CASE WHEN delta_units < 0 THEN -delta_units ELSE 0 END) FROM point_ledger l JOIN users u ON u.id = l.user_id WHERE l.created_at >= $1 AND u.edition = $2), 0) AS today_debited_units
+         FROM point_wallets w JOIN users u ON u.id = w.user_id WHERE u.edition = $2`
       : `SELECT
            COUNT(*) AS wallet_count,
            COALESCE(SUM(balance_units), 0) AS total_balance_units,
            SUM(CASE WHEN balance_units <= ${LOW_BALANCE_UNITS} THEN 1 ELSE 0 END) AS attention_count,
-           COALESCE((SELECT SUM(CASE WHEN delta_units > 0 THEN delta_units ELSE 0 END) FROM point_ledger WHERE created_at >= ?), 0) AS today_credited_units,
-           COALESCE((SELECT SUM(CASE WHEN delta_units < 0 THEN -delta_units ELSE 0 END) FROM point_ledger WHERE created_at >= ?), 0) AS today_debited_units
-         FROM point_wallets`,
-    db.dialect === "postgres" ? [todayStart] : [todayStart, todayStart],
+           COALESCE((SELECT SUM(CASE WHEN delta_units > 0 THEN delta_units ELSE 0 END) FROM point_ledger l JOIN users u ON u.id = l.user_id WHERE l.created_at >= ? AND u.edition = ?), 0) AS today_credited_units,
+           COALESCE((SELECT SUM(CASE WHEN delta_units < 0 THEN -delta_units ELSE 0 END) FROM point_ledger l JOIN users u ON u.id = l.user_id WHERE l.created_at >= ? AND u.edition = ?), 0) AS today_debited_units
+         FROM point_wallets w JOIN users u ON u.id = w.user_id WHERE u.edition = ?`,
+    db.dialect === "postgres" ? [todayStart, getConfiguredAppEdition()] : [todayStart, getConfiguredAppEdition(), todayStart, getConfiguredAppEdition(), getConfiguredAppEdition()],
   );
 
   return {
@@ -204,8 +205,8 @@ export async function listAdminPointLedger({ userId = "", limit = 20 } = {}) {
   const normalizedLimit = Math.min(100, Math.max(1, Number(limit) || 20));
   let rows;
   if (db.dialect === "postgres") {
-    const params = [];
-    const where = normalizedUserId ? `WHERE l.user_id = $${params.push(normalizedUserId)}` : "";
+    const params = [getConfiguredAppEdition()];
+    const where = `WHERE u.edition = $1${normalizedUserId ? ` AND l.user_id = $${params.push(normalizedUserId)}` : ""}`;
     params.push(normalizedLimit);
     rows = await db.all(
       `SELECT l.*, u.username FROM point_ledger l
@@ -216,9 +217,9 @@ export async function listAdminPointLedger({ userId = "", limit = 20 } = {}) {
   } else {
     rows = await db.all(
       `SELECT l.*, u.username FROM point_ledger l
-       LEFT JOIN users u ON u.id = l.user_id ${normalizedUserId ? "WHERE l.user_id = ?" : ""}
+       LEFT JOIN users u ON u.id = l.user_id WHERE u.edition = ? ${normalizedUserId ? "AND l.user_id = ?" : ""}
        ORDER BY l.created_at DESC LIMIT ?`,
-      normalizedUserId ? [normalizedUserId, normalizedLimit] : [normalizedLimit],
+      normalizedUserId ? [getConfiguredAppEdition(), normalizedUserId, normalizedLimit] : [getConfiguredAppEdition(), normalizedLimit],
     );
   }
   return rows.map(publicLedgerEntry);
@@ -243,7 +244,7 @@ export async function adjustAdminUserPoints({ userId, mode, amount, reason, idem
 
   return withDatabaseTransaction(async (tx) => {
     const placeholder = tx.dialect === "postgres" ? "$1" : "?";
-    const user = await tx.get(`SELECT id, username FROM users WHERE id = ${placeholder}`, [normalizedUserId]);
+    const user = await tx.get(`SELECT id, username FROM users WHERE id = ${placeholder} AND edition = ${tx.dialect === "postgres" ? "$2" : "?"}`, [normalizedUserId, getConfiguredAppEdition()]);
     if (!user) throw new AdminPointsError(404, "user-not-found", "用户不存在");
 
     const existing = await tx.get(

@@ -320,6 +320,9 @@ export default function LoginScreen({
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
             {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : edition === "finance" ? "数智通" : "企业版"}
           </p>
+          <p className="mt-2 text-[12px] text-[var(--t-text-muted)]">
+            校园版、企业版、金融版账号独立，首次使用当前版本需单独注册。
+          </p>
         </div>
 
         {mode === "wechat" ? (

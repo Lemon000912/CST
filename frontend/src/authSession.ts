@@ -1,8 +1,9 @@
 import type { PointBalance } from "./types";
 import { getUserId } from "./userId";
+import { APP_EDITION } from "./edition";
 
-const TOKEN_KEY = "paper-query-jwt-v1";
-const PROFILE_KEY = "paper-query-auth-profile-v1";
+const TOKEN_KEY = `paper-query-jwt-v2:${APP_EDITION}`;
+const PROFILE_KEY = `paper-query-auth-profile-v2:${APP_EDITION}`;
 
 export type AuthProfile = { userId: string; username: string; billing?: PointBalance };
 

@@ -44,9 +44,9 @@ test("admin users include phone and permanent deletion purges account data", asy
   const now = Date.now();
   await db.run(
     `INSERT INTO user_wechat_identities
-     (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?)`,
-    ["admin-users-target", "openid-target", null, "Target", null, now, now],
+     (user_id, openid, unionid, nickname, avatar_url, created_at, updated_at, edition)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    ["admin-users-target", "openid-target", null, "Target", null, now, now, "school"],
   );
   await db.run(
     "INSERT INTO user_skill (user_id, persona_id, favorite_keywords, downloaded_papers, answer_feedback, updated_at) VALUES (?,?,?,?,?,?)",

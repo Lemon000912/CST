@@ -174,10 +174,12 @@ export async function verifyUserPassword(plain, hash) {
 
 export async function signAuthToken(userId, username) {
   const secret = getJwtSecret();
-  return new SignJWT({ name: String(username ?? "").slice(0, 64) })
+  const edition = getConfiguredAppEdition();
+  return new SignJWT({ name: String(username ?? "").slice(0, 64), edition })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(String(userId))
     .setIssuer(JWT_ISS)
+    .setAudience(`paper-query:${edition}`)
     .setIssuedAt()
     .setExpirationTime("30d")
     .sign(secret);
@@ -187,9 +189,12 @@ export async function signAuthToken(userId, username) {
 export async function verifyAuthToken(token) {
   try {
     const secret = getJwtSecret();
-    const { payload } = await jwtVerify(String(token ?? "").trim(), secret, { issuer: JWT_ISS });
+    const edition = getConfiguredAppEdition();
+    const { payload } = await jwtVerify(String(token ?? "").trim(), secret, {
+      issuer: JWT_ISS, audience: `paper-query:${edition}`, algorithms: ["HS256"],
+    });
     const sub = payload.sub;
-    if (!sub) return null;
+    if (!sub || payload.edition !== edition) return null;
     return { userId: String(sub), username: String(payload.name ?? "") };
   } catch (error) {
     if (error instanceof AuthConfigurationError) throw error;
@@ -203,7 +208,7 @@ export async function resolveUserIdFromRequest(req) {
   if (typeof h === "string" && /^Bearer\s+/i.test(h)) {
     const token = h.replace(/^Bearer\s+/i, "").trim();
     const v = await verifyAuthToken(token);
-    if (v?.userId) return String(v.userId).slice(0, 128);
+    if (v?.userId && await findUserById(v.userId)) return String(v.userId).slice(0, 128);
   }
   // Never trust caller-controlled identity fields. Private user data may only
   // be addressed by the subject of a server-verified bearer token.
@@ -359,7 +364,7 @@ export async function handleSendPasswordResetSmsCode(req, res) {
       return res.status(404).json({ error: "该手机号尚未注册", code: "phone-not-registered" });
     }
 
-    const sent = await sendRegisterVerificationCode(ph.phone);
+    const sent = await sendRegisterVerificationCode(ph.phone, { purpose: "password-reset" });
     return res.json({ ok: true, expiresIn: sent.expiresIn });
   } catch (error) {
     if (error instanceof SmsVerificationError) {
@@ -383,7 +388,7 @@ export async function handleResetPassword(req, res) {
       return res.status(404).json({ error: "该手机号尚未注册", code: "phone-not-registered" });
     }
 
-    await checkRegisterVerificationCode(ph.phone, req.body?.smsCode);
+    await checkRegisterVerificationCode(ph.phone, req.body?.smsCode, { purpose: "password-reset" });
     const passwordHash = await hashUserPassword(p.password);
     const updated = await updateUserPassword(existingPhone.id, passwordHash);
     if (!updated) {
@@ -536,7 +541,7 @@ export async function handleSendWechatBindSmsCode(req, res) {
     if (!phoneResult.ok) {
       return res.status(400).json({ error: phoneResult.error, code: "invalid-phone" });
     }
-    const sent = await sendRegisterVerificationCode(phoneResult.phone);
+    const sent = await sendRegisterVerificationCode(phoneResult.phone, { purpose: "wechat-bind" });
     return res.json({ ok: true, expiresIn: sent.expiresIn });
   } catch (error) {
     if (error instanceof SmsVerificationError) {
@@ -566,7 +571,7 @@ export async function handleWechatBindPhone(req, res) {
         });
       }
     } else {
-      await checkRegisterVerificationCode(phoneResult.phone, req.body?.smsCode);
+      await checkRegisterVerificationCode(phoneResult.phone, req.body?.smsCode, { purpose: "wechat-bind" });
       updateWechatTicket(ticketToken, { verifiedPhone: phoneResult.phone });
     }
 
@@ -717,7 +722,11 @@ export async function handleLogin(req, res) {
       }
       row = await findUserByUsernameKey(u.username);
     }
-    if (!row || !(await verifyUserPassword(password, row.password_hash))) {
+    if (!row) {
+      const label = { school: "校园版", enterprise: "企业版", finance: "金融版" }[getConfiguredAppEdition()];
+      return res.status(401).json({ error: `该账号尚未注册${label}，请先注册`, code: "account-not-registered-in-edition" });
+    }
+    if (!(await verifyUserPassword(password, row.password_hash))) {
       return res.status(401).json({ error: "手机号或管理员账号、密码错误" });
     }
     const token = await signAuthToken(row.id, row.username);

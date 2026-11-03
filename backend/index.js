@@ -3085,8 +3085,8 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
 
     if (pgPool) {
       const [usersResult, searchesResult] = await Promise.all([
-        pgPool.query("SELECT COUNT(*) AS total FROM users"),
-        pgPool.query("SELECT COUNT(*) AS total FROM query_log WHERE ts >= $1", [todayStart.getTime()]),
+        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1", [APP_EDITION]),
+        pgPool.query("SELECT COUNT(*) AS total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND u.edition = $2", [todayStart.getTime(), APP_EDITION]),
       ]);
       totalUsers = parseInt(usersResult.rows[0]?.total ?? "0") || 0;
       todaySearches = parseInt(searchesResult.rows[0]?.total ?? "0") || 0;
@@ -3098,8 +3098,8 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
         const nextDate = new Date(date);
         nextDate.setDate(nextDate.getDate() + 1);
         const dayResult = await pgPool.query(
-          "SELECT COUNT(*) AS count FROM query_log WHERE ts >= $1 AND ts < $2",
-          [date.getTime(), nextDate.getTime()],
+          "SELECT COUNT(*) AS count FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND q.ts < $2 AND u.edition = $3",
+          [date.getTime(), nextDate.getTime(), APP_EDITION],
         );
         weeklyTrend.push({
           date: date.toISOString().slice(0, 10),
@@ -3108,11 +3108,11 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
       }
     } else {
       const db = await getSqliteDb();
-      const usersResult = await db.all("SELECT COUNT(*) as total FROM users");
+      const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ?", [APP_EDITION]);
       totalUsers = usersResult[0]?.total || 0;
       const searchesResult = await db.all(
-        "SELECT COUNT(*) as total FROM query_log WHERE ts >= ?",
-        [todayStart.getTime()],
+        "SELECT COUNT(*) as total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND u.edition = ?",
+        [todayStart.getTime(), APP_EDITION],
       );
       todaySearches = searchesResult[0]?.total || 0;
 
@@ -3123,8 +3123,8 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
         const nextDate = new Date(date);
         nextDate.setDate(nextDate.getDate() + 1);
         const dayResult = await db.all(
-          "SELECT COUNT(*) as count FROM query_log WHERE ts >= ? AND ts < ?",
-          [date.getTime(), nextDate.getTime()],
+          "SELECT COUNT(*) as count FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND q.ts < ? AND u.edition = ?",
+          [date.getTime(), nextDate.getTime(), APP_EDITION],
         );
         weeklyTrend.push({
           date: date.toISOString().slice(0, 10),
@@ -3638,15 +3638,15 @@ app.get("/api/v1/admin/logs/searches", async (req, res) => {
     let logs = [];
     if (pgPool) {
       const result = await pgPool.query(
-        "SELECT query, result_count, ts FROM query_log ORDER BY ts DESC LIMIT $1 OFFSET $2",
-        [limit, skip],
+        "SELECT q.query, q.result_count, q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE u.edition = $3 ORDER BY q.ts DESC LIMIT $1 OFFSET $2",
+        [limit, skip, APP_EDITION],
       );
       logs = result.rows;
     } else {
       const db = await getSqliteDb();
       logs = await db.all(
-        "SELECT query, result_count, ts FROM query_log ORDER BY ts DESC LIMIT ? OFFSET ?",
-        [limit, skip],
+        "SELECT q.query, q.result_count, q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE u.edition = ? ORDER BY q.ts DESC LIMIT ? OFFSET ?",
+        [APP_EDITION, limit, skip],
       );
     }
     res.json({

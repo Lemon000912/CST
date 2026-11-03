@@ -9,6 +9,7 @@ import {
 } from "../smsVerification.js";
 
 const ENV_KEYS = [
+  "APP_EDITION",
   "VOLC_ACCESSKEY",
   "VOLC_SECRETKEY",
   "VOLC_SMS_ACCOUNT",
@@ -23,6 +24,7 @@ const ENV_KEYS = [
 function configuredEnv(t) {
   const original = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
+    APP_EDITION: "school",
     VOLC_ACCESSKEY: "ak-test",
     VOLC_SECRETKEY: "sk-test",
     VOLC_SMS_ACCOUNT: "account-test",
@@ -77,7 +79,7 @@ test("sending a register code uses the provider verification API", async (t) => 
   const result = await sendRegisterVerificationCode("13800138000", { service });
   assert.equal(result.expiresIn, 300);
   assert.equal(payload.PhoneNumber, "13800138000");
-  assert.equal(payload.Scene, "CST_REGISTER");
+  assert.equal(payload.Scene, "CST_REGISTER_school_register");
   assert.equal(payload.CodeType, 6);
 });
 
@@ -97,4 +99,30 @@ test("checking a register code distinguishes success, error, and expiry", async 
     checkRegisterVerificationCode("13800138000", "123456", { service: expired }),
     (error) => error instanceof SmsVerificationError && error.code === "sms-code-expired",
   );
+});
+
+test("verification codes cannot be reused across editions or purposes", async (t) => {
+  configuredEnv(t);
+  const issued = new Set();
+  const service = {
+    async SendVerifyCode(payload) {
+      issued.add(`${payload.PhoneNumber}:${payload.Scene}`);
+      return { Result: { MessageID: ["test-message"] } };
+    },
+    async CheckVerifyCode(payload) {
+      return { Result: issued.has(`${payload.PhoneNumber}:${payload.Scene}`) ? "0" : "1" };
+    },
+  };
+  await sendRegisterVerificationCode("13800138000", { service });
+  for (const edition of ["enterprise", "finance"]) {
+    process.env.APP_EDITION = edition;
+    await assert.rejects(checkRegisterVerificationCode("13800138000", "123456", { service }), e => e.code === "sms-code-incorrect");
+  }
+  process.env.APP_EDITION = "school";
+  for (const purpose of ["password-reset", "wechat-bind"]) {
+    await assert.rejects(checkRegisterVerificationCode("13800138000", "123456", { service, purpose }), e => e.code === "sms-code-incorrect");
+    await sendRegisterVerificationCode("13800138000", { service, purpose });
+    assert.equal(await checkRegisterVerificationCode("13800138000", "123456", { service, purpose }), true);
+  }
+  assert.equal(await checkRegisterVerificationCode("13800138000", "123456", { service }), true);
 });

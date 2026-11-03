@@ -1,3 +1,4 @@
+import { getConfiguredAppEdition } from "./appEdition.js";
 import { formatPointUnits } from "./billing.js";
 import { getSqliteDb, pgPool } from "./db.js";
 
@@ -109,6 +110,7 @@ function buildWhere(db, filters) {
     return db.dialect === "postgres" ? `$${params.length}` : "?";
   };
   const clauses = [
+    `u.edition = ${bind(getConfiguredAppEdition())}`,
     "o.operation_type = 'search'",
     "o.status = 'completed'",
     "o.cost_units > 0",
@@ -255,10 +257,10 @@ export async function getAdminAiQaRecord(operationId) {
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
      ${ledgerJoinSql()}
-     WHERE o.id = ${placeholder} AND o.operation_type = 'search'
+     WHERE o.id = ${placeholder} AND u.edition = ${db.dialect === "postgres" ? "$2" : "?"} AND o.operation_type = 'search'
        AND o.status = 'completed' AND o.cost_units > 0
        AND o.result_json IS NOT NULL AND ${versionCheck}`,
-    [normalizedId],
+    [normalizedId, getConfiguredAppEdition()],
   );
   if (!row) throw new AdminAiQaError(404, "ai-qa-record-not-found", "AI 问答记录不存在");
   return publicDetailRecord(row);
