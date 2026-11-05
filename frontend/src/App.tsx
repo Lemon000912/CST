@@ -10,8 +10,7 @@ import {
   useState,
 } from "react";
 import { linkifySynthesisCitations, normalizeMalformedMarkdownTables } from "./linkifySynthesis";
-import { isPatentUrl, remarkPatentLinks } from "./patentLinks";
-import { PatentDocumentPanel } from "./PatentDocumentPanel";
+import { remarkEuropeanPatentCitations } from "./patentLinks";
 import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
@@ -1398,7 +1397,7 @@ function AutoThinkingDetails({
 }
 
 /** 联网回答 [n] 引用：纯数字时显示为圆形角标（类似 DeepSeek） */
-function WebSynthCitationLink({ href, title, children }: { href?: string; title?: string; children?: ReactNode }) {
+function WebSynthCitationLink({ href, children }: { href?: string; children?: ReactNode }) {
   const h = String(href ?? "").trim();
   const label = String(children ?? "").trim();
   if (/^\d{1,2}$/.test(label) && /^https?:\/\//i.test(h)) {
@@ -1409,7 +1408,7 @@ function WebSynthCitationLink({ href, title, children }: { href?: string; title?
       </a>
     );
   }
-  return <SynthesisMarkdownLink href={href} title={title}>{children}</SynthesisMarkdownLink>;
+  return <SynthesisMarkdownLink href={href}>{children}</SynthesisMarkdownLink>;
 }
 
 /** 综述里外链：GPT 式小角标，悬停 title 显示完整 DOI / URL */
@@ -1474,7 +1473,7 @@ const SynthesisPreWithCopy = forwardRef<
   );
 });
 
-function SynthesisMarkdownLink({ href, title: linkTitle, children }: { href?: string; title?: string; children?: ReactNode }) {
+function SynthesisMarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
   const h = String(href ?? "").trim();
   if (!h) return <span className="text-[var(--t-text-dim)]">{children}</span>;
   if (!/^https?:\/\//i.test(h)) {
@@ -1483,14 +1482,6 @@ function SynthesisMarkdownLink({ href, title: linkTitle, children }: { href?: st
         href={h}
         className="font-medium text-[var(--t-prose-link)] underline-offset-2 hover:underline"
       >
-        {children}
-      </a>
-    );
-  }
-  if (isPatentUrl(h) || /^专利|^按公开号检索/.test(linkTitle ?? "")) {
-    return (
-      <a href={h} target="_blank" rel="noreferrer" title={linkTitle || h}
-        className="break-words font-medium text-[var(--t-prose-link)] underline decoration-current/40 underline-offset-2 hover:decoration-current">
         {children}
       </a>
     );
@@ -1779,11 +1770,10 @@ function AssistantBlock({
   const showDeepThinkingPanel = deepStreamEnabled && Boolean(deepSynthesisMd.trim());
   const deepThinkingResetSig = `${msg.id}|deep|${deepSynthesisMd.length}`;
   const [deepThinkingOpen, setDeepThinkingOpen] = useThinkingPanelCollapse(deepStreamDone, deepThinkingResetSig);
-  const patentLinkPlugin = useMemo(() => () => remarkPatentLinks({ papers: msg.papers }), [msg.papers]);
   const mdLinkComponents = useMemo(
     () => ({
-      a: ({ href, title, children }: { href?: string; title?: string; children?: ReactNode }) => (
-        <SynthesisMarkdownLink href={href} title={title}>{children}</SynthesisMarkdownLink>
+      a: ({ href, children }: { href?: string; children?: ReactNode }) => (
+        <SynthesisMarkdownLink href={href}>{children}</SynthesisMarkdownLink>
       ),
       pre: SynthesisPreWithCopy,
       table: ({ children }: ComponentPropsWithoutRef<"table">) => (
@@ -1805,8 +1795,8 @@ function AssistantBlock({
   );
   const webMdLinkComponents = useMemo(
     () => ({
-      a: ({ href, title, children }: { href?: string; title?: string; children?: ReactNode }) => (
-        <WebSynthCitationLink href={href} title={title}>{children}</WebSynthCitationLink>
+      a: ({ href, children }: { href?: string; children?: ReactNode }) => (
+        <WebSynthCitationLink href={href}>{children}</WebSynthCitationLink>
       ),
       pre: SynthesisPreWithCopy,
       table: ({ children }: ComponentPropsWithoutRef<"table">) => (
@@ -1903,7 +1893,7 @@ function AssistantBlock({
             </p>
           )
         ) : showWebDualPane ? null : (
-          <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>{intro}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>{intro}</ReactMarkdown>
         )}
         {databaseSynthesisWaiting ? (
           <div
@@ -1959,11 +1949,8 @@ function AssistantBlock({
                               )}
                             </p>
                           ) : null}
-                          {(msg.meta?.includePatents || msg.meta?.patentsOnly || /\b(?:CN|EP|US|WO)\d{6,14}[AB]\d?\b/i.test(synthesisMd)) && (
-                            <PatentDocumentPanel markdown={synthesisMd} papers={msg.papers} />
-                          )}
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={webMdLinkComponents}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthesisShown : synthesisMd}
                             </ReactMarkdown>
                             <TypewriterCaret visible={synthCaret} />
@@ -2110,7 +2097,7 @@ function AssistantBlock({
                     ) : null}
                     {synthesisParts.directMd ? (
                       <div className="relative max-w-full">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>
                           {synthStreamEnabled ? synthDirectShown : synthesisParts.directMd}
                         </ReactMarkdown>
                         <TypewriterCaret
@@ -2122,7 +2109,7 @@ function AssistantBlock({
                       </div>
                     ) : synthesisMd ? (
                       <div className="relative max-w-full">
-                        <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>{synthShown}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>{synthShown}</ReactMarkdown>
                         <TypewriterCaret visible={synthCaret} />
                       </div>
                     ) : null}
@@ -2135,7 +2122,7 @@ function AssistantBlock({
                           下列内容来自跑题、邻近领域或仅可类比的摘录，供拓展阅读，<strong>不构成</strong>对上文的直接结论。
                         </p>
                         <div className="relative max-w-full opacity-95">
-                          <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>{synthIndirectShown}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>{synthIndirectShown}</ReactMarkdown>
                           <TypewriterCaret
                             visible={
                               synthCaret &&
@@ -2210,7 +2197,7 @@ function AssistantBlock({
                 ) : null}
                 {deepSynthesisMd ? (
                   <div className="relative max-w-full">
-                    <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>{deepShown}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>{deepShown}</ReactMarkdown>
                     <TypewriterCaret visible={deepCaret} />
                   </div>
                 ) : null}
@@ -2261,7 +2248,7 @@ function AssistantBlock({
                 <div key={slot} className="rounded border border-[color:var(--t-br06)] bg-[var(--t-bg)] px-2 py-2">
                   <p className="mb-1 font-semibold text-[var(--t-text)]">模型 {slot}</p>
                   {md?.trim() ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={mdLinkComponents}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkEuropeanPatentCitations]} components={mdLinkComponents}>
                       {linkifySynthesisCitations(md, msg.papers)}
                     </ReactMarkdown>
                   ) : (

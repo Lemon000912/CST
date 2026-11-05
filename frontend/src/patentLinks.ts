@@ -1,46 +1,7 @@
-import type { Root, RootContent, Link, Text } from "mdast";
-import type { Paper } from "./types";
+import type { Root, RootContent, Link } from "mdast";
 
 const PUBLICATION = /\b(?:CN|EP|US|WO|JP|KR|DE|FR|GB|TW|IN)[ -]?\d{6,14}[ -]?[ABCUYTS]\d{0,2}\b/gi;
 const normalize = (value: string) => value.replace(/[ -]/g, "").toUpperCase();
-
-function safeUrl(raw: string | undefined): string | null {
-  try {
-    const url = new URL(String(raw ?? ""));
-    return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : null;
-  } catch { return null; }
-}
-
-export function isPatentUrl(raw: string): boolean {
-  try {
-    const host = new URL(raw).hostname;
-    return /(^|\.)(patents\.google\.com|epo\.org|espacenet\.com|lens\.org|freepatentsonline\.com|patentscope\.wipo\.int|cnipa\.gov\.cn|uspto\.gov|j-platpat\.inpit\.go\.jp)$/i.test(host);
-  } catch { return false; }
-}
-
-function targets(papers: Paper[]) {
-  const result = new Map<string, { page: string | null; pdf: string | null }>();
-  for (const paper of papers) {
-    // Only the record's own identifier or publication URL may establish a
-    // document target. Numbers merely mentioned in a summary are search hints.
-    const ids: string[] = String(paper.patentNumber ?? "").match(PUBLICATION) ?? [];
-    const sourceNumber = String(paper.absUrl ?? "").match(/patents\.google\.com\/patent\/([^/?#]+)/i)?.[1]?.match(PUBLICATION)?.[0];
-    if (sourceNumber && ids.length && !ids.some(id => normalize(id) === normalize(sourceNumber))) continue;
-    for (const raw of [paper.absUrl, paper.pdfUrl]) {
-      const match = String(raw ?? "").match(/patents\.google\.com\/patent\/([^/?#]+)/i);
-      if (match) ids.push(...(match[1].match(PUBLICATION) ?? []));
-    }
-    const page = safeUrl(paper.absUrl);
-    const candidate = safeUrl(paper.pdfUrl);
-    const pdf = candidate && /(?:\.pdf(?:$|[/?])|\/pdf(?:$|[/-])|\/pdf-document(?:$|[/?]))/i.test(new URL(candidate).pathname) ? candidate : null;
-    for (const id of ids) {
-      const key = normalize(id);
-      const previous = result.get(key);
-      result.set(key, { page: previous?.page ?? page, pdf: previous?.pdf ?? pdf });
-    }
-  }
-  return result;
-}
 
 export function europeanPublicationLinks(raw: string) {
   const match = normalize(raw).match(/^EP(\d{6,7})(A[12389]|B[12389])$/);
@@ -50,56 +11,55 @@ export function europeanPublicationLinks(raw: string) {
   return { pdf: `${root}/document.pdf`, html: `${root}/document.html` };
 }
 
-export function patentDocumentEntries(markdown: string, papers: Paper[] = []) {
-  // Read visible identifiers, not publication numbers hidden in citation URLs.
-  const visible = markdown.replace(/```[\s\S]*?```|`[^`]*`|https?:\/\/[^\s)>"\]]+/g, "");
-  const numbers = [...(visible.match(PUBLICATION) ?? [])];
-  const known = targets(papers);
-  if (!numbers.length) numbers.push(...known.keys());
-  return [...new Set(numbers.map(normalize))].slice(0, 12).map(number => ({
-    number,
-    source: known.get(number)?.page ?? null,
-    pdf: known.get(number)?.pdf ?? null,
-    search: `https://patents.google.com/?q=${encodeURIComponent(number)}`,
-    // An identifier-based page is an access route, not a verification that the
-    // document exists or that the answer's description matches its contents.
-    document: `https://patents.google.com/patent/${encodeURIComponent(number)}/zh`,
-    european: europeanPublicationLinks(number),
-  }));
+function publicationFromUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) return null;
+    const host = url.hostname.toLowerCase();
+    if (host === "patents.google.com") return url.pathname.match(/^\/patent\/(EP\d{6,7}[AB]\d)(?:\/|$)/i)?.[1] ?? null;
+    if (host === "data.epo.org") {
+      const rest = url.pathname.match(/\/patents\/EP(\d{7})NW([AB]\d)(?:\/|$)/i);
+      if (rest) return `EP${rest[1]}${rest[2]}`;
+      if (url.searchParams.get("cc")?.toUpperCase() === "EP") return `EP${url.searchParams.get("pn") ?? ""}${url.searchParams.get("ki") ?? ""}`;
+    }
+    if (host === "espacenet.com" || host.endsWith(".espacenet.com")) {
+      return [...(url.searchParams.get("q") ?? "").matchAll(/\bEP\d{6,7}[AB]\d\b/gi)].map(m => m[0])[0] ?? null;
+    }
+  } catch { /* Keep the original citation if its source cannot be identified. */ }
+  return null;
 }
 
-const text = (value: string): Text => ({ type: "text", value });
-const link = (label: string, url: string, title: string): Link => ({ type: "link", url, title, children: [text(label)] });
+function visibleText(node: Root | RootContent): string {
+  if (["code", "inlineCode", "html", "image", "imageReference"].includes(node.type)) return "";
+  if (node.type === "text") return node.value;
+  return "children" in node ? node.children.map(visibleText).join("") : "";
+}
 
-/** Link only Markdown text nodes: existing URLs, links and code stay intact. */
-export function remarkPatentLinks({ papers = [] }: { papers?: Paper[] } = {}) {
-  const known = targets(papers);
+/** Preserve the original answer and citation circles; change only EP targets. */
+export function remarkEuropeanPatentCitations() {
   return (tree: Root) => {
-    const visit = (node: Root | RootContent) => {
-      if (["link", "linkReference", "code", "inlineCode", "html", "image", "imageReference"].includes(node.type) || !("children" in node)) return;
-      const children: RootContent[] = [];
-      for (const child of node.children) {
-        if (child.type !== "text") { visit(child); children.push(child); continue; }
-        let cursor = 0;
-        for (const match of child.value.matchAll(PUBLICATION)) {
-          const index = match.index!;
-          children.push(text(child.value.slice(cursor, index)));
-          const number = normalize(match[0]);
-          const target = known.get(number);
-          const url = target?.page ?? target?.pdf;
-          children.push(url
-            ? link(match[0], url, "专利来源页")
-            : link(`${match[0]}（检索）`, `https://patents.google.com/?q=${encodeURIComponent(number)}`, "按公开号检索"));
-          if (target?.pdf && target.pdf !== url) {
-            children.push(text(" · "), link("原文 PDF", target.pdf, "专利原文 PDF"));
-          }
-          cursor = index + match[0].length;
-        }
-        children.push(text(child.value.slice(cursor)));
+    const visit = (node: Root | RootContent, context: string[] = []) => {
+      if (["code", "inlineCode", "html"].includes(node.type)) return;
+      if (node.type === "paragraph" || node.type === "tableCell") {
+        context = [...new Set((visibleText(node).match(PUBLICATION) ?? []).map(normalize))];
       }
-      // All inserted nodes are phrasing content; the original block hierarchy
-      // is unchanged, including headings, tables and list items.
-      node.children = children as typeof node.children;
+      if (node.type === "link") {
+        const citation = node as Link;
+        if (!/^\d{1,3}$/.test(visibleText(citation).trim())) return;
+        // Resolve a single visible publication locally. Do not choose an
+        // arbitrary version in paragraphs discussing multiple documents.
+        const contextual = context.length === 1 ? context[0] : null;
+        const source = publicationFromUrl(citation.url);
+        const number = contextual && europeanPublicationLinks(contextual) ? contextual : source;
+        if (!number || (context.length > 1 && !context.includes(normalize(number)))) return;
+        const target = europeanPublicationLinks(number);
+        if (target) {
+          citation.url = target.pdf;
+          citation.title = `European Publication Server · ${number} · PDF`;
+        }
+        return;
+      }
+      if ("children" in node) for (const child of node.children) visit(child, context);
     };
     visit(tree);
   };
