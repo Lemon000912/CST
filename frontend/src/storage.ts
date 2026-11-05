@@ -1,3 +1,5 @@
+import { loadLocalChatCache, saveLocalChatCache } from "./sessionLocalCache.js";
+import { mergeChatSessionLists } from "../../shared/chatSessionMerge.js";
 import type { ChatSession } from "./types";
 import type { AppEdition } from "./edition";
 import { getAppEdition } from "./edition";
@@ -31,15 +33,15 @@ export function clearUserSessions(userId: string, edition: AppEdition = getAppEd
 }
 
 /** 写入本地和服务端会话前移除可由 spec 重新渲染的图表静态图片。 */
+const slimCache=new WeakMap<ChatSession,ChatSession>();
+const largeLocalKeys=new Set<string>();
 export function slimSessionForStorage(s: ChatSession): ChatSession {
-  return {
+  const cached=slimCache.get(s);if(cached)return cached;
+  const slim={
     ...s,
     messages: s.messages.map((m) => {
       if (m.role !== "assistant" || !m.meta) return m;
       const meta = { ...m.meta };
-      if (meta.synthesis && meta.synthesis.length > 12_000) {
-        meta.synthesis = meta.synthesis.slice(0, 12_000) + "\n\n…(内容过长已截断)";
-      }
       if (meta.paperChart) {
         meta.paperChart = {
           ...meta.paperChart,
@@ -51,6 +53,7 @@ export function slimSessionForStorage(s: ChatSession): ChatSession {
       return { ...m, meta };
     }),
   };
+  slimCache.set(s,slim);return slim;
 }
 
 function progressiveTrim(sessions: ChatSession[]): ChatSession[] {
@@ -97,18 +100,7 @@ function progressiveTrim(sessions: ChatSession[]): ChatSession[] {
 }
 
 export function mergeChatSessions(local: ChatSession[], remote: ChatSession[]): ChatSession[] {
-  const map = new Map<string, ChatSession>();
-  for (const s of remote) {
-    if (s?.id) map.set(s.id, s);
-  }
-  for (const s of local) {
-    if (!s?.id) continue;
-    const prev = map.get(s.id);
-    if (!prev || (s.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) {
-      map.set(s.id, s);
-    }
-  }
-  return [...map.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return mergeChatSessionLists(local, remote);
 }
 
 export function loadSessions(userId?: string | null, edition: AppEdition = getAppEdition()): ChatSession[] {
@@ -135,10 +127,13 @@ export function saveSessions(
   edition: AppEdition = getAppEdition(),
 ) {
   const storageKey = getSessionKey(userId, edition);
+  void saveLocalChatCache(storageKey,sessions.map(slimSessionForStorage)).catch(e=>console.warn("[storage] durable cache failed",e));
+  if(largeLocalKeys.has(storageKey))return;
   try {
     const trimmed = progressiveTrim(sessions);
     localStorage.setItem(storageKey, JSON.stringify(trimmed));
   } catch (e) {
+    largeLocalKeys.add(storageKey);
     console.warn("[storage] saveSessions failed:", e);
     // Do not replace a valid prior snapshot with an incomplete subset.
     console.error("[storage] saveSessions failed; previous saved conversations were preserved", e);
@@ -147,4 +142,9 @@ export function saveSessions(
 
 export function sessionsPayloadForServer(sessions: ChatSession[]): ChatSession[] {
   return progressiveTrim(sessions);
+}
+
+export async function loadDurableSessions(userId?:string|null,edition:AppEdition=getAppEdition()):Promise<ChatSession[]>{
+ const legacy=loadSessions(userId,edition);
+ try{return mergeChatSessions(legacy,await loadLocalChatCache(getSessionKey(userId,edition)));}catch{return legacy;}
 }

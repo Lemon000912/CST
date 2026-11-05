@@ -1,3 +1,4 @@
+import { lockChatOwner, chatDeletions, mergeChatItem, bumpChatRevision } from "./chatSessionStore.js";
 import { databaseSearchFastEnabled, searchPapersFast, searchDoiFast } from "./databaseSearchFast.js";
 /**
  * db.js
@@ -697,6 +698,7 @@ export async function initDatabase() {
       await billingClient.query("COMMIT");
       billingClient.release();
       billingClient = null;
+      await withDatabaseTransaction(async tx => { await tx.run(`CREATE TABLE IF NOT EXISTS user_chat_session_deletions (user_id TEXT NOT NULL, edition TEXT NOT NULL, session_id TEXT NOT NULL, deleted_at BIGINT NOT NULL, PRIMARY KEY(user_id,edition,session_id))`); });
       await migrateLegacyChatSessionItems();
       await backfillPointWallets();
       databaseReady = true;
@@ -1059,7 +1061,8 @@ export async function initDatabase() {
     throw e;
   }
 
-  await migrateLegacyChatSessionItems();
+  await withDatabaseTransaction(async tx => { await tx.run(`CREATE TABLE IF NOT EXISTS user_chat_session_deletions (user_id TEXT NOT NULL, edition TEXT NOT NULL, session_id TEXT NOT NULL, deleted_at BIGINT NOT NULL, PRIMARY KEY(user_id,edition,session_id))`); });
+      await migrateLegacyChatSessionItems();
   await backfillPointWallets();
   databaseReady = true;
 }
@@ -2300,12 +2303,13 @@ async function chatSessionConflict(tx, userId, edition, current) {
     conflict: true,
     revision: Number(current.revision) || 0,
     sessions_json: JSON.stringify(await readChatSessionItems(tx, userId, edition, current.sessions_json)),
+    deletedSessionIds: await chatDeletions(tx,userId,edition),
     updatedAt: Number(current.updated_at) || 0,
   };
 }
 
 /** 读取用户聊天会话（每个会话独立存储，用户和版本严格隔离） */
-export async function getUserChatSessions(userId, edition = "school") {
+export async function getUserChatSessions(userId, edition = "school", knownRevision = null) {
   if (!userId || userId === "anonymous") return null;
   const normalizedEdition = normalizeChatEdition(edition);
   try {
@@ -2316,9 +2320,11 @@ export async function getUserChatSessions(userId, edition = "school") {
         [userId, normalizedEdition],
       );
       if (!meta.rows.length) return null;
+      if (knownRevision === Number(meta.rows[0].revision)) return { notModified: true, revision: knownRevision };
       const items = await readChatSessionItems({ dialect: "postgres", all: async (sql, params) => (await pgPool.query(sql, params)).rows }, userId, normalizedEdition, meta.rows[0].sessions_json);
       return {
         sessionsJson: JSON.stringify(items),
+        deletedSessionIds: await chatDeletions({dialect:"postgres",all:async(sql,p)=>(await pgPool.query(sql,p)).rows},userId,normalizedEdition),
         updatedAt: Number(meta.rows[0].updated_at) || 0,
         revision: Number(meta.rows[0].revision) || 0,
         schemaVersion: Math.max(Number(meta.rows[0].schema_version) || 1, 3),
@@ -2331,9 +2337,11 @@ export async function getUserChatSessions(userId, edition = "school") {
       [userId, normalizedEdition],
     );
     if (!row) return null;
+    if (knownRevision === Number(row.revision)) return { notModified: true, revision: knownRevision };
     const items = await readChatSessionItems(db, userId, normalizedEdition, row.sessions_json);
     return {
       sessionsJson: JSON.stringify(items),
+      deletedSessionIds: await chatDeletions(db,userId,normalizedEdition),
       updatedAt: Number(row.updated_at) || 0,
       revision: Number(row.revision) || 0,
       schemaVersion: Math.max(Number(row.schema_version) || 1, 3),
@@ -2365,110 +2373,22 @@ export async function saveUserChatSessions(
       ? [...new Set(deletedSessionIds.map((id) => String(id ?? "").trim()).filter(Boolean))]
       : [];
     return await withDatabaseTransaction(async (tx) => {
-      const selectMeta = tx.dialect === "postgres"
-        ? `SELECT sessions_json, updated_at, revision, schema_version
-           FROM user_chat_sessions_by_edition WHERE user_id = $1 AND edition = $2`
-        : `SELECT sessions_json, updated_at, revision, schema_version
-           FROM user_chat_sessions_by_edition WHERE user_id = ? AND edition = ?`;
-      let current = await tx.get(selectMeta, [userId, normalizedEdition]);
-      let revision;
-      let savedAt = serverTs;
-      if (isConditional) {
-        if (current) {
-          const update = await tx.run(
-            tx.dialect === "postgres"
-              ? `UPDATE user_chat_sessions_by_edition
-                 SET sessions_json = '[]', updated_at = $1, revision = revision + 1, schema_version = 3
-                 WHERE user_id = $2 AND edition = $3 AND revision = $4`
-              : `UPDATE user_chat_sessions_by_edition
-                 SET sessions_json = '[]', updated_at = ?, revision = revision + 1, schema_version = 3
-                 WHERE user_id = ? AND edition = ? AND revision = ?`,
-            tx.dialect === "postgres"
-              ? [serverTs, userId, normalizedEdition, baseRevision]
-              : [serverTs, userId, normalizedEdition, baseRevision],
-          );
-          if ((update.changes ?? 0) === 0) return chatSessionConflict(tx, userId, normalizedEdition, current);
-          revision = Number(baseRevision) + 1;
-        } else {
-          const insert = await tx.run(
-            tx.dialect === "postgres"
-              ? `INSERT INTO user_chat_sessions_by_edition
-                   (user_id, edition, sessions_json, updated_at, revision, schema_version)
-                 VALUES ($1, $2, '[]', $3, 1, 3)
-                 ON CONFLICT (user_id, edition) DO NOTHING`
-              : `INSERT INTO user_chat_sessions_by_edition
-                   (user_id, edition, sessions_json, updated_at, revision, schema_version)
-                 VALUES (?, ?, '[]', ?, 1, 3)
-                 ON CONFLICT(user_id, edition) DO NOTHING`,
-            [userId, normalizedEdition, serverTs],
-          );
-          if ((insert.changes ?? 0) === 0) {
-            current = await tx.get(selectMeta, [userId, normalizedEdition]);
-            return current
-              ? chatSessionConflict(tx, userId, normalizedEdition, current)
-              : { ok: false };
-          }
-          revision = 1;
-        }
-      } else {
-        if (!current) {
-          await tx.run(
-            tx.dialect === "postgres"
-              ? `INSERT INTO user_chat_sessions_by_edition
-                   (user_id, edition, sessions_json, updated_at, revision, schema_version)
-                 VALUES ($1, $2, '[]', $3, 1, 3)
-                 ON CONFLICT (user_id, edition) DO NOTHING`
-              : `INSERT INTO user_chat_sessions_by_edition
-                   (user_id, edition, sessions_json, updated_at, revision, schema_version)
-                 VALUES (?, ?, '[]', ?, 1, 3)
-                 ON CONFLICT(user_id, edition) DO NOTHING`,
-            [userId, normalizedEdition, serverTs],
-          );
-          current = await tx.get(selectMeta, [userId, normalizedEdition]);
-          revision = Number(current?.revision ?? 1);
-          savedAt = Number(current?.updated_at ?? serverTs);
-        } else {
-          const update = await tx.run(
-            tx.dialect === "postgres"
-              ? `UPDATE user_chat_sessions_by_edition
-                 SET sessions_json = '[]', updated_at = $1, revision = revision + 1, schema_version = 3
-                 WHERE user_id = $2 AND edition = $3`
-              : `UPDATE user_chat_sessions_by_edition
-                 SET sessions_json = '[]', updated_at = ?, revision = revision + 1, schema_version = 3
-                 WHERE user_id = ? AND edition = ?`,
-            [serverTs, userId, normalizedEdition],
-          );
-          revision = Number(current.revision || 0) + (update.changes > 0 ? 1 : 0);
-        }
-      }
-
+      const current = await lockChatOwner(tx,userId,normalizedEdition,serverTs);
+      if (isConditional && Number(current.revision)!==baseRevision) return chatSessionConflict(tx,userId,normalizedEdition,current);
+      const merged=[]; let changed=false;
       for (const item of items) {
-        await tx.run(
-          tx.dialect === "postgres"
-            ? `INSERT INTO user_chat_session_items
-                 (user_id, edition, session_id, session_json, updated_at)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (user_id, edition, session_id) DO UPDATE SET
-                 session_json = EXCLUDED.session_json, updated_at = EXCLUDED.updated_at`
-            : `INSERT INTO user_chat_session_items
-                 (user_id, edition, session_id, session_json, updated_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(user_id, edition, session_id) DO UPDATE SET
-                 session_json = excluded.session_json, updated_at = excluded.updated_at`,
-          [userId, normalizedEdition, item.id, item.json, item.updatedAt],
-        );
+        const saved=await mergeChatItem(tx,userId,normalizedEdition,JSON.parse(item.json));
+        if(saved){ merged.push(saved.session);changed ||= saved.changed; }
       }
-      for (const deletedId of deletedIds) {
-        await tx.run(
-          tx.dialect === "postgres"
-            ? `DELETE FROM user_chat_session_items
-               WHERE user_id = $1 AND edition = $2 AND session_id = $3`
-            : `DELETE FROM user_chat_session_items
-               WHERE user_id = ? AND edition = ? AND session_id = ?`,
-          [userId, normalizedEdition, deletedId],
-        );
+      for(const id of deletedIds){
+        const insert=await tx.run(tx.dialect==='postgres'
+          ? 'INSERT INTO user_chat_session_deletions(user_id,edition,session_id,deleted_at) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING'
+          : 'INSERT INTO user_chat_session_deletions(user_id,edition,session_id,deleted_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING',[userId,normalizedEdition,id,serverTs]);
+        changed ||= (insert.changes||0)>0;
+        await tx.run(tx.dialect==='postgres'?'DELETE FROM user_chat_session_items WHERE user_id=$1 AND edition=$2 AND session_id=$3':'DELETE FROM user_chat_session_items WHERE user_id=? AND edition=? AND session_id=?',[userId,normalizedEdition,id]);
       }
-      return { ok: true, revision, updatedAt: savedAt };
+      if(changed) await bumpChatRevision(tx,userId,normalizedEdition,serverTs);
+      return {ok:true,revision:Number(current.revision)+(changed?1:0),updatedAt:changed?serverTs:Number(current.updated_at),sessions:merged.filter(s=>!deletedIds.includes(s.id)),deletedSessionIds:await chatDeletions(tx,userId,normalizedEdition)};
     });
   } catch (e) {
     console.warn("[db] saveUserChatSessions failed", e?.message || e);

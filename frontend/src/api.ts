@@ -423,6 +423,7 @@ export async function searchPapersV1(
     preferenceKeywords?: string[];
     /** 同一次用户动作及其重试必须复用 */
     idempotencyKey?: string;
+    chatSession?:{sessionId:string;userMessageId:string;assistantMessageId:string};
   } = {},
 ): Promise<SearchResponse & SearchResultMeta> {
   const dm = opts.deepMine;
@@ -445,6 +446,7 @@ export async function searchPapersV1(
     timeoutMs: 900_000,
     body: JSON.stringify({
       query,
+      ...(opts.chatSession?{chatSession:opts.chatSession}:{}),
       ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 120 }),
       field: opts.field ?? "all",
       channel: opts.channel ?? "web",
@@ -538,6 +540,7 @@ export async function* searchPapersV1Stream(
   try {
     const requestBody = JSON.stringify({
       query,
+      ...(opts.chatSession?{chatSession:opts.chatSession}:{}),
       ...(opts.max != null && Number(opts.max) > 0 ? { max: opts.max } : { max: opts.channel === "database" ? 100 : 120 }),
       field: opts.field ?? "all",
       channel: opts.channel ?? "web",
@@ -976,13 +979,15 @@ export async function cancelBillingOperation(operationId: string): Promise<void>
   if (!res.ok && res.status !== 404) throw new Error(`取消操作失败（HTTP ${res.status}）`);
 }
 
-export async function fetchChatSessionsFromServer(): Promise<{
+export async function fetchChatSessionsFromServer(knownRevision:number|null=null): Promise<{
   sessions: ChatSession[];
   updatedAt: number;
   revision: number;
   schemaVersion: number;
+  deletedSessionIds?:string[];
+  notModified?:boolean;
 } | null> {
-  const res = await fetch("/api/v1/chat/sessions", { headers: headersJson() });
+  const res = await fetch(knownRevision===null?"/api/v1/chat/sessions":`/api/v1/chat/sessions?revision=${knownRevision}`, { headers: headersJson() });
   if (res.status === 401) return null;
   if (!res.ok) {
     throw new Error(`读取会话失败（${res.status}）`);
@@ -992,8 +997,11 @@ export async function fetchChatSessionsFromServer(): Promise<{
     updatedAt?: number;
     revision?: number;
     schema_version?: number;
+    deletedSessionIds?:string[];
+    notModified?:boolean;
   };
   return {
+    deletedSessionIds:data.deletedSessionIds||[],notModified:data.notModified,
     sessions: Array.isArray(data.sessions) ? data.sessions : [],
     updatedAt: Number(data.updatedAt) || 0,
     revision: Number(data.revision) || 0,
@@ -1015,6 +1023,7 @@ export async function saveChatSessionsToServer(
   sessions?: ChatSession[];
   status?: number;
   retryable?: boolean;
+  deletedSessionIds?:string[];
 }> {
   const res = await fetch("/api/v1/chat/sessions", {
     method: "PUT",
@@ -1031,6 +1040,7 @@ export async function saveChatSessionsToServer(
     try {
       const j = (await res.json()) as {
         code?: string;
+        deletedSessionIds?:string[];
         revision?: number;
         sessions?: ChatSession[];
         updatedAt?: number;
@@ -1038,6 +1048,7 @@ export async function saveChatSessionsToServer(
       return {
         ok: false,
         conflict: true,
+        deletedSessionIds:j.deletedSessionIds||[],
         revision: Number(j.revision) || 0,
         sessions: Array.isArray(j.sessions) ? j.sessions : [],
         updatedAt: Number(j.updatedAt) || 0,
@@ -1062,8 +1073,8 @@ export async function saveChatSessionsToServer(
     };
   }
   try {
-    const j = (await res.json()) as { ok?: boolean; revision?: number; updatedAt?: number };
-    return { ok: true, revision: Number(j.revision) || 0, updatedAt: Number(j.updatedAt) || 0 };
+    const j = (await res.json()) as { ok?: boolean; revision?: number; updatedAt?: number;sessions?:ChatSession[];deletedSessionIds?:string[] };
+    return { ok: true, revision: Number(j.revision) || 0, updatedAt: Number(j.updatedAt) || 0,sessions:j.sessions,deletedSessionIds:j.deletedSessionIds||[] };
   } catch {
     return { ok: true };
   }
@@ -1077,6 +1088,7 @@ export async function requestPaperChartFromPapers(
     hint?: string;
     synthesisMarkdown?: string | null;
     idempotencyKey?: string;
+    chatSession?:{sessionId:string;userMessageId:string;assistantMessageId:string};
   },
 ): Promise<PaperChartApiResult> {
   const idempotencyKey = opts.idempotencyKey ?? createIdempotencyKey();

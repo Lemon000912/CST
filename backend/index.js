@@ -1,3 +1,4 @@
+import { normalizeChatContext } from "./chatSessionStore.js";
 import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
@@ -821,7 +822,8 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
-    const row = await getUserChatSessions(userId, APP_EDITION);
+    const row = await getUserChatSessions(userId, APP_EDITION, req.query.revision!=null?Number(req.query.revision):null);
+    if (row?.notModified) return res.json({notModified:true,revision:row.revision});
     if (!row?.sessionsJson) {
       return res.json({ sessions: [], updatedAt: 0, revision: 0, schema_version: 1 });
     }
@@ -834,6 +836,7 @@ app.get("/api/v1/chat/sessions", async (req, res) => {
     }
     return res.json({
       sessions,
+      deletedSessionIds: row.deletedSessionIds || [],
       updatedAt: row.updatedAt,
       revision: row.revision ?? 0,
       schema_version: row.schemaVersion ?? 1,
@@ -888,13 +891,14 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
       }
       return res.status(409).json({
         code: "chat-sessions-conflict",
+        deletedSessionIds: result.deletedSessionIds || [],
         revision: result.revision,
         sessions: parsedSessions,
         updatedAt: result.updatedAt,
       });
     }
     if (!result.ok) return res.status(500).json({ error: "保存失败" });
-    return res.json({ ok: true, revision: result.revision, updatedAt: result.updatedAt, count: sessions.length });
+    return res.json({ ok: true, revision: result.revision, updatedAt: result.updatedAt, sessions:result.sessions, deletedSessionIds:result.deletedSessionIds, count: sessions.length });
   } catch (e) {
     console.error("[chat/sessions PUT]", e);
     return res.status(500).json({ error: e?.message || "保存会话失败" });
@@ -1988,7 +1992,8 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
             synthesisNote: "synth:paused",
             paused: true,
             pointsExhausted: budgeted.pointsExhausted,
-            adminQa: aiQaAuditResult(auditQuestion),
+            chatSession: normalizeChatContext(req.body?.chatSession),
+        adminQa: aiQaAuditResult(auditQuestion),
           },
         });
         searchPapersCache.delete(activeOperation.id);
@@ -2386,6 +2391,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
         performanceTrace: requestTrace.snapshot(),
         pdfSources: pdfJobAtCompletion?.sources ?? [],
         pdfCrawlStatus: pdfJobAtCompletion?.status,
+        chatSession: normalizeChatContext(req.body?.chatSession),
         adminQa: aiQaAuditResult(auditQuestion),
       },
     }), (value) => ({ charged: Boolean(value?.receipt) }));
@@ -2499,7 +2505,8 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
             billingDetails,
             result: {
               ...responseBody,
-              adminQa: aiQaAuditResult(currentQuestionForAudit(req.body)),
+              chatSession: normalizeChatContext(req.body?.chatSession),
+        adminQa: aiQaAuditResult(currentQuestionForAudit(req.body)),
             },
           });
           return originalJson({

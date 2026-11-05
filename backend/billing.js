@@ -1,3 +1,4 @@
+import { persistSearchSession } from "./chatSessionStore.js";
 import crypto from "node:crypto";
 import { pgPool, getSqliteDb, withDatabaseTransaction } from "./db.js";
 
@@ -583,6 +584,7 @@ export async function completeImmediateBillableOperation({
         );
       }
 
+      if(normalizedType==='search') await persistSearchSession(tx,{userId:normalizedUserId,operationId,result,receipt:finalReceipt,edition:billingDetails.edition,now});
       return {
         replayed: false,
         operation: publicOperation(await readOperationById(tx, operationId)),
@@ -725,6 +727,7 @@ export async function completeBillableOperation({
           [costUnits, detailsJson, resultJson, receiptJson, now, now, normalizedOperationId],
         );
       }
+      if(operation.operation_type==='search') await persistSearchSession(tx,{userId:normalizedUserId,operationId:normalizedOperationId,result,receipt:finalReceipt,edition:billingDetails.edition,now});
       return {
         replayed: false,
         operation: publicOperation(await readOperationById(tx, normalizedOperationId)),
