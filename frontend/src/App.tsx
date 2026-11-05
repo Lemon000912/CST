@@ -14,6 +14,7 @@ import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
+import { getEditionLogo } from "./edition";
 import type { AppEdition } from "./edition";
 import { LoadingIndicator, LoadingSpinner, RhinoAnimation } from "./LoadingIndicator";
 import {
@@ -4589,7 +4590,7 @@ export default function App({
         ].join(" ")}
       >
         <div className="qp-app-header-safe flex items-center gap-3 border-b border-[color:var(--t-br06)] px-3.5 py-3">
-          <AppLogo size="md" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="shrink-0" />
+          <AppLogo size="md" src={getEditionLogo(edition)} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold text-[var(--t-text)]">{APP_NAME}</div>
           </div>
@@ -4927,7 +4928,7 @@ export default function App({
             {!active?.messages.length && (
               <div className="relative flex min-h-[min(52vh,520px)] flex-col items-center justify-center px-4 pb-8 pt-6 text-center sm:min-h-[48vh]">
                 <div className="qp-welcome-orb" aria-hidden />
-                <AppLogo size="xl" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="relative mb-5" />
+                <AppLogo size="xl" src={getEditionLogo(edition)} className="relative mb-5" />
                 <h2 className="relative max-w-[min(92vw,560px)] text-[clamp(1.4rem,4.5vw,2rem)] font-semibold leading-snug tracking-tight text-[var(--t-text-heading)]">
                   {emptyWelcome.headline}
                 </h2>
@@ -4966,11 +4967,12 @@ export default function App({
                       active?.id != null && m.id === active.messages[active.messages.length - 1]?.id ? (
                         <RhinoAnimation
                           animate={busy}
-                          animateSrc={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined}
+                          animateSrc={edition === "school" ? undefined : getEditionLogo(edition)}
+                          completeSrc={edition === "school" ? undefined : getEditionLogo(edition)}
                           className="h-full w-full object-contain mix-blend-multiply"
                         />
                       ) : (
-                        <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                        <img src={getEditionLogo(edition)} alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
                       )
                     )}
                   </div>
@@ -5009,7 +5011,7 @@ export default function App({
             {busy && !activeAssistantShowsProgress && (
               <div className="qp-message-enter flex gap-3 sm:gap-4">
                 <div className="qp-avatar-assistant">
-                  <img src="/logo.jpg" alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
+                  <img src={getEditionLogo(edition)} alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <LoadingIndicator

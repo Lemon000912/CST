@@ -1,4 +1,5 @@
 import { APP_NAME } from "./branding";
+import { getEditionLogo } from "./edition";
 
 type Size = "sm" | "md" | "lg" | "xl";
 
@@ -12,7 +13,7 @@ const SIZE_CLASS: Record<Size, string> = {
 export function AppLogo({
   size = "sm",
   className = "",
-  src = "/logo.png",
+  src = getEditionLogo(),
 }: {
   size?: Size;
   className?: string;

@@ -17,6 +17,7 @@ import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
 import { AppLogo } from "./AppLogo";
 import type { AppEdition } from "./edition";
+import { getEditionLogo } from "./edition";
 import { buildWxLoginOptions, type WxLoginOptions } from "./wechatLoginOptions";
 
 function PreviewQrCode() {
@@ -315,7 +316,7 @@ export default function LoginScreen({
       <div className="qp-welcome-orb opacity-40" aria-hidden />
       <div className="qp-login-card">
         <div className="mb-6 text-center">
-          <AppLogo size="lg" src={edition === "finance" ? "/finance-logo.png" : edition === "enterprise" ? "/CST.png" : undefined} className="mx-auto mb-3" />
+          <AppLogo size="lg" src={getEditionLogo(edition)} className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>
           <p className="mt-1 text-[12px] text-[var(--t-text-dim)]">
             {mode === "reset" ? "通过手机号验证码重置密码" : mode === "wechat" ? "验证手机号后即可完成微信绑定" : edition === "school" ? "校园版" : edition === "finance" ? "数智通" : "企业版"}

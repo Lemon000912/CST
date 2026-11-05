@@ -1,13 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import AuthGate from "./AuthGate";
-import { APP_EDITION } from "./edition";
+import { APP_EDITION, getEditionLogo } from "./edition";
 import { ThemeProvider } from "./theme";
 import "./index.css";
 
 if (APP_EDITION === "enterprise" || APP_EDITION === "finance") {
   const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (favicon) favicon.href = APP_EDITION === "finance" ? "/finance-logo.png" : "/CST.png";
+  if (favicon) favicon.href = getEditionLogo(APP_EDITION);
 }
 
 // 错误日志上报功能

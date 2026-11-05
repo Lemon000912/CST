@@ -3,14 +3,16 @@ export function RhinoAnimation({
   className = "h-16 w-20",
   animate = true,
   animateSrc = "/rhino/rhino-generating.gif",
+  completeSrc = "/rhino/rhino-5.jpg",
 }: {
   className?: string;
   animate?: boolean;
   animateSrc?: string;
+  completeSrc?: string;
 }) {
   return (
     <img
-      src={animate ? animateSrc : "/rhino/rhino-5.jpg"}
+      src={animate ? animateSrc : completeSrc}
       alt={animate ? "正在处理" : "处理完成"}
       className={`shrink-0 rounded-md object-contain ${className}`}
       draggable={false}

@@ -1841,7 +1841,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: false,
+      allowZeroBalance: billingFreeEdition,
     });
     if (!begun.replayed) {
       startingBalanceUnits = begun.balance?.balanceUnits
@@ -2458,7 +2458,7 @@ app.post("/api/v1/search", requireAuthenticatedUser, async (req, res, next) => {
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: false,
+      allowZeroBalance: billingFreeEdition,
     });
     if (begun.replayed) {
       return res.json({

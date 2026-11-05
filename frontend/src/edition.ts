@@ -10,3 +10,11 @@ export const APP_EDITION: AppEdition = rawEdition === "enterprise"
 export function getAppEdition(): AppEdition {
   return APP_EDITION;
 }
+
+export function getEditionLogo(edition: AppEdition = APP_EDITION): string {
+  return edition === "finance"
+    ? "/finance-logo.png"
+    : edition === "enterprise"
+      ? "/CST.png"
+      : "/logo.png";
+}
