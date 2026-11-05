@@ -4,6 +4,7 @@
 import { extractCoreSearchQuery } from "./searchQueryNormalize.js";
 import { relevanceRatio } from "./paperRecommendFilter.js";
 import { webEntityAliasBoost } from "./webEntitySearch.js";
+import { isEpsPatentPaper } from "./patentSourcePolicy.js";
 import {
   BOOK_CLUE_PAGE_RE,
   extractBookTitles,
@@ -235,6 +236,7 @@ export function scoreWebPaperForAnswer(p, tokens, coreQuery, fullQuery) {
   const rel = tokens.length ? relevanceRatio(p, tokens) : 0;
   const hits = countHits(p, tokens);
   let score = rel * 100 + hits * 28;
+  if (isEpsPatentPaper(p)) score += Math.min(800, Math.max(0, Number(p.epsRelevanceScore) || 0) * 3);
 
   const industryIntent = INDUSTRY_METRIC_QUERY_RE.test(`${coreQuery} ${fullQuery}`);
   if (industryIntent && isWebPaper(p)) {

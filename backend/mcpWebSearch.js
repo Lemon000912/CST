@@ -1,4 +1,5 @@
 import { fetchEpsPatentPapers } from "./europeanPublicationServer.js";
+import { planEpsSearch } from "./epsQueryPlan.js";
 import { EPS_SOURCE } from "./patentSourcePolicy.js";
 /**
  * 可选：通过 MCP（stdio 子进程）拉取网页搜索结果，并入「网页」渠道。
@@ -1335,7 +1336,19 @@ export async function fetchPatentPapers(query, max, opts = {}) {
   if (!q) return { papers: [], note: "empty-query" };
   return fetchEpsPatentPapers(q, max, {
     signal: opts.signal,
+    effectiveQuery: opts.effectiveQuery,
+    plan: planEpsSearch,
+    cache: true,
+    onDiscovery: details => {
+      const end = opts.performanceTrace?.start?.("search.patents.eps_discovery");
+      end?.(details);
+    },
     discover: async (scopedQuery, limit, signal) => {
+      // 使用已配置的联网索引定位官方 EPS 页面，不调用任何其他专利渠道。
+      if (getDeepseekWebSearchConfig()) {
+        const result = await fetchDeepseekWebPapers(scopedQuery, limit, { signal });
+        if (result.papers?.some(p => /^https:\/\/data\.epo\.org\/publication-server\//i.test(p.absUrl))) return result;
+      }
       const cfg = getMcpWebSearchConfig();
       if (cfg && !(argsLookLikeBraveSearch(cfg.args) && !braveApiKeyPresent(cfg.env))) {
         return fetchMcpWebPapers(scopedQuery, limit, { ...opts, signal });

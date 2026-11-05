@@ -12,6 +12,7 @@ import {
   defaultModel,
   openAiChatCompletionsUrl,
   resolvePrimaryProvider,
+  resolveProviderSlot,
   safeHttpUrl,
   sanitizeModel,
 } from "./llmProviders.js";
@@ -220,7 +221,7 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
       ],
     });
 
-    if (!result.ok) {
+    if (!result.ok && !/^empty(?:_|$)/.test(String(result.error))) {
       console.error("[rewrite] LLM", provider.slot, model, result.status, result.error, result.errorBody);
       const zhFb = chineseTechnicalFallback(q);
       const ascFb = asciiKeywordFallback(q);
@@ -241,8 +242,22 @@ export async function rewriteQueryForSearch(userQuery, opts = {}) {
     }
     
     if (text && isVerboseExplanationChunk(text)) text = "";
+    if (text && /[\u4e00-\u9fff]/.test(q) && !/[a-z]{3,}/i.test(text)) text = "";
     if (!text) {
-      const fb = asciiKeywordFallback(q);
+      // 思考模型可能把很短的改写额度全部用于推理；没有正文时用独立 B 模型补一次关键词。
+      const secondary = !fromClient ? resolveProviderSlot("B") : null;
+      if (secondary && (secondary.model !== provider.model || secondary.baseUrl !== provider.baseUrl)) {
+        const retry = await generateText(secondary, {
+          timeoutMs: Math.min(6000, rewriteTimeoutMs), temperature: 0, maxTokens: 256, signal: opts.signal,
+          system: skillBlock + systemTail,
+          messages: [{ role: "user", content: convo ? `【对话上文】\n${convo}\n\n【本轮提问】\n${q}` : q }],
+        });
+        const recovered = normalizeKeywordLine(retry.text);
+        if (retry.ok && recovered && /[a-z]{3,}/i.test(recovered) && !isVerboseExplanationChunk(recovered)) {
+          return { effectiveQuery: recovered, note: "rewrite:secondary-keywords" };
+        }
+      }
+      const fb = chineseTechnicalFallback(q) || asciiKeywordFallback(q);
       if (fb) {
         return {
           effectiveQuery: fb,

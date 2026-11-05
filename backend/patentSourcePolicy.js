@@ -1,5 +1,5 @@
 // 专利渠道暂时只开放 European Publication Server；旧缓存和普通网页混入的专利页也要受此限制。
-export const PATENT_SOURCE_POLICY = "eps-only-v1";
+export const PATENT_SOURCE_POLICY = "eps-keywords-v2";
 export const EPS_SOURCE = { id: "epo_publication_server", label: "European Publication Server", domain: "data.epo.org" };
 
 export function epsDocument(number, format = "pdf") {
@@ -33,5 +33,5 @@ export function filterPatentSources(papers) {
 
 export function epsPatentInstructions(papers) {
   const allowed = Array.isArray(papers) ? "\n本轮已核验专利白名单（合并/仲裁也仅允许这些编号及链接）：" + (papers.filter(isEpsPatentPaper).map(p => `${p.patentNumber} ${p.absUrl}`).join("；") || "无，不得列具体专利") : "";
-  return "\n\n【专利来源限制（优先执行）】专利仅允许 European Publication Server 的 EP 原文。只能列出摘录中明确标注「类型:专利」且 URL 为 https://data.epo.org/publication-server/rest/v1.2/patents/ 的条目，保留该条目的 EP 公开号及原文 URL，并使用原有 [n] 引用。禁止使用 Google Patents、Espacenet、OpenAlex、CN/US/JP/WO 等其他专利渠道；禁止根据普通网页、对话历史或模型记忆补写专利、猜测 EP 同族编号、把不同编号绑定同一个引用。无符合条件的专利摘录时，不列具体专利，必要时说明「本次未检索到可核验的 EPS 专利原文」。普通网页仍可支撑非专利内容。合并或仲裁时也须删除不符合此限制的专利条目。" + allowed;
+  return "\n\n【专利来源限制（优先执行）】专利仅允许 European Publication Server 的 EP 原文。只能列出摘录中明确标注「类型:专利」且 URL 为 https://data.epo.org/publication-server/rest/v1.2/patents/ 的条目，保留该条目的 EP 公开号，使用原有 [n] 引用对应 EPS 原文，不要另列裸 URL。禁止使用 Google Patents、Espacenet、OpenAlex、CN/US/JP/WO 等其他专利渠道；禁止根据普通网页、对话历史或模型记忆补写专利、猜测 EP 同族编号、把不同编号绑定同一个引用。无符合条件的专利摘录时，不列具体专利，必要时说明「本次未检索到可核验的 EPS 专利原文」。普通网页仍可支撑非专利内容。合并或仲裁时也须删除不符合此限制的专利条目。" + allowed;
 }

@@ -857,6 +857,14 @@ async function runWebIntelSearch(opts) {
       sourcesUsed.push(`${aiProvider}:not_configured`);
       return { papers: directPapers, patents: [], sourcesUsed };
     }
+    const supportTasks = [];
+    if (includePatents) {
+      supportTasks.push(fetchPatentPapers(webSearchQ, 45, { signal, effectiveQuery, performanceTrace }));
+    }
+    for (const source of financeWebSources) {
+      supportTasks.push(fetchFinanceWebPapers(webSearchQ, Math.min(64, max + 32), source, { signal }));
+    }
+    const supportPromise = Promise.allSettled(supportTasks);
     const aiResults = await Promise.all(aiProviders.map((provider) => traceAsync(
       performanceTrace,
       `search.web.${provider}`,
@@ -870,14 +878,7 @@ async function runWebIntelSearch(opts) {
       if (result.papers?.length) sourcesUsed.push(`web:${provider}(${result.papers.length})`);
       else sourcesUsed.push(`${provider}:${result.note || "empty"}`);
     }
-    const supportTasks = [];
-    if (includePatents) {
-      supportTasks.push(fetchPatentPapers(webSearchQ, 45, { signal }));
-    }
-    for (const source of financeWebSources) {
-      supportTasks.push(fetchFinanceWebPapers(webSearchQ, Math.min(64, max + 32), source, { signal }));
-    }
-    const support = supportTasks.length ? await Promise.allSettled(supportTasks) : [];
+    const support = await supportPromise;
     const patents = [];
     const extraPapers = [];
     let index = 0;
@@ -971,7 +972,7 @@ async function runWebIntelSearch(opts) {
           performanceTrace,
           "search.web.round1.patents",
           {},
-          () => fetchPatentPapers(webPrimary, 45, { signal: taskSignal }),
+          () => fetchPatentPapers(webPrimary, 45, { signal: taskSignal, effectiveQuery, performanceTrace }),
           (value) => ({ results: Array.isArray(value?.papers) ? value.papers.length : 0 }),
         ),
     });
@@ -1607,7 +1608,7 @@ export async function runPaperSearch(opts) {
 
       supplementalTasks.push({
         name: "patents",
-        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
+        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal, effectiveQuery, performanceTrace }), (value) => ({ results: value?.papers?.length ?? 0 })),
       });
     }
 
@@ -1701,7 +1702,7 @@ export async function runPaperSearch(opts) {
 
       supplementalTasks.push({
         name: "patents",
-        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
+        promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal, effectiveQuery, performanceTrace }), (value) => ({ results: value?.papers?.length ?? 0 })),
       });
     }
 
@@ -1781,7 +1782,7 @@ export async function runPaperSearch(opts) {
 
       poTasks.push({
         name: "patents",
-        promise: fetchPatentPapers(patentQuery, 45, { signal }),
+        promise: fetchPatentPapers(patentQuery, 45, { signal, effectiveQuery, performanceTrace }),
       });
     }
     const poResults = await raceWithTimeout(poTasks, 25000, { signal });
