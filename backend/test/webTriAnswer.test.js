@@ -377,3 +377,26 @@ test("web tri keeps compatible empty draft slots when no relevant sources exist"
     });
   });
 });
+
+test("网页回答的 A、B 和仲裁均遵守 EPS 白名单，旧 Google 专利不送入摘录", async () => {
+  await withMockLlm(async ({ baseUrl, calls }) => {
+    await withEnv(providerEnv(baseUrl), async () => {
+      const url = "https://data.epo.org/publication-server/rest/v1.2/patents/EP0816797NWB1/document.pdf";
+      await synthesizeWebTriAnswer({
+        userQuery: "Alpha material performance",
+        papers: [
+          { source: "ddg_patent", patentSource: "epo_publication_server", epsVerified: true, patentNumber: "EP0816797B1", title: "Alpha material performance", summary: "Alpha material performance and strength for industrial applications.", absUrl: url, pdfUrl: url },
+          { source: "deepseek_web", title: "Alpha material patent CN105896119A", summary: "不应出现在模型摘录中", absUrl: "https://patents.google.com/patent/CN105896119A" },
+        ],
+      });
+      assert.equal(calls.length, 3);
+      for (const call of calls) {
+        const payload = JSON.stringify(call.body);
+        assert.match(payload, /专利来源限制/);
+        assert.match(payload, /EP0816797B1/);
+        assert.equal(payload.includes("CN105896119A"), false);
+        assert.equal(payload.includes("不应出现在模型摘录中"), false);
+      }
+    });
+  });
+});

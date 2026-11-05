@@ -1,3 +1,4 @@
+import { PATENT_SOURCE_POLICY, filterPatentSources, isEpsPatentPaper } from "./patentSourcePolicy.js";
 import { databaseSearchFastEnabled } from "./databaseSearchFast.js";
 import { observeSearchJob, runBoundedDatabaseWeb, runBoundedDatabaseEnrichment } from "./databaseSearchScheduling.js";
 import { upsertPapers, searchLocalPapers, searchDoiRecords, searchFullPapers, isPostgres } from "./db.js";
@@ -21,7 +22,7 @@ import {
   WEB_SITE_SOURCE_IDS,
   PUBLIC_OFFICIAL_WEB_SOURCE_IDS,
 } from "./mcpWebSearch.js";
-import { fetchOpenAlexWorks, fetchOpenAlexPatents } from "./openalex.js";
+import { fetchOpenAlexWorks } from "./openalex.js";
 import { fetchEuropePmcWorks } from "./europePmc.js";
 import { fetchScopusWorks } from "./scopusElsevier.js";
 import { fetchSemanticScholarWorks, fetchSemanticScholarByDoi } from "./semanticScholar.js";
@@ -55,8 +56,7 @@ import { fetchRedfoxDeepseekPapers, getRedfoxDeepseekConfig } from "./redfoxDeep
 
 /** @param {object} p */
 function isPatentSourcePaper(p) {
-  const s = String(p?.source ?? "");
-  return s === "patent_web" || s === "ddg_patent" || s === "openalex_patent";
+  return isEpsPatentPaper(p);
 }
 
 /** 网页渠道是否同时检索专利（默认 true；WEB_CHANNEL_PATENTS=0 则仅全网网页） */
@@ -119,7 +119,7 @@ export function buildWebPatentSearchQuery(rawQuery, effectiveQuery) {
 
 function finalizeWebPatentIntelRows(papers, max) {
   const cap = Math.min(120, Math.max(1, Number(max) || 40));
-  const arr = Array.isArray(papers) ? papers.filter(isWebPatentIntelPaper) : [];
+  const arr = Array.isArray(papers) ? filterPatentSources(papers).filter(isWebPatentIntelPaper) : [];
   const out = [];
   for (const p of arr) {
     if (isPatentSourcePaper(p)) {
@@ -343,8 +343,7 @@ function dropZeroRelevanceByTokens(papers, rawQuery, effectiveQuery, preferenceK
   if (tokens.length < 2 || papers.length <= 12) return papers;
   const scored = papers.map((p) => ({ p, c: countTokenHits(p, tokens) }));
   const isPatentSrc = (p) => {
-    const s = String(p?.source ?? "");
-    return s === "patent_web" || s === "ddg_patent" || s === "openalex_patent";
+    return isEpsPatentPaper(p);
   };
   const withHits = scored.filter((x) => x.c > 0 || isPatentSrc(x.p) || x.p?._entityCoverage);
   const withoutHits = scored.filter((x) => x.c === 0 && !isPatentSrc(x.p));
@@ -873,7 +872,6 @@ async function runWebIntelSearch(opts) {
     }
     const supportTasks = [];
     if (includePatents) {
-      supportTasks.push(fetchOpenAlexPatents(webSearchQ, 45));
       supportTasks.push(fetchPatentPapers(webSearchQ, 45, { signal }));
     }
     for (const source of financeWebSources) {
@@ -884,8 +882,6 @@ async function runWebIntelSearch(opts) {
     const extraPapers = [];
     let index = 0;
     if (includePatents) {
-      const openAlex = support[index++];
-      if (openAlex?.status === "fulfilled") patents.push(...(openAlex.value ?? []));
       const patent = support[index++];
       if (patent?.status === "fulfilled") patents.push(...(patent.value?.papers ?? []));
     }
@@ -968,16 +964,7 @@ async function runWebIntelSearch(opts) {
   );
 
   if (includePatents) {
-    webTasks.push({
-      name: "openalex_patents",
-      run: (taskSignal) => traceAsync(
-          performanceTrace,
-          "search.web.round1.openalex_patents",
-          {},
-          () => fetchOpenAlexPatents(webSearchQ, 45),
-          (rows) => ({ results: Array.isArray(rows) ? rows.length : 0 }),
-        ),
-    });
+
     webTasks.push({
       name: "patents",
       run: (taskSignal) => traceAsync(
@@ -1081,14 +1068,7 @@ async function runWebIntelSearch(opts) {
       sourcesUsed.push(`${r.name}_error`);
       continue;
     }
-    if (r.name === "openalex_patents") {
-      const oaPatPapers = Array.isArray(r.value) ? r.value : [];
-      if (oaPatPapers.length) {
-        patentSearch = patentSearch.concat(oaPatPapers);
-        sourcesUsed.push("openalex_patents");
-      }
-      continue;
-    }
+
     if (r.name === "patents") {
       const ptVal = r.value;
       const patPapers = ptVal && typeof ptVal === "object" ? (ptVal.papers ?? []) : [];
@@ -1404,7 +1384,7 @@ export async function runPaperSearch(opts) {
   }
   if (pending.length) await Promise.all(pending);
   throwIfSearchAborted(signal);
-  
+
   // 如果改写结果为空或无效，使用原始查询
   if (typoFix.hadTypo) {
     rw.note = (rw.note || "") + ` · typo:${typoFix.fixes.join(",")}`;
@@ -1441,9 +1421,10 @@ export async function runPaperSearch(opts) {
   }
 
   effectiveQuery = clampQueryForExternalApi(effectiveQuery, 400);
-  
+
   // 检查搜索结果缓存 - 使用原始查询+effectiveQuery作为缓存键
   const cacheKey = searchCache.constructor.key('search', {
+    patentSourcePolicy: PATENT_SOURCE_POLICY,
     q: rawQuery,
     eq: effectiveQuery, // 包含改写后的查询，避免改写变化时返回旧缓存
     channel,
@@ -1508,7 +1489,7 @@ export async function runPaperSearch(opts) {
     if (webIntel.papers.length) buckets.push(webIntel.papers);
   } else if (!patentsOnly && channel === "database") {
   // 数据库渠道：本地库 + 论文索引 + 专利/网页补充（网页渠道不会进入此分支）
-  
+
   // 第0层：本地数据库（PostgreSQL + SQLite）
   if (channel === "database") {
     // 1. 如果连接了 PostgreSQL (material_kb)，优先查询 DOI 记录（277万条）
@@ -1590,7 +1571,7 @@ export async function runPaperSearch(opts) {
     const aq = buildArxivSearchQuery(effectiveQuery, arxivField);
     const arxivSort = sort === "citations" ? "relevance" : mapArxivSort(sort);
     const doiHit = extractDoiCandidate(effectiveQuery);
-    
+
     /** 
      * 网页渠道：分层并行搜索策略
      * 第0层（本地保底）：SQLite 本地数据库 - 始终查询作为保底
@@ -1598,7 +1579,7 @@ export async function runPaperSearch(opts) {
      * 第2层（高质量源）：Scopus - 18秒超时
      * 第3层（补充源）：Patents, Europe PMC, MCP - 18秒超时，始终执行以获取专利和网页
      */
-    
+
     // 第0层：SQLite 部署使用本地数据库保底；PostgreSQL 部署不得再打开 sql.js。
     if (!isPostgres()) {
       const localRows = await searchLocalPapers(effectiveQuery, Math.min(60, max + 20));
@@ -1607,7 +1588,7 @@ export async function runPaperSearch(opts) {
         buckets.push(localRows.map(rowToApiPaper));
       }
     }
-    
+
     // 第1层：快速核心源（通常响应快）
     const databaseParallelJobs = databaseSearchFastEnabled() ? {
       scopus: observeSearchJob(raceWithTimeout([
@@ -1622,11 +1603,8 @@ export async function runPaperSearch(opts) {
 
     // 专利 + 全网网页：默认合并（useMcpWeb 为 false 时跳过外呼，便于离线/合规场景）
     if (useMcpWeb !== false && includePatents) {
-      // OpenAlex 专利 API（独立调用，结果标记为 openalex_patent）
-      supplementalTasks.push({
-        name: "openalex_patents",
-        promise: traceAsync(performanceTrace, "search.database.openalex_patents", {}, () => fetchOpenAlexPatents(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
-      });
+      // 专利只查询并核验 EPS 原文。
+
       supplementalTasks.push({
         name: "patents",
         promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
@@ -1658,9 +1636,9 @@ export async function runPaperSearch(opts) {
       { name: 'semantic_scholar', promise: traceAsync(performanceTrace, "search.database.semantic_scholar", {}, () => fetchSemanticScholarWorks(effectiveQuery, Math.min(50, max + 20)), (rows) => ({ results: rows?.length ?? 0 })) },
     ], 18000, { signal }); // 18秒超时
     throwIfSearchAborted(signal);
-    
+
     let arxiv = [], crossSearch = [], oaSearch = [], semanticSearch = [];
-    
+
     for (const r of layer1Results) {
       if (r.status === 'fulfilled') {
         switch (r.name) {
@@ -1674,13 +1652,13 @@ export async function runPaperSearch(opts) {
         sourcesUsed.push(`${r.name}_error`);
       }
     }
-    
+
     // 第2层：高质量源 Scopus（通常较慢但质量高）
     const scopusResult = await (databaseParallelJobs ? databaseParallelJobs.scopus : raceWithTimeout([
       { name: 'scopus', promise: traceAsync(performanceTrace, "search.database.scopus", {}, () => fetchScopusWorks(effectiveQuery, Math.min(60, max + 30)), (rows) => ({ results: rows?.length ?? 0 })) }
     ], 18000, { signal })); // 18秒超时
     throwIfSearchAborted(signal);
-    
+
     let scopusSearch = [];
     const scopusR = scopusResult[0];
     if (scopusR?.status === 'fulfilled') {
@@ -1690,10 +1668,10 @@ export async function runPaperSearch(opts) {
       console.warn('[search] scopus timeout/failed:', scopusR?.reason);
       sourcesUsed.push('scopus_error');
     }
-    
+
     // 合并前两层结果
     let crossBatches = [crossSearch, oaSearch, scopusSearch, semanticSearch];
-    
+
     // DOI精确查询（如果适用）
     if (doiHit) {
       try {
@@ -1706,10 +1684,10 @@ export async function runPaperSearch(opts) {
         console.warn('[search] doi fetch failed:', e?.message);
       }
     }
-    
+
     // 第3层：始终获取专利、网页等非文献资源（与文献合并呈现）
     let patentSearch = [], europeSearch = [];
-    
+
     const supplementalResults = await (databaseParallelJobs ? databaseParallelJobs.supplemental : (() => { const supplementalTasks = [];
 
     supplementalTasks.push({
@@ -1719,31 +1697,21 @@ export async function runPaperSearch(opts) {
 
     // 专利 + 全网网页：默认合并（useMcpWeb 为 false 时跳过外呼，便于离线/合规场景）
     if (useMcpWeb !== false && includePatents) {
-      // OpenAlex 专利 API（独立调用，结果标记为 openalex_patent）
-      supplementalTasks.push({
-        name: "openalex_patents",
-        promise: traceAsync(performanceTrace, "search.database.openalex_patents", {}, () => fetchOpenAlexPatents(effectiveQuery, 35), (rows) => ({ results: rows?.length ?? 0 })),
-      });
+      // 专利只查询并核验 EPS 原文。
+
       supplementalTasks.push({
         name: "patents",
         promise: traceAsync(performanceTrace, "search.database.patents", {}, () => fetchPatentPapers(effectiveQuery, 35, { signal }), (value) => ({ results: value?.papers?.length ?? 0 })),
       });
     }
-    
+
      return raceWithTimeout(supplementalTasks, 18000, { signal }); })());
     throwIfSearchAborted(signal);
-    
+
     for (const r of supplementalResults) {
       if (r.status === 'fulfilled') {
         switch (r.name) {
-          case "openalex_patents":
-            const oaPatVal = r.value;
-            const oaPatPapers = Array.isArray(oaPatVal) ? oaPatVal : [];
-            if (oaPatPapers.length) {
-              patentSearch = [...patentSearch, ...oaPatPapers];
-              sourcesUsed.push("openalex_patents");
-            }
-            break;
+
           case "patents":
             const ptVal = r.value;
             const patPapers = ptVal && typeof ptVal === "object" ? (ptVal.papers ?? []) : [];
@@ -1794,7 +1762,7 @@ export async function runPaperSearch(opts) {
     if (patentSearch.length) buckets.push(patentSearch);
     if (europeSearch.length) buckets.push(europeSearch);
     let interim = mergeDedupe(buckets);
-    
+
     // 如果外部源结果不足，再补充本地数据库（第0层已查询过，这里只在仍不足时追加）
     if (!isPostgres() && interim.length < max) {
       const localRows = await searchLocalPapers(effectiveQuery, max - interim.length + 15);
@@ -1805,15 +1773,12 @@ export async function runPaperSearch(opts) {
     }
   }
   } else {
-    /** 仅专利：不查论文索引、Europe PMC、网页 SERP；只并联 OpenAlex 专利 + DDG/MCP 专利 */
+    /** 仅专利：不查论文索引、Europe PMC、网页 SERP；只查询 EPS 专利原文 */
     let patentSearchOnly = [];
     const poTasks = [];
     const patentQuery = buildWebPatentSearchQuery(rawQuery, effectiveQuery);
     if (useMcpWeb !== false) {
-      poTasks.push({
-        name: "openalex_patents",
-        promise: fetchOpenAlexPatents(patentQuery, 45),
-      });
+
       poTasks.push({
         name: "patents",
         promise: fetchPatentPapers(patentQuery, 45, { signal }),
@@ -1824,15 +1789,7 @@ export async function runPaperSearch(opts) {
     for (const r of poResults) {
       if (r.status === "fulfilled") {
         switch (r.name) {
-          case "openalex_patents": {
-            const oaPatVal = r.value;
-            const oaPatPapers = Array.isArray(oaPatVal) ? oaPatVal : [];
-            if (oaPatPapers.length) {
-              patentSearchOnly = patentSearchOnly.concat(oaPatPapers);
-              sourcesUsed.push("openalex_patents");
-            }
-            break;
-          }
+
           case "patents": {
             const ptVal = r.value;
             const patPapers = ptVal && typeof ptVal === "object" ? (ptVal.papers ?? []) : [];
@@ -1859,7 +1816,7 @@ export async function runPaperSearch(opts) {
 
   const pipelineName = channel === "web" ? "search.web.pipeline" : "search.database.pipeline";
   const mergeInputCount = buckets.reduce((sum, bucket) => sum + (Array.isArray(bucket) ? bucket.length : 0), 0);
-  let merged = mergeDedupe(buckets);
+  let merged = filterPatentSources(mergeDedupe(buckets));
   recordCountStage(performanceTrace, `${pipelineName}.merge_dedupe`, mergeInputCount, merged.length, { channel });
   const explicitDirectRows = merged.filter((paper) => paper?.source === "direct_web");
   // DeepSeek rows must remain subject to strict recommendation and inclusion filters.
@@ -2013,9 +1970,9 @@ export async function runPaperSearch(opts) {
   }
 
   const latencyMs = Date.now() - started;
-  
+
   const result = {
-    papers: merged,
+    papers: filterPatentSources(merged),
     effectiveQuery,
     rewriteNote: rw.note,
     queryIntent: compactQueryIntent(queryIntent),
@@ -2026,7 +1983,7 @@ export async function runPaperSearch(opts) {
     latencyMs,
     arxivSortUsed: sort === "citations" ? "relevance" : mapArxivSort(sort),
   };
-  
+
   // 保存到缓存
   const webMinCache =
     channel === "web" && !patentsOnly
@@ -2041,6 +1998,6 @@ export async function runPaperSearch(opts) {
       `[search] skip cache (${result.papers?.length ?? 0} papers < ${webMinCache}) for "${opts.rawQuery.slice(0, 30)}..."`,
     );
   }
-  
+
   return result;
 }

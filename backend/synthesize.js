@@ -1,3 +1,4 @@
+import { filterPatentSources, epsPatentInstructions, isEpsPatentPaper } from "./patentSourcePolicy.js";
 import { sanitizeModel, defaultModel } from "./rewrite.js";
 import {
   resolvePrimaryProvider,
@@ -14,8 +15,7 @@ import {
 import { traceAsync } from "./performanceTrace.js";
 
 function isPatentPaper(p) {
-  const s = String(p?.source ?? "");
-  return s === "ddg_patent" || s === "openalex_patent";
+  return isEpsPatentPaper(p);
 }
 
 function isWebOnlyPaper(p) {
@@ -253,7 +253,7 @@ async function runSingleSynthesisModel(args) {
         timeoutMs: ms,
         temperature: 0.3,
         maxTokens: args.provider?.slot === "A" ? 16000 : 6000,
-        system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid,
+        system: skillPrefix + SYNTH_SYSTEM + patentSys + avoid + epsPatentInstructions(papers),
         messages: [
         {
           role: "user",
@@ -341,7 +341,7 @@ async function mergeConsensusMarkdown(args) {
         timeoutMs: ms,
         temperature: arbitrator ? 0.12 : 0.15,
         maxTokens: arbitrator ? 16000 : 2200,
-        system: arbitrator ? systemArb : systemMerge,
+        system: (arbitrator ? systemArb : systemMerge) + epsPatentInstructions(args.papers),
         messages: [
         {
           role: "user",
@@ -398,7 +398,7 @@ export async function synthesizeFromPapers(p) {
   if (!triCfg && !primary) {
     return { markdown: null, plan: null, planNote: null, note: "synth:no-llm-key" };
   }
-  const papers = Array.isArray(p.papers) ? p.papers : [];
+  const papers = filterPatentSources(p.papers);
   if (!papers.length) {
     return { markdown: null, plan: null, planNote: null, note: "synth:no-papers" };
   }
@@ -479,6 +479,7 @@ export async function synthesizeFromPapers(p) {
     }
 
     const merged = await mergeConsensusMarkdown({
+      papers,
       userQuery,
       markdownA: ra.markdown,
       markdownB: rb.markdown,
@@ -587,6 +588,7 @@ export async function synthesizeFromPapers(p) {
   }
 
   const merged = await mergeConsensusMarkdown({
+    papers,
     userQuery,
     markdownA: ra.markdown,
     markdownB: rb.markdown,

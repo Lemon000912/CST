@@ -1,3 +1,4 @@
+import { filterPatentSources, epsPatentInstructions, isEpsPatentPaper } from "./patentSourcePolicy.js";
 /**
  * 网页渠道：模型 A/B 独立生成联网回答，模型 C 仲裁并输出唯一终稿。
  */
@@ -30,8 +31,7 @@ function webDirectFallbackEnabled() {
 }
 
 function isPatentPaper(p) {
-  const s = String(p?.source ?? "");
-  return s === "ddg_patent" || s === "openalex_patent";
+  return isEpsPatentPaper(p);
 }
 
 function isWebPaper(p) {
@@ -284,6 +284,7 @@ function buildLiteWebAnswerBase(base, papers, userQuery, coreQuery, conversation
   });
   return {
     ...base,
+    papers: litePapers,
     userQuery: core.slice(0, ultra ? 1200 : 2000),
     excerptList: excerptList.slice(0, ultra ? 9000 : 14_000),
     userPromptBody,
@@ -327,7 +328,7 @@ async function runWebDirectKnowledgeAnswer(args) {
         timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
         temperature: 0.18,
         maxTokens: webAnswerMaxTokens(true),
-        system: skillPrefix + WEB_DIRECT_SYSTEM + avoid,
+        system: skillPrefix + WEB_DIRECT_SYSTEM + avoid + epsPatentInstructions([]),
         messages: [{ role: "user", content: `用户问题：\n${userQuery}\n\n请直接作答。` }],
         ...(typeof args.onTextDelta === "function" ? { onTextDelta: args.onTextDelta } : {}),
       }),
@@ -412,7 +413,7 @@ async function runSingleWebAnswer(args) {
           timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
           temperature: 0.12,
           maxTokens: webAnswerMaxTokens(Boolean(args.lite)),
-          system: skillPrefix + WEB_ANSWER_SYSTEM + avoid,
+          system: skillPrefix + WEB_ANSWER_SYSTEM + avoid + epsPatentInstructions(args.papers),
           messages: [
             {
               role: "user",
@@ -522,7 +523,7 @@ async function arbitrateTwoWebAnswers(args) {
         timeoutMs: args.timeoutMs ?? synthesisTimeoutMs(),
         temperature: 0.1,
         maxTokens: Math.min(8000, Math.max(4500, Number(process.env.WEB_MERGE_MAX_TOKENS) || 6000)),
-        system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid,
+        system: skillPrefix + WEB_ARBITRATE_2_SYSTEM + avoid + epsPatentInstructions(args.papers),
         messages: [
           {
             role: "user",
@@ -574,6 +575,7 @@ async function arbitrateTwoWebAnswers(args) {
  * @param {{ userQuery: string; effectiveQuery?: string; papers: object[]; apiKey?: string; model?: string; modelB?: string; chatCompletionsUrl?: string; personaSkill?: string; outputAvoidanceHint?: string }} p
  */
 export async function synthesizeWebTriAnswer(p) {
+  p = { ...p, papers: filterPatentSources(p.papers) };
   const primary = resolvePrimaryProvider(p);
   const triStatus = readTriProviderStatus(p.chatCompletionsUrl, p.model, p.modelB);
   const triProviders = triStatus.providers;
@@ -754,6 +756,7 @@ export async function synthesizeWebTriAnswer(p) {
     p.conversationContext,
   );
   const fullBase = {
+    papers,
     userQuery,
     coreQuery: picked.coreQuery,
     excerptList,
@@ -963,6 +966,7 @@ export async function synthesizeWebTriAnswer(p) {
 
   const arbitration = triProviders.C
     ? await arbitrateTwoWebAnswers({
+        papers,
         userQuery,
         coreQuery: picked.coreQuery,
         markdownA: ra.markdown,

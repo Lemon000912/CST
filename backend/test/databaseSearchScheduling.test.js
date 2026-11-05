@@ -26,7 +26,7 @@ test('all database external layers start before any source finishes',async()=>{
  const running=vm.runInNewContext('(async()=>{'+snippet+'})()',context);
  try{
  await new Promise(r=>setImmediate(r));
- assert.deepEqual([...started].sort(),['arxiv','crossref','europepmc','openalex','openalex_patents','patents','scopus','semantic','web']);
+ assert.deepEqual([...started].sort(),['arxiv','crossref','europepmc','openalex','patents','scopus','semantic','web']);
  assert.equal(webPatents,false,'patents are already queried by the supplemental source');
  }finally{release();await running;}
 });
