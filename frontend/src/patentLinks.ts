@@ -24,6 +24,8 @@ function targets(papers: Paper[]) {
     // Only the record's own identifier or publication URL may establish a
     // document target. Numbers merely mentioned in a summary are search hints.
     const ids: string[] = String(paper.patentNumber ?? "").match(PUBLICATION) ?? [];
+    const sourceNumber = String(paper.absUrl ?? "").match(/patents\.google\.com\/patent\/([^/?#]+)/i)?.[1]?.match(PUBLICATION)?.[0];
+    if (sourceNumber && ids.length && !ids.some(id => normalize(id) === normalize(sourceNumber))) continue;
     for (const raw of [paper.absUrl, paper.pdfUrl]) {
       const match = String(raw ?? "").match(/patents\.google\.com\/patent\/([^/?#]+)/i);
       if (match) ids.push(...(match[1].match(PUBLICATION) ?? []));
@@ -38,6 +40,32 @@ function targets(papers: Paper[]) {
     }
   }
   return result;
+}
+
+export function europeanPublicationLinks(raw: string) {
+  const match = normalize(raw).match(/^EP(\d{6,7})(A[12389]|B[12389])$/);
+  if (!match) return null;
+  const number = match[1].padStart(7, "0");
+  const root = `https://data.epo.org/publication-server/rest/v1.2/patents/EP${number}NW${match[2]}`;
+  return { pdf: `${root}/document.pdf`, html: `${root}/document.html` };
+}
+
+export function patentDocumentEntries(markdown: string, papers: Paper[] = []) {
+  // Read visible identifiers, not publication numbers hidden in citation URLs.
+  const visible = markdown.replace(/```[\s\S]*?```|`[^`]*`|https?:\/\/[^\s)>"\]]+/g, "");
+  const numbers = [...(visible.match(PUBLICATION) ?? [])];
+  const known = targets(papers);
+  if (!numbers.length) numbers.push(...known.keys());
+  return [...new Set(numbers.map(normalize))].slice(0, 12).map(number => ({
+    number,
+    source: known.get(number)?.page ?? null,
+    pdf: known.get(number)?.pdf ?? null,
+    search: `https://patents.google.com/?q=${encodeURIComponent(number)}`,
+    // An identifier-based page is an access route, not a verification that the
+    // document exists or that the answer's description matches its contents.
+    document: `https://patents.google.com/patent/${encodeURIComponent(number)}/zh`,
+    european: europeanPublicationLinks(number),
+  }));
 }
 
 const text = (value: string): Text => ({ type: "text", value });

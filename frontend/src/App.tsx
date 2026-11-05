@@ -11,6 +11,7 @@ import {
 } from "react";
 import { linkifySynthesisCitations, normalizeMalformedMarkdownTables } from "./linkifySynthesis";
 import { isPatentUrl, remarkPatentLinks } from "./patentLinks";
+import { PatentDocumentPanel } from "./PatentDocumentPanel";
 import { splitSynthesisMarkdown } from "./synthesisSections";
 import { PasswordInputWithToggle } from "./PasswordInputWithToggle";
 import { APP_NAME } from "./branding";
@@ -1958,6 +1959,9 @@ function AssistantBlock({
                               )}
                             </p>
                           ) : null}
+                          {(msg.meta?.includePatents || msg.meta?.patentsOnly || /\b(?:CN|EP|US|WO)\d{6,14}[AB]\d?\b/i.test(synthesisMd)) && (
+                            <PatentDocumentPanel markdown={synthesisMd} papers={msg.papers} />
+                          )}
                           <div className={`${proseTheme} qp-web-synth qp-markdown-scroll relative max-w-none`}>
                             <ReactMarkdown remarkPlugins={[remarkGfm, patentLinkPlugin]} components={webMdLinkComponents}>
                               {synthStreamEnabled ? synthesisShown : synthesisMd}

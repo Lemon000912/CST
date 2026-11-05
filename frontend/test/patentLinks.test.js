@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const source = fs.readFileSync(new URL("../src/patentLinks.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { remarkPatentLinks, isPatentUrl } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { remarkPatentLinks, isPatentUrl, europeanPublicationLinks, patentDocumentEntries } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const render = (markdown, papers = []) => renderToStaticMarkup(React.createElement(ReactMarkdown, { remarkPlugins: [remarkGfm, [remarkPatentLinks, { papers }]] }, markdown));
 
 test("有题录来源的专利显示来源页及实际提供的 PDF", () => {
@@ -58,4 +58,42 @@ test("拒绝危险 URL、凭据 URL 和伪造专利域名", () => {
 test("PDF 字段实际是专利落地页时不标注成 PDF", () => {
   const result = render("US12345678B2", [{ patentNumber: "US12345678B2", absUrl: "https://patents.google.com/patent/US12345678B2/en", pdfUrl: "https://patents.google.com/patent/US12345678B2/en" }]);
   assert.doesNotMatch(result, /原文 PDF/);
+});
+
+test("EPO 按官方 REST 1.2 格式区分 A3 与 B1，不为 CN 编造欧洲文献", () => {
+  assert.deepEqual(europeanPublicationLinks("EP0816797A3"), {
+    pdf: "https://data.epo.org/publication-server/rest/v1.2/patents/EP0816797NWA3/document.pdf",
+    html: "https://data.epo.org/publication-server/rest/v1.2/patents/EP0816797NWA3/document.html",
+  });
+  assert.match(europeanPublicationLinks("EP 0816797 B1").pdf, /EP0816797NWB1\/document.pdf$/);
+  assert.equal(europeanPublicationLinks("CN122201879A"), null);
+  assert.equal(europeanPublicationLinks("EP0816797C0"), null);
+});
+
+test("用户提供的两条专利各自生成入口，不能把引用中的其他编号当成目标", () => {
+  const markdown = '- CN122201879A《一种高性能无铜铝合金电力电缆及制备方法和应用》[2](https://patents.google.com/patent/CN105896119A/#legalEvents#3)。\n- CN122105198A《超高导电高强抗蠕变铝合金导体及制备方法、电力电缆》[2](https://patents.google.com/patent/CN105896119A/#legalEvents#3)。';
+  const entries = patentDocumentEntries(markdown, [{ patentNumber: "CN105896119A", absUrl: "https://patents.google.com/patent/CN105896119A/zh" }]);
+  assert.deepEqual(entries.map(e => e.number), ["CN122201879A", "CN122105198A"]);
+  assert.equal(entries[0].document, "https://patents.google.com/patent/CN122201879A/zh");
+  assert.equal(entries[1].document, "https://patents.google.com/patent/CN122105198A/zh");
+  assert.ok(entries.every(e => e.source === null && e.european === null));
+});
+
+test("题录编号与来源 URL 冲突时拒绝复用错误来源页及 PDF", () => {
+  const papers = [{ patentNumber: "CN122201879A", absUrl: "https://patents.google.com/patent/CN105896119A/zh", pdfUrl: "https://example.com/wrong.pdf" }];
+  const [entry] = patentDocumentEntries("CN122201879A", papers);
+  assert.equal(entry.source, null);
+  assert.equal(entry.pdf, null);
+  assert.doesNotMatch(render("CN122201879A", papers), /CN105896119A|wrong.pdf/);
+});
+
+test("原文入口忽略代码和 URL 中的编号，去重并保留独立版本", () => {
+  const entries = patentDocumentEntries("EP0816797A3 / EP0816797B1 / EP0816797A3 `CN12345678A` https://example.com/CN34567890B");
+  assert.deepEqual(entries.map(e => e.number), ["EP0816797A3", "EP0816797B1"]);
+  assert.notEqual(entries[0].european.pdf, entries[1].european.pdf);
+});
+
+test("仅题录含公开号时仍能提供原文入口，结果数量有上限", () => {
+  assert.equal(patentDocumentEntries("相关专利", [{ patentNumber: "EP0816797B1" }])[0].number, "EP0816797B1");
+  assert.equal(patentDocumentEntries(Array.from({ length: 30 }, (_, i) => `CN${122200000+i}A`).join(" ")).length, 12);
 });
