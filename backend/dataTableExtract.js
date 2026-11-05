@@ -55,6 +55,28 @@ function paperExcerptBlock(p, idx) {
   return `[${idx}] ${id}\n标题: ${title}\n摘录:\n${summary}`;
 }
 
+function tableResponseIssue(result) {
+  const finish = String(result.finishReason ?? result.json?.choices?.[0]?.finish_reason ?? result.json?.candidates?.[0]?.finishReason ?? "").toLowerCase();
+  if (["length", "max_tokens"].includes(finish) || /^empty_(?:length|max_tokens)$/i.test(result.error ?? "")) {
+    return { code: "data-table-truncated", error: "模型输出被截断，未能生成完整数据表，请减少文献数量后重试" };
+  }
+  if (!String(result.text ?? "").trim() && (result.ok || result.error === "empty" || result.reasoningText)) {
+    return { code: "data-table-empty-content", error: "模型未返回表格正文，请重试" };
+  }
+  return null;
+}
+
+function parseTableResponse(content) {
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("missing-json");
+  const parsed = JSON.parse(jsonMatch[0]);
+  const rawRows = parsed.rows ?? parsed.extractedData ?? parsed.data;
+  if (!Array.isArray(rawRows)) throw new Error("missing-rows");
+  const rows = normalizeExtractedData(rawRows);
+  if (rawRows.length && !rows.length) throw new Error("invalid-rows");
+  return { parsed, rows };
+}
+
 /**
  * @param {{ tableType: string; papers: unknown[]; synthesisMarkdown?: string; apiKey?: string; model?: string; chatCompletionsUrl?: string }} opts
  */
@@ -85,7 +107,8 @@ export async function extractDataTableByType(opts) {
     "2) 每行字段：metric（指标名）、value（数值或范围原文）、unit（单位，可空）、condition（测试/制备条件）、source_ref（[n] 或 DOI，n 与摘录序号一致）、material（样品/材料名，可选）。\n" +
     "3) 去重：完全相同指标+数值+来源只保留一行。\n" +
     "4) **只输出一个 JSON 对象**，禁止 markdown 围栏。\n" +
-    'JSON: { "title": string, "rows": [ { "metric", "value", "unit?", "condition?", "source_ref?", "material?" } ] }';
+    '5) 最多输出 80 行，字段保持简洁，优先保留指标、数值、单位与来源；禁止为了精简修改数值或丢失来源。\n' +
+    'JSON 示例结构：{"title":"表格标题","rows":[{"metric":"指标名","value":"原文数值","unit":"单位","condition":"条件","source_ref":"[1]","material":"材料名"}]}';
 
   const user =
     `【表类型】${preset.label}\n【抽取重点】${preset.focus}\n\n` +
@@ -95,31 +118,39 @@ export async function extractDataTableByType(opts) {
   const ms = Math.min(120_000, Math.max(25_000, Number(process.env.SYNTHESIS_TIMEOUT_MS) || 90_000));
 
   try {
-    const result = await generateText(provider, {
-      timeoutMs: ms,
-      temperature: 0.08,
-      maxTokens: 4000,
-      system,
-      messages: [{ role: "user", content: user }],
-    });
-    if (!result.ok) {
-      return { ok: false, error: result.errorBody || result.error, rows: [], title: preset.title };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await generateText(provider, {
+        timeoutMs: ms,
+        temperature: 0.08,
+        maxTokens: 16000,
+        system: system + (attempt ? "\n本次为精简重试：最多输出 40 行最相关数据，每个说明字段尽量简短；保留原始数值、单位和来源。只输出完整 JSON，确保闭合所有括号。" : ""),
+        messages: [{ role: "user", content: user }],
+      });
+      let issue = tableResponseIssue(result);
+      if (!issue && !result.ok) {
+        return { ok: false, error: result.errorBody || result.error, rows: [], title: preset.title };
+      }
+      let table;
+      if (!issue) {
+        try { table = parseTableResponse(result.text); }
+        catch { issue = { code: "data-table-invalid-json", error: "模型返回的表格 JSON 格式错误，请重试" }; }
+      }
+      if (issue) {
+        // Retry from the same source material. Never interpret reasoning as data
+        // or try to salvage rows from a truncated response.
+        if (attempt === 0) continue;
+        return { ok: false, ...issue, rows: [], title: preset.title };
+      }
+      const { parsed, rows } = table;
+      const title = String(parsed.title ?? preset.title).trim().slice(0, 120) || preset.title;
+      return {
+        ok: true,
+        tableType,
+        title,
+        rows,
+        note: rows.length ? `data_table:ok|type=${tableType}|n=${rows.length}` : `data_table:empty|type=${tableType}`,
+      };
     }
-    const content = result.text;
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { ok: false, error: "模型未返回有效 JSON", rows: [], title: preset.title };
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
-    const rows = normalizeExtractedData(parsed.rows ?? parsed.extractedData ?? parsed.data);
-    const title = String(parsed.title ?? preset.title).trim().slice(0, 120) || preset.title;
-    return {
-      ok: true,
-      tableType,
-      title,
-      rows,
-      note: rows.length ? `data_table:ok|type=${tableType}|n=${rows.length}` : `data_table:empty|type=${tableType}`,
-    };
   } catch (e) {
     return {
       ok: false,
