@@ -56,6 +56,9 @@ import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
 import { seedEnterpriseAdminIfEnabled } from "./seedEnterpriseAdmin.js";
 import { runPaperSearch } from "./searchService.js";
+import { schoolGuestRouter, initSchoolGuest } from "./schoolGuest.js";
+import { generateText as generateGuestAnswer } from "./llmClient.js";
+import { resolvePrimaryProvider as guestProvider } from "./llmProviders.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
 import {
@@ -640,6 +643,33 @@ app.post("/api/v1/auth/login", async (req, res) => {
 app.get("/api/v1/auth/me", async (req, res) => {
   await handleMe(req, res);
 });
+
+if (APP_EDITION === "school") {
+  app.use(["/api/v1/artifacts", "/api/v1/data-table", "/api/v1/extract", "/api/v1/gstack"], requireAuthenticatedUser);
+  app.use("/api/v1/guest", schoolGuestRouter({
+    // Local reverse proxies append the actual connecting address to X-Forwarded-For.
+    clientIp: req => req.socket.remoteAddress?.match(/^(::1$|(::ffff:)?127\.)/)
+      ? String(req.get("X-Forwarded-For") || req.socket.remoteAddress).split(",").at(-1).trim()
+      : req.socket.remoteAddress || "unknown",
+    async answer(question, signal) {
+      const search = await runPaperSearch({
+        rawQuery: question, field: "all", channel: "database", sort: "relevance", max: 5,
+        useLlmRewrite: false, useMcpWeb: false, includePatents: false, signal,
+      });
+      const sources = search.papers.slice(0, 5).map(p => ({
+        title: String(p.title || "").slice(0, 300), doi: String(p.doi || "").slice(0, 200),
+        abstract: String(p.abstract || p.summary || "").slice(0, 600),
+      }));
+      const response = await generateGuestAnswer(guestProvider(), {
+        system: "你是校园科研助手。用中文简明回答问题。引用检索资料时使用序号，不编造来源。资料不足时说明局限。",
+        messages: [{ role: "user", content: JSON.stringify({ question, sources }) }],
+        maxTokens: 650, timeoutMs: 45000, signal,
+      });
+      if (!response.ok || !response.text?.trim()) throw new Error("guest synthesis unavailable");
+      return { answer: response.text.trim(), sources: sources.map(({ title, doi }) => ({ title, doi })) };
+    },
+  }));
+}
 
 app.get("/api/v1/student-verification/status", requireAuthenticatedUser, async (req, res) => {
   res.set("Cache-Control", "no-store");
@@ -3880,6 +3910,7 @@ await initDatabase().catch((e) => {
   console.error("[db] fatal init", e);
   process.exit(1);
 });
+if (APP_EDITION === "school") await initSchoolGuest();
 
 if (!isEnterpriseAppEdition(APP_EDITION)) {
   logWechatPayStartupStatus();

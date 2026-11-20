@@ -101,13 +101,17 @@ function WechatQrEmbed({ authorizationUrl, onError }: { authorizationUrl: string
 export default function LoginScreen({
   edition,
   onLoggedIn,
+  initialRegister = false,
+  onGuest,
 }: {
   edition: AppEdition;
   onLoggedIn: () => void;
+  initialRegister?: boolean;
+  onGuest?: () => void;
 }) {
   const isWechatPreview = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
-  const [mode, setMode] = useState<"login" | "register" | "wechat" | "reset">("login");
+  const [mode, setMode] = useState<"login" | "register" | "wechat" | "reset">(initialRegister ? "register" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -315,6 +319,7 @@ export default function LoginScreen({
     <div className="qp-login-shell">
       <div className="qp-welcome-orb opacity-40" aria-hidden />
       <div className="qp-login-card">
+        {onGuest && <button className="mb-3 text-sm underline" onClick={onGuest}>返回游客试用</button>}
         <div className="mb-6 text-center">
           <AppLogo size="lg" src={getEditionLogo(edition)} className="mx-auto mb-3" />
           <h1 className="text-xl font-semibold tracking-tight text-[var(--t-text-heading)]">{APP_NAME}</h1>

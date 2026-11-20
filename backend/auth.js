@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
 import bcrypt from "bcryptjs";
 import {
   createUserRecord,
@@ -63,6 +63,10 @@ function getJwtSecret() {
     "[auth] JWT_SECRET 未设置或短于 32 字符，使用内置开发密钥；生产环境请务必在 .env 设置强随机 JWT_SECRET",
   );
   return new TextEncoder().encode("paper-query-dev-insecure-secret-min-32-chars!");
+}
+
+export function schoolGuestDigest(purpose, value) {
+  return createHmac("sha256", getJwtSecret()).update(`school-guest:${purpose}:${value}`).digest("hex");
 }
 
 function parseRequestCookies(req) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "./App";
+import SchoolGuest from "./SchoolGuest";
 import { APP_EDITION } from "./edition";
 import LoginScreen from "./LoginScreen";
 import { clearAuthSession, getAuthToken } from "./authSession";
@@ -8,6 +9,10 @@ export default function AuthGate() {
   const isWechatPreview = import.meta.env.DEV
     && new URLSearchParams(window.location.search).get("wechat_preview") === "1";
   const [token, setToken] = useState<string | null>(() => getAuthToken());
+  const [entry, setEntry] = useState<"guest" | "login" | "register">(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("wechat") || params.has("wechat_error") ? "login" : "guest";
+  });
   const [checking, setChecking] = useState(() => Boolean(getAuthToken()));
 
   useEffect(() => {
@@ -44,6 +49,7 @@ export default function AuthGate() {
 
   const onLogout = useCallback(() => {
     clearAuthSession();
+    setEntry("guest");
     setToken(null);
   }, []);
 
@@ -65,7 +71,11 @@ export default function AuthGate() {
   }
 
   if (!token) {
-    return <LoginScreen edition={APP_EDITION} onLoggedIn={onLoggedIn} />;
+    if (APP_EDITION === "school" && entry === "guest") {
+      return <SchoolGuest onLogin={register => setEntry(register ? "register" : "login")} />;
+    }
+    return <LoginScreen edition={APP_EDITION} onLoggedIn={onLoggedIn} initialRegister={entry === "register"}
+      onGuest={APP_EDITION === "school" ? () => setEntry("guest") : undefined} />;
   }
 
   return (
