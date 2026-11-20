@@ -3,12 +3,13 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-dotenv.config({ path: path.join(root, ".env") });
-
 const requestedEdition = String(process.argv[2] ?? "").trim().toLowerCase();
 const edition = requestedEdition === "enterprise" || requestedEdition === "finance"
   ? requestedEdition
   : "school";
+// A local edition can use its own database without changing the other editions.
+dotenv.config({ path: path.join(root, `.env.${edition}.local`), quiet: true });
+dotenv.config({ path: path.join(root, ".env") });
 const configuredPort = edition === "enterprise"
   ? process.env.ENTERPRISE_API_PORT
   : edition === "finance"

@@ -53,7 +53,12 @@ function guestSessions(trial: Trial | null): ChatSession[] {
 export function useSchoolGuest(onLogin?: (register: boolean) => void) {
   const [trial, setTrial] = useState<Trial | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  // The server history contains completed answers only. Keep the submitted turn
+  // in its conversation while waiting, and reconcile it by request ID on success.
+  const [submitted, setSubmitted] = useState<{
+    id: string; sessionId: string; question: string; started: number; error?: string;
+  } | null>(null);
+  const busy = submitted !== null && submitted.error === undefined;
   const [retry, setRetry] = useState(0);
   const [siteKey, setSiteKey] = useState("");
   const [challenge, setChallenge] = useState("");
@@ -74,13 +79,14 @@ export function useSchoolGuest(onLogin?: (register: boolean) => void) {
 
   async function submit(q: string, sessionId: string, options: {
     channel: SearchChannel; sort: PaperSortKey; field: ArxivSearchField; patents: boolean; persona: string;
-  }): Promise<string | void> {
+  }, onStart: () => void): Promise<"failed" | void> {
     if (trial?.remaining === 0) return onLogin?.(true);
     if (!q || busy || !trial || (siteKey && !challenge)) return;
     const payload = { question: q, sessionId, options };
     const key = JSON.stringify(payload);
     if (request.current.payload !== key) request.current = { payload: key, id: createUuid() };
-    setBusy(true);
+    setSubmitted({ id: request.current.id, sessionId, question: q, started: Date.now() });
+    onStart();
     setError("");
     try {
       const res = await fetch("/api/v1/guest/ask", {
@@ -99,19 +105,30 @@ export function useSchoolGuest(onLogin?: (register: boolean) => void) {
       }
       setTrial(data);
       setSiteKey("");
-      const state: Trial = data;
-      const answered = state.answers.find(row => row.requestId === request.current.id) ?? state.answers.at(-1);
       request.current = { payload: "", id: "" };
-      return answered?.sessionId ?? answered?.requestId ?? `guest-${state.answers.length - 1}`;
-    } catch (e) { setError(e instanceof Error ? e.message : "网络连接失败，请重试。"); }
-    finally { setBusy(false); }
+      setSubmitted(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "网络连接失败，请重试。";
+      setSubmitted(turn => turn && { ...turn, error: message });
+      return "failed";
+    }
   }
 
-  const sessions = useMemo(() => guestSessions(trial), [trial]);
+  const sessions = useMemo(() => {
+    const history = guestSessions(trial);
+    if (!submitted) return history;
+    const { sessionId, id, question, started, error } = submitted;
+    const session = history.find(s => s.id === sessionId) ??
+      { id: sessionId, title: question.slice(0, 28), updatedAt: started, messages: [] };
+    session.messages.push({ id: id + "-q", role: "user", content: question });
+    if (error) session.messages.push({ id: id + "-a", role: "assistant", content: error, error: true });
+    session.updatedAt = started;
+    return [session, ...history.filter(s => s.id !== sessionId)];
+  }, [trial, submitted]);
   const notice = <>
     {siteKey && <Challenge key={challengeVersion} siteKey={siteKey} onToken={setChallenge} />}
     {error && <div role="alert">{error} {!trial && <button type="button" className="underline" onClick={() => setRetry(n => n + 1)}>重试</button>}</div>}
   </>;
-  return { remaining: trial?.remaining, sessions, busy, submit, notice,
+  return { remaining: trial?.remaining, sessions, busy, pendingSessionId: busy ? submitted.sessionId : null, submit, notice,
     ready: Boolean(trial) && (!siteKey || Boolean(challenge)) };
 }

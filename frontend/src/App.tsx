@@ -3834,9 +3834,13 @@ export default function App({
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
     if (guestMode) {
-      const id = await guest.submit(q, sessionId, { channel: searchChannel, field: queryField, sort: searchSort,
-        patents: patentsOnlyEnabled, persona: personaId });
-      if (id) { setActiveId(id); setInput(""); }
+      const outcome = await guest.submit(q, sessionId, { channel: searchChannel, field: queryField, sort: searchSort,
+        patents: patentsOnlyEnabled, persona: personaId }, () => {
+        activeIdRef.current = sessionId;
+        setActiveId(sessionId);
+        setInput("");
+      });
+      if (outcome === "failed" && activeIdRef.current === sessionId) setInput(q);
       return;
     }
 
@@ -4282,7 +4286,7 @@ export default function App({
     !billingDisabled;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
       e.preventDefault();
       if (canSend) void send(input);
     }
@@ -4936,7 +4940,12 @@ export default function App({
                     {m.role === "user" ? (
                       <UserBubble text={m.content} />
                     ) : guestMode ? (
-                      <div className="prose prose-sm max-w-none text-[var(--t-text)]"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                      <div className="qp-answer-card qp-markdown-scroll">
+                        {m.error ? <p role="alert" className="text-[var(--t-error)]">{m.content}</p> :
+                          <div className="qp-web-synth prose prose-sm max-w-none text-[var(--t-text)]">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                          </div>}
+                      </div>
                     ) : (
                       <AssistantBlock
                         msg={m}
@@ -4966,7 +4975,7 @@ export default function App({
                 </div>
               </div>
             ))}
-            {busy && !activeAssistantShowsProgress && (
+            {busy && (!guestMode || guest.pendingSessionId === active?.id) && !activeAssistantShowsProgress && (
               <div className="qp-message-enter flex gap-3 sm:gap-4">
                 <div className="qp-avatar-assistant">
                   <img src={getEditionLogo(edition)} alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
