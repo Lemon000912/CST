@@ -1,4 +1,5 @@
 import { SessionSync } from "./sessionSyncRuntime.js";
+import { useSchoolGuest } from "./SchoolGuest";
 import { loadDurableSessions } from "./storage";
 import {
   forwardRef,
@@ -2796,10 +2797,14 @@ function LlmRewriteSettingsModal({
 export default function App({
   edition,
   onLogout,
+  onGuestLogin,
 }: {
   edition: AppEdition;
   onLogout?: () => void;
+  onGuestLogin?: (register: boolean) => void;
 }) {
+  const guestMode = Boolean(onGuestLogin);
+  const guest = useSchoolGuest(onGuestLogin);
   const { theme, setTheme } = useTheme();
   const [resourcePageOpen, setResourcePageOpen] = useState(false);
   const [resourceTab, setResourceTab] = useState<"plugins" | "skills">("plugins");
@@ -2840,12 +2845,14 @@ export default function App({
   const selectedSkill = [...financeSkillItems, ...productSkillItems].find((item) => item.name === selectedFinanceSkill) ?? null;
   const selectedPluginEnabled = selectedPlugin ? enabledFinancePlugins[selectedPlugin.name] ?? true : false;
   const selectedSkillEnabled = selectedSkill ? enabledFinanceSkills[selectedSkill.name] ?? true : false;
-  const pointsEnabled = edition === "school";
-  const studentVerificationEnabled = edition === "school";
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+  const pointsEnabled = edition === "school" && !guestMode;
+  const studentVerificationEnabled = pointsEnabled;
+  const [accountSessions, setSessions] = useState<ChatSession[]>(() => {
+    if (guestMode) return [];
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
     return removeEmptySessions(loaded);
   });
+  const sessions = guestMode ? guest.sessions : accountSessions;
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
   const [sessionHydrationRetry, setSessionHydrationRetry] = useState(0);
@@ -2880,7 +2887,8 @@ export default function App({
   const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [accountBusy, setBusy] = useState(false);
+  const busy = guestMode ? guest.busy : accountBusy;
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const activeOperationIdRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
@@ -3081,6 +3089,7 @@ export default function App({
   }, [mobileNavOpen]);
 
   useEffect(() => {
+    if (guestMode) return;
     let cancelled = false;
     let retryTimer: number | null = null;
     const worker=new SessionSync({
@@ -3139,7 +3148,7 @@ export default function App({
       worker.stopped=true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [edition, sessionHydrationRetry]);
+  }, [edition, sessionHydrationRetry, guestMode]);
 
   useEffect(() => {
     if (!sessionsHydrated) return;
@@ -3360,6 +3369,7 @@ export default function App({
   };
 
   const processSelectedFiles = async (files: File[]) => {
+    if (onGuestLogin) return onGuestLogin(false);
     if (!files.length) return;
     setUploadNotice(null);
     setUploadError(null);
@@ -3823,6 +3833,12 @@ export default function App({
 
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
+    if (guestMode) {
+      const id = await guest.submit(q, sessionId, { channel: searchChannel, field: queryField, sort: searchSort,
+        patents: patentsOnlyEnabled, persona: personaId });
+      if (id) { setActiveId(id); setInput(""); }
+      return;
+    }
 
     const priorMessages =
       overrides?.priorMessages ??
@@ -4262,6 +4278,7 @@ export default function App({
     !busy &&
     !uploadBusy &&
     !exportPickMode &&
+    (!guestMode || guest.ready) &&
     !billingDisabled;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -4545,8 +4562,8 @@ export default function App({
         <div className="flex items-center gap-2 px-2.5 py-2">
           <div className="min-w-0 flex-1">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--t-text-caption)]">账户</div>
-            <div className="truncate text-[11px] text-[var(--t-text)]" title={getAuthProfile()?.username ?? ""}>
-              {getAuthProfile()?.username ?? "—"}
+            <div className="truncate text-[11px] text-[var(--t-text)]" title={guestMode ? "游客" : getAuthProfile()?.username ?? ""}>
+              {guestMode ? "游客" : getAuthProfile()?.username ?? "—"}
             </div>
             {pointsEnabled ? (
               <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-[var(--t-text-muted)]">
@@ -4569,6 +4586,7 @@ export default function App({
             ) : null}
           </div>
           <div className="flex shrink-0 flex-col gap-1">
+            {onGuestLogin && <button type="button" className="qp-link-accent rounded-md border px-2 py-1 text-[10px]" onClick={() => onGuestLogin(false)}>登录 / 注册</button>}
             {pointsEnabled || edition === "finance" ? (
               <button
                 type="button"
@@ -4641,6 +4659,7 @@ export default function App({
           <button
             type="button"
             onClick={() => {
+              if (onGuestLogin) return onGuestLogin(false);
               setUrlDraft(getLlmChatCompletionsUrl() ?? "");
               setKeyDraft(getOpenAiKey() ?? "");
               setModelDraft(getOpenAiModel() ?? "");
@@ -4686,14 +4705,14 @@ export default function App({
               >
                 <span className="line-clamp-2 text-[var(--t-text)]">{s.title}</span>
               </button>
-              <button
+              {!guestMode && <button
                 type="button"
                 title="删除"
                 onClick={(e) => deleteSession(s.id, e)}
                 className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md p-1 text-[var(--t-text-dim)] hover:bg-surface-hover hover:text-[var(--t-text)] group-hover:block"
               >
                 ×
-              </button>
+              </button>}
             </div>
           ))}
         </nav>
@@ -4785,7 +4804,7 @@ export default function App({
               {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
             </button>
           ) : (
-            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">企业版</span>
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{guestMode ? "游客" : "企业版"}</span>
           )}
         </header>
 
@@ -4916,6 +4935,8 @@ export default function App({
                   <div className="min-w-0 flex-1 pt-1">
                     {m.role === "user" ? (
                       <UserBubble text={m.content} />
+                    ) : guestMode ? (
+                      <div className="prose prose-sm max-w-none text-[var(--t-text)]"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
                     ) : (
                       <AssistantBlock
                         msg={m}
@@ -4991,7 +5012,7 @@ export default function App({
                 onSort={setSearchSort}
                 onQueryField={setQueryField}
                 onPatentsOnly={setPatentsOnlyEnabled}
-                onDeepMine={setDeepMineEnabled}
+                onDeepMine={onGuestLogin ? () => onGuestLogin(false) : setDeepMineEnabled}
                 disabled={busy || exportPickMode}
               />
               <div className="relative">
@@ -5084,6 +5105,7 @@ export default function App({
                 />
                 <textarea
                   value={input}
+                  maxLength={guestMode ? 800 : undefined}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={4}
@@ -5104,6 +5126,7 @@ export default function App({
                   disabled={uploadBusy || exportPickMode}
                   onClick={() => {
                     if (uploadBusy || exportPickMode) return;
+                    if (onGuestLogin) return onGuestLogin(false);
                     fileInputRef.current?.click();
                   }}
                   className={`absolute bottom-2 left-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -5124,7 +5147,7 @@ export default function App({
                 </button>
                 <button
                   type="button"
-                  disabled={busy ? false : !canSend}
+                  disabled={busy ? guestMode : !canSend}
                   onClick={() => (busy ? pause() : void send(input))}
                   className={`absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
                     busy
@@ -5146,16 +5169,17 @@ export default function App({
                 </button>
               </div>
             </div>
-            {pointsEnabled ? (
+            {guestMode && <div className="mt-1 text-center text-xs text-[var(--t-text-muted)]">{guest.notice}</div>}
+            {edition === "school" ? (
               <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
                 校园版
               </p>
             ) : null}
             <p className="mt-1 text-center text-[9px] leading-snug text-[var(--t-text-footer)]">
-              {pointsEnabled
+              {guestMode ? (guest.remaining == null ? "游客试用" : `游客剩余 ${guest.remaining} 次提问`) : pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
                 : "企业版 · 搜索、图表与 PDF 不使用积分"}
-              {willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
+              {!guestMode && willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
           </div>

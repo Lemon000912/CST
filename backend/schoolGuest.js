@@ -40,10 +40,10 @@ function sql(tx, statement) {
   return tx.dialect === "postgres" ? statement.replace(/\?/g, () => "$" + ++n) : statement;
 }
 async function history(visitor) {
-  const query = "SELECT question,result FROM school_guest_questions WHERE visitor=? AND state='done' ORDER BY started";
+  const query = "SELECT request_id,started,question,result FROM school_guest_questions WHERE visitor=? AND state='done' ORDER BY started";
   const rows = pgPool ? (await pgPool.query(sql({ dialect: "postgres" }, query), [visitor])).rows
     : await (await getSqliteDb()).all(query, [visitor]);
-  return rows.map(row => ({ question: row.question, ...JSON.parse(row.result) }));
+  return rows.map(row => ({ requestId: row.request_id, started: Number(row.started), question: row.question, ...JSON.parse(row.result) }));
 }
 
 async function reserve(visitor, network, id, question, verified) {
@@ -134,8 +134,10 @@ export function schoolGuestRouter({ answer, clientIp }) {
           "UPDATE school_guest_questions SET state=?,result=? WHERE visitor=? AND request_id=? AND started=? AND state='pending'"),
           [state, result, visitor, id, started]));
         try {
-          const result = await answer(question, AbortSignal.timeout(120000));
-          await settle("done", JSON.stringify(result));
+          const result = await answer(question, AbortSignal.timeout(120000), req.body?.options ?? {});
+          const sessionId = typeof req.body?.sessionId === "string" && /^[\w-]{1,80}$/.test(req.body.sessionId)
+            ? req.body.sessionId : id;
+          await settle("done", JSON.stringify({ ...result, sessionId }));
         } catch (e) {
           await settle("failed", null);
           throw e;

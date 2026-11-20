@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "./App";
-import SchoolGuest from "./SchoolGuest";
 import { APP_EDITION } from "./edition";
 import LoginScreen from "./LoginScreen";
 import { clearAuthSession, getAuthToken } from "./authSession";
@@ -52,6 +51,7 @@ export default function AuthGate() {
     setEntry("guest");
     setToken(null);
   }, []);
+  const onGuestLogin = useCallback((register: boolean) => setEntry(register ? "register" : "login"), []);
 
   if (isWechatPreview) {
     return (
@@ -70,17 +70,16 @@ export default function AuthGate() {
     );
   }
 
-  if (!token) {
-    if (APP_EDITION === "school" && entry === "guest") {
-      return <SchoolGuest onLogin={register => setEntry(register ? "register" : "login")} />;
-    }
+  const guest = !token && APP_EDITION === "school" && entry === "guest";
+  if (!token && !guest) {
     return <LoginScreen edition={APP_EDITION} onLoggedIn={onLoggedIn} initialRegister={entry === "register"}
       onGuest={APP_EDITION === "school" ? () => setEntry("guest") : undefined} />;
   }
 
   return (
     <div className="qp-app-root h-[100dvh] max-h-[100dvh] w-full overflow-hidden">
-      <App edition={APP_EDITION} onLogout={onLogout} />
+      <App key={guest ? "guest" : "account"} edition={APP_EDITION}
+        onGuestLogin={guest ? onGuestLogin : undefined} onLogout={guest ? undefined : onLogout} />
     </div>
   );
 }

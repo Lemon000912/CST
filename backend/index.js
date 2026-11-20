@@ -651,17 +651,22 @@ if (APP_EDITION === "school") {
     clientIp: req => req.socket.remoteAddress?.match(/^(::1$|(::ffff:)?127\.)/)
       ? String(req.get("X-Forwarded-For") || req.socket.remoteAddress).split(",").at(-1).trim()
       : req.socket.remoteAddress || "unknown",
-    async answer(question, signal) {
+    async answer(question, signal, options) {
+      const channel = options.channel === "web" ? "web" : "database";
+      const field = ["ti", "abs"].includes(options.field) ? options.field : "all";
+      const sort = ["submittedDate", "lastUpdatedDate", "citations"].includes(options.sort) ? options.sort : "relevance";
+      const persona = listPersonas().find(p => p.id === options.persona && p.id.startsWith("school_"));
       const search = await runPaperSearch({
-        rawQuery: question, field: "all", channel: "database", sort: "relevance", max: 5,
-        useLlmRewrite: false, useMcpWeb: false, includePatents: false, signal,
+        rawQuery: question, field, channel, sort, max: 5,
+        useLlmRewrite: false, useMcpWeb: channel === "web" || options.patents === true, includePatents: options.patents === true,
+        patentsOnly: channel === "database" && options.patents === true, signal,
       });
       const sources = search.papers.slice(0, 5).map(p => ({
         title: String(p.title || "").slice(0, 300), doi: String(p.doi || "").slice(0, 200),
         abstract: String(p.abstract || p.summary || "").slice(0, 600),
       }));
       const response = await generateGuestAnswer(guestProvider(), {
-        system: "你是校园科研助手。用中文简明回答问题。引用检索资料时使用序号，不编造来源。资料不足时说明局限。",
+        system: `你是校园科研助手。面向${persona?.label ?? "科研 / 研究生"}用中文简明回答问题。引用检索资料时使用序号，不编造来源。资料不足时说明局限。`,
         messages: [{ role: "user", content: JSON.stringify({ question, sources }) }],
         maxTokens: 650, timeoutMs: 45000, signal,
       });

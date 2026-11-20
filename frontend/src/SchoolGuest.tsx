@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { AppLogo } from "./AppLogo";
-import { APP_NAME } from "./branding";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ArxivSearchField, ChatSession, PaperSortKey, SearchChannel } from "./types";
 import { createUuid } from "./uuid";
 
 type Trial = {
   remaining: number;
-  answers: { question: string; answer: string; sources: { title: string; doi: string }[] }[];
+  answers: { requestId?: string; sessionId?: string; started?: number; question: string; answer: string; sources: { title: string; doi: string }[] }[];
 };
 type Turnstile = {
   render: (node: HTMLElement, options: Record<string, unknown>) => string;
@@ -35,18 +34,33 @@ function Challenge({ siteKey, onToken }: { siteKey: string; onToken: (value: str
   return <><div ref={container} />{failed && <p>人机验证暂不可用，可登录后继续。</p>}</>;
 }
 
-export default function SchoolGuest({ onLogin }: { onLogin: (register: boolean) => void }) {
+function guestSessions(trial: Trial | null): ChatSession[] {
+  const grouped = new Map<string, ChatSession>();
+  for (const [index, row] of (trial?.answers ?? []).entries()) {
+    const requestId = row.requestId ?? `guest-${index}`;
+    const id = row.sessionId ?? requestId;
+    const session = grouped.get(id) ?? { id, title: row.question.slice(0, 28), messages: [], updatedAt: 0 };
+    session.updatedAt = row.started ?? index;
+    const references = row.sources.map((source, i) =>
+      `${i + 1}. ${source.title}${source.doi ? " · https://doi.org/" + encodeURI(source.doi) : ""}`);
+    session.messages.push({ id: requestId + "-q", role: "user", content: row.question },
+      { id: requestId + "-a", role: "assistant", content: [row.answer, references.join("\n")].filter(Boolean).join("\n\n") });
+    grouped.set(id, session);
+  }
+  return [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function useSchoolGuest(onLogin?: (register: boolean) => void) {
   const [trial, setTrial] = useState<Trial | null>(null);
-  const [question, setQuestion] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [blocked, setBlocked] = useState(false);
   const [siteKey, setSiteKey] = useState("");
   const [challenge, setChallenge] = useState("");
   const [challengeVersion, refreshChallenge] = useState(0);
-  const request = useRef({ question: "", id: "" });
+  const request = useRef({ payload: "", id: "" });
   useEffect(() => {
+    if (!onLogin) return;
     const controller = new AbortController();
     fetch("/api/v1/guest/status", { signal: controller.signal, cache: "no-store" })
       .then(async res => {
@@ -56,23 +70,26 @@ export default function SchoolGuest({ onLogin }: { onLogin: (register: boolean) 
       })
       .catch(() => { if (!controller.signal.aborted) setError("暂时无法读取试用次数。"); });
     return () => controller.abort();
-  }, [retry]);
+  }, [retry, onLogin]);
 
-  async function submit() {
-    if (trial?.remaining === 0 || blocked) return onLogin(true);
-    const q = question.trim();
-    if (!q || busy || !trial) return;
-    if (request.current.question !== q) request.current = { question: q, id: createUuid() };
+  async function submit(q: string, sessionId: string, options: {
+    channel: SearchChannel; sort: PaperSortKey; field: ArxivSearchField; patents: boolean; persona: string;
+  }): Promise<string | void> {
+    if (trial?.remaining === 0) return onLogin?.(true);
+    if (!q || busy || !trial || (siteKey && !challenge)) return;
+    const payload = { question: q, sessionId, options };
+    const key = JSON.stringify(payload);
+    if (request.current.payload !== key) request.current = { payload: key, id: createUuid() };
     setBusy(true);
     setError("");
     try {
       const res = await fetch("/api/v1/guest/ask", {
         method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": request.current.id },
-        body: JSON.stringify({ question: q, challenge }),
+        body: JSON.stringify({ ...payload, challenge }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (data.code === "guest-login-required") setBlocked(true);
+        if (data.code === "guest-login-required") return onLogin?.(true);
         if (data.code === "guest-challenge") {
           setSiteKey(data.siteKey);
           setChallenge("");
@@ -82,36 +99,19 @@ export default function SchoolGuest({ onLogin }: { onLogin: (register: boolean) 
       }
       setTrial(data);
       setSiteKey("");
-      setQuestion("");
-      request.current = { question: "", id: "" };
+      const state: Trial = data;
+      const answered = state.answers.find(row => row.requestId === request.current.id) ?? state.answers.at(-1);
+      request.current = { payload: "", id: "" };
+      return answered?.sessionId ?? answered?.requestId ?? `guest-${state.answers.length - 1}`;
     } catch (e) { setError(e instanceof Error ? e.message : "网络连接失败，请重试。"); }
     finally { setBusy(false); }
   }
 
-  const exhausted = blocked || trial?.remaining === 0;
-  return <main className="h-[100dvh] overflow-y-auto bg-[var(--t-bg)] px-5 py-10 text-[var(--t-text)]">
-    <div className="mx-auto max-w-2xl space-y-6">
-      <header className="flex items-center gap-3"><AppLogo size="lg" src="/logo.png" />
-        <h1 className="flex-1 text-lg font-semibold">{APP_NAME} · 校园版</h1>
-        <button onClick={() => onLogin(false)} className="underline">登录</button>
-      </header>
-      {trial?.answers.map((item, index) => <article key={index} className="space-y-3 rounded-xl border p-5">
-        <h2 className="font-semibold">{item.question}</h2><p className="whitespace-pre-wrap">{item.answer}</p>
-        {item.sources.length > 0 && <ol className="list-decimal pl-5 text-sm">{item.sources.map((s, i) =>
-          <li key={i}>{s.doi ? <a className="underline" target="_blank" rel="noreferrer" href={"https://doi.org/" + s.doi}>{s.title}</a> : s.title}</li>)}</ol>}
-      </article>)}
-      <form className="space-y-3" onSubmit={e => { e.preventDefault(); void submit(); }}>
-        <label htmlFor="guest-question" className="block font-semibold">你想研究什么问题？</label>
-        <textarea id="guest-question" className="w-full rounded-xl border bg-transparent p-3" rows={3} maxLength={800}
-          value={question} disabled={busy} onChange={e => setQuestion(e.target.value)} />
-        <p aria-live="polite" className="text-sm">{busy ? "正在检索并整理回答…" : trial ? `游客剩余 ${trial.remaining} 次提问` : "正在读取试用次数…"}</p>
-        {siteKey && !exhausted && <Challenge key={challengeVersion} siteKey={siteKey} onToken={setChallenge} />}
-        {error && <p role="alert">{error} {!trial && <button type="button" onClick={() => setRetry(n => n + 1)}>重试</button>}</p>}
-        <button className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50"
-          disabled={!trial || busy || (!exhausted && (!question.trim() || Boolean(siteKey && !challenge)))}>
-          {exhausted ? "注册或登录后继续" : "提问"}
-        </button>
-      </form>
-    </div>
-  </main>;
+  const sessions = useMemo(() => guestSessions(trial), [trial]);
+  const notice = <>
+    {siteKey && <Challenge key={challengeVersion} siteKey={siteKey} onToken={setChallenge} />}
+    {error && <div role="alert">{error} {!trial && <button type="button" className="underline" onClick={() => setRetry(n => n + 1)}>重试</button>}</div>}
+  </>;
+  return { remaining: trial?.remaining, sessions, busy, submit, notice,
+    ready: Boolean(trial) && (!siteKey || Boolean(challenge)) };
 }
