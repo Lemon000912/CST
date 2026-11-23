@@ -3836,7 +3836,7 @@ export default function App({
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
     if (guestMode && guest.remaining === 0) return onGuestLogin?.(true);
-    if (guestMode && (!guest.ready || !sessionsHydrated)) return;
+    if (guestMode && !guest.ready) return;
 
     const priorMessages =
       overrides?.priorMessages ??
@@ -4280,7 +4280,7 @@ export default function App({
     !busy &&
     !uploadBusy &&
     !exportPickMode &&
-    (!guestMode || (guest.ready && sessionsHydrated)) &&
+    (!guestMode || guest.ready) &&
     !billingDisabled;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
