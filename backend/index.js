@@ -56,9 +56,7 @@ import { seedSimplePapersFromJson } from "./seedSimpleData.js";
 import { seedDevAdminIfEnabled } from "./seedDevAdmin.js";
 import { seedEnterpriseAdminIfEnabled } from "./seedEnterpriseAdmin.js";
 import { runPaperSearch } from "./searchService.js";
-import { schoolGuestRouter, initSchoolGuest } from "./schoolGuest.js";
-import { generateText as generateGuestAnswer } from "./llmClient.js";
-import { resolvePrimaryProvider as guestProvider } from "./llmProviders.js";
+import { schoolGuestRouter, initSchoolGuest, schoolChatAccess } from "./schoolGuest.js";
 import { extractCoreSearchQuery, extractConversationContext } from "./searchQueryNormalize.js";
 import { synthesizeDatabaseCombined } from "./synthesizeDatabase.js";
 import {
@@ -644,36 +642,14 @@ app.get("/api/v1/auth/me", async (req, res) => {
   await handleMe(req, res);
 });
 
+const chatAccess = options => APP_EDITION === "school" ? schoolChatAccess(requireAuthenticatedUser, options) : requireAuthenticatedUser;
 if (APP_EDITION === "school") {
-  app.use(["/api/v1/artifacts", "/api/v1/data-table", "/api/v1/extract", "/api/v1/gstack"], requireAuthenticatedUser);
-  app.use("/api/v1/guest", schoolGuestRouter({
-    // Local reverse proxies append the actual connecting address to X-Forwarded-For.
-    clientIp: req => req.socket.remoteAddress?.match(/^(::1$|(::ffff:)?127\.)/)
-      ? String(req.get("X-Forwarded-For") || req.socket.remoteAddress).split(",").at(-1).trim()
-      : req.socket.remoteAddress || "unknown",
-    async answer(question, signal, options) {
-      const channel = options.channel === "web" ? "web" : "database";
-      const field = ["ti", "abs"].includes(options.field) ? options.field : "all";
-      const sort = ["submittedDate", "lastUpdatedDate", "citations"].includes(options.sort) ? options.sort : "relevance";
-      const persona = listPersonas().find(p => p.id === options.persona && p.id.startsWith("school_"));
-      const search = await runPaperSearch({
-        rawQuery: question, field, channel, sort, max: 5,
-        useLlmRewrite: false, useMcpWeb: channel === "web" || options.patents === true, includePatents: options.patents === true,
-        patentsOnly: channel === "database" && options.patents === true, signal,
-      });
-      const sources = search.papers.slice(0, 5).map(p => ({
-        title: String(p.title || "").slice(0, 300), doi: String(p.doi || "").slice(0, 200),
-        abstract: String(p.abstract || p.summary || "").slice(0, 600),
-      }));
-      const response = await generateGuestAnswer(guestProvider(), {
-        system: `你是校园科研助手。面向${persona?.label ?? "科研 / 研究生"}用中文简明回答问题。引用检索资料时使用序号，不编造来源。资料不足时说明局限。`,
-        messages: [{ role: "user", content: JSON.stringify({ question, sources }) }],
-        maxTokens: 650, timeoutMs: 45000, signal,
-      });
-      if (!response.ok || !response.text?.trim()) throw new Error("guest synthesis unavailable");
-      return { answer: response.text.trim(), sources: sources.map(({ title, doi }) => ({ title, doi })) };
-    },
-  }));
+  app.use("/api/v1/guest", schoolGuestRouter());
+  app.use("/api/v1/extract", chatAccess({ needsQuota: true }));
+  app.use(["/api/v1/artifacts", "/api/v1/data-table"], chatAccess({ needsAnswer: true }));
+  app.use("/api/v1/gstack", requireAuthenticatedUser);
+  app.use(["/api/v1/chat/sessions", "/api/v1/user/skill", "/api/v1/user/answer-feedback",
+    "/api/v1/user/downloaded-paper", "/api/v1/user/downloaded-papers"], chatAccess());
 }
 
 app.get("/api/v1/student-verification/status", requireAuthenticatedUser, async (req, res) => {
@@ -828,7 +804,7 @@ app.post("/api/v1/billing/recharge/callback/wechat", async (req, res) => {
   }
 });
 
-app.post("/api/v1/billing/operations/:id/cancel", requireAuthenticatedUser, async (req, res) => {
+app.post("/api/v1/billing/operations/:id/cancel", chatAccess(), async (req, res) => {
   try {
     const operation = await getBillableOperation({ operationId: req.params.id, userId: req.auth.userId });
     if (operation.status === "processing" && operation.leaseToken) {
@@ -838,7 +814,7 @@ app.post("/api/v1/billing/operations/:id/cancel", requireAuthenticatedUser, asyn
   } catch (error) { return sendStructuredError(res, error, { message: "Unable to cancel billing operation" }); }
 });
 
-app.get("/api/v1/billing/operations/:id", requireAuthenticatedUser, async (req, res) => {
+app.get("/api/v1/billing/operations/:id", chatAccess(), async (req, res) => {
   try {
     const operation = await getBillableOperation({
       operationId: req.params.id,
@@ -853,7 +829,7 @@ app.get("/api/v1/billing/operations/:id", requireAuthenticatedUser, async (req, 
 /** 聊天会话：服务端持久化（后端重启/更新不丢记录） */
 app.get("/api/v1/chat/sessions", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -888,7 +864,7 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
     return res.status(429).json({ error: "保存过于频繁，请稍后再试" });
   }
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -945,7 +921,7 @@ app.put("/api/v1/chat/sessions", async (req, res) => {
 /** 获取当前用户的Skill */
 app.get("/api/v1/user/skill", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -975,7 +951,7 @@ app.get("/api/v1/user/skill", async (req, res) => {
 /** 更新当前用户的Skill */
 app.post("/api/v1/user/skill", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -996,7 +972,7 @@ app.post("/api/v1/user/skill", async (req, res) => {
 /** 记录用户下载的论文 */
 app.post("/api/v1/user/downloaded-paper", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -1013,7 +989,7 @@ app.post("/api/v1/user/downloaded-paper", async (req, res) => {
 /** 获取用户下载的论文列表 */
 app.get("/api/v1/user/downloaded-papers", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -1029,7 +1005,7 @@ app.get("/api/v1/user/downloaded-papers", async (req, res) => {
 /** 记录用户对答案的反馈 (good=1, bad=-1) */
 app.post("/api/v1/user/answer-feedback", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -1048,7 +1024,7 @@ app.post("/api/v1/user/answer-feedback", async (req, res) => {
 /** 获取用户的答案反馈列表 */
 app.get("/api/v1/user/answer-feedback", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -1064,7 +1040,7 @@ app.get("/api/v1/user/answer-feedback", async (req, res) => {
 /** 更新用户信息（手机号、邮箱） */
 app.post("/api/v1/user/info", async (req, res) => {
   try {
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     if (!userId || userId === "anonymous") {
       return res.status(401).json({ error: "未登录" });
     }
@@ -1081,7 +1057,7 @@ app.post("/api/v1/user/info", async (req, res) => {
  * Chart generation is source-bound to a completed search. The client may select
  * stored papers by paperIndices/paperIds, but cannot submit arbitrary sources.
  */
-app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res, next) => {
+app.post("/api/v1/chart/from-papers", chatAccess(), async (req, res, next) => {
   try {
     const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
     if (billingFreeEdition) await ensureEnterpriseAnnualQuota(req.auth.userId);
@@ -1127,7 +1103,7 @@ app.post("/api/v1/chart/from-papers", requireAuthenticatedUser, async (req, res,
             operationType: "chart",
             idempotencyKey,
             requestHash,
-            costUnits: billingDetails.chartPointUnits,
+            costUnits: req.auth.guest ? 0 : billingDetails.chartPointUnits,
             billingDetails,
             result: body,
             receipt: { parentOperationId },
@@ -1296,7 +1272,10 @@ app.post("/api/v1/data-table/generate", async (req, res) => {
     return res.status(429).json({ error: "请求过于频繁，请稍后再试" });
   }
   try {
-    const papers = req.body?.papers;
+    const parent = req.auth?.guest ? await getBillableOperation({
+      operationId: String(req.body?.parentOperationId || ""), userId: req.auth.userId,
+    }) : null;
+    const papers = req.auth?.guest ? getStoredSearchPapers(parent) : req.body?.papers;
     if (!Array.isArray(papers) || papers.length === 0) {
       return res.status(400).json({ error: "缺少 papers 数组" });
     }
@@ -1318,7 +1297,7 @@ app.post("/api/v1/data-table/generate", async (req, res) => {
     const llmChatUrl = String(req.headers["x-llm-chat-url"] ?? "")
       .trim()
       .slice(0, 2048);
-    const synthesisMd = String(req.body?.synthesisMarkdown ?? "").trim().slice(0, 8000);
+    const synthesisMd = String((req.auth?.guest ? parent?.result?.synthesis : req.body?.synthesisMarkdown) ?? "").trim().slice(0, 8000);
 
     const result = await extractDataTableByType({
       tableType,
@@ -1578,7 +1557,7 @@ app.post("/api/v1/pdf-click", (_req, res) => {
   });
 });
 
-app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, async (req, res) => {
+app.get("/api/v1/search/:operationId/pdf-sources", chatAccess(), async (req, res) => {
   try {
     const operationId = String(req.params?.operationId ?? "").trim();
     const operation = await getBillableOperation({ operationId, userId: req.auth.userId });
@@ -1599,7 +1578,7 @@ app.get("/api/v1/search/:operationId/pdf-sources", requireAuthenticatedUser, asy
   }
 });
 
-app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
+app.post("/api/v1/pdfs/fulfill", chatAccess(), async (req, res) => {
   let activeOperation = null;
   try {
     const billingFreeEdition = isEnterpriseAppEdition(APP_EDITION);
@@ -1661,7 +1640,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        allowZeroBalance: false,
+        allowZeroBalance: Boolean(req.auth.guest),
       });
     activeOperation = begun?.operation ?? null;
 
@@ -1712,7 +1691,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationType: "pdf",
         idempotencyKey,
         requestHash,
-        costUnits: calculateCostUnits({ pdfCount: 1 }),
+        costUnits: req.auth.guest ? 0 : calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1743,7 +1722,7 @@ app.post("/api/v1/pdfs/fulfill", requireAuthenticatedUser, async (req, res) => {
         operationId: activeOperation.id,
         userId: req.auth.userId,
         leaseToken: activeOperation.leaseToken,
-        costUnits: calculateCostUnits({ pdfCount: 1 }),
+        costUnits: req.auth.guest ? 0 : calculateCostUnits({ pdfCount: 1 }),
         billingDetails,
         result: metadata,
         receipt: { parentOperationId },
@@ -1820,7 +1799,7 @@ app.post("/api/v1/feedback", async (req, res) => {
   try {
     const messageId = String(req.body?.messageId ?? "");
     const value = Number(req.body?.value);
-    const userId = await resolveUserIdFromRequest(req);
+    const userId = req.auth?.userId ?? await resolveUserIdFromRequest(req);
     const channel = String(req.body?.channel ?? "");
     if (!messageId) return res.status(400).json({ error: "缺少 messageId" });
     if (value !== 1 && value !== -1) return res.status(400).json({ error: "value 须为 1 或 -1" });
@@ -1839,7 +1818,7 @@ app.post("/api/v1/feedback", async (req, res) => {
 //   2. event:pdf_source_ready — 旁路爬取成功并已缓存的 PDF 来源
 //   3. event:synthesis_token — LLM 综述 token 逐字推送
 //   4. event:done  — 含最终元数据（latencyMs、billingReceipt、parentOperationId 等）
-app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => {
+app.post("/api/v1/search/stream", chatAccess({ search: true }), async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimitHit(ip)) {
     return res.status(429).json({ error: "请求过于频繁，请稍后再试（S-5）" });
@@ -1880,10 +1859,10 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       operationType: "search",
       idempotencyKey,
       requestHash,
-      allowZeroBalance: billingFreeEdition,
+      allowZeroBalance: billingFreeEdition || req.auth.guest,
     });
     if (!begun.replayed) {
-      startingBalanceUnits = begun.balance?.balanceUnits
+      startingBalanceUnits = req.auth.guest ? Number.MAX_SAFE_INTEGER : begun.balance?.balanceUnits
         ?? (await getPointBalance(req.auth.userId)).balanceUnits;
     }
     endBillingBegin({ ok: true, replayed: Boolean(begun.replayed) });
@@ -2010,7 +1989,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
           edition: APP_EDITION,
           paused: true,
         };
-        const costUnits = calculateCostUnits({
+        const costUnits = req.auth.guest ? 0 : calculateCostUnits({
           characterCount: billingDetails.characterCount,
           pdfCount: billingDetails.deepPaperCount,
         });
@@ -2398,7 +2377,7 @@ app.post("/api/v1/search/stream", requireAuthenticatedUser, async (req, res) => 
       ...searchBillingDetails(billingPayload),
       edition: APP_EDITION,
     };
-    const costUnits = calculateCostUnits({
+    const costUnits = req.auth.guest ? 0 : calculateCostUnits({
       characterCount: billingDetails.characterCount,
       pdfCount: billingDetails.deepPaperCount,
     });

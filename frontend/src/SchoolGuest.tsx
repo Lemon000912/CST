@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ArxivSearchField, ChatSession, PaperSortKey, SearchChannel } from "./types";
-import { createUuid } from "./uuid";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChatSession } from "./types";
+
 
 type Trial = {
   remaining: number;
+  scope: string;
   answers: { requestId?: string; sessionId?: string; started?: number; question: string; answer: string; sources: { title: string; doi: string }[] }[];
 };
 type Turnstile = {
@@ -53,17 +54,11 @@ function guestSessions(trial: Trial | null): ChatSession[] {
 export function useSchoolGuest(onLogin?: (register: boolean) => void) {
   const [trial, setTrial] = useState<Trial | null>(null);
   const [error, setError] = useState("");
-  // The server history contains completed answers only. Keep the submitted turn
-  // in its conversation while waiting, and reconcile it by request ID on success.
-  const [submitted, setSubmitted] = useState<{
-    id: string; sessionId: string; question: string; started: number; error?: string;
-  } | null>(null);
-  const busy = submitted !== null && submitted.error === undefined;
   const [retry, setRetry] = useState(0);
   const [siteKey, setSiteKey] = useState("");
   const [challenge, setChallenge] = useState("");
   const [challengeVersion, refreshChallenge] = useState(0);
-  const request = useRef({ payload: "", id: "" });
+  const refresh = useCallback(() => setRetry(n => n + 1), []);
   useEffect(() => {
     if (!onLogin) return;
     const controller = new AbortController();
@@ -77,58 +72,20 @@ export function useSchoolGuest(onLogin?: (register: boolean) => void) {
     return () => controller.abort();
   }, [retry, onLogin]);
 
-  async function submit(q: string, sessionId: string, options: {
-    channel: SearchChannel; sort: PaperSortKey; field: ArxivSearchField; patents: boolean; persona: string;
-  }, onStart: () => void): Promise<"failed" | void> {
-    if (trial?.remaining === 0) return onLogin?.(true);
-    if (!q || busy || !trial || (siteKey && !challenge)) return;
-    const payload = { question: q, sessionId, options };
-    const key = JSON.stringify(payload);
-    if (request.current.payload !== key) request.current = { payload: key, id: createUuid() };
-    setSubmitted({ id: request.current.id, sessionId, question: q, started: Date.now() });
-    onStart();
-    setError("");
-    try {
-      const res = await fetch("/api/v1/guest/ask", {
-        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": request.current.id },
-        body: JSON.stringify({ ...payload, challenge }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.code === "guest-login-required") return onLogin?.(true);
-        if (data.code === "guest-challenge") {
-          setSiteKey(data.siteKey);
-          setChallenge("");
-          refreshChallenge(n => n + 1);
-        }
-        throw Error(data.error || "提问失败，请稍后重试。");
-      }
-      setTrial(data);
-      setSiteKey("");
-      request.current = { payload: "", id: "" };
-      setSubmitted(null);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "网络连接失败，请重试。";
-      setSubmitted(turn => turn && { ...turn, error: message });
-      return "failed";
+  function handleError(code?: string, key?: string) {
+    if (code === "guest-login-required") onLogin?.(true);
+    if (code === "guest-challenge" && key) {
+      setSiteKey(key);
+      setChallenge("");
+      refreshChallenge(n => n + 1);
     }
   }
-
-  const sessions = useMemo(() => {
-    const history = guestSessions(trial);
-    if (!submitted) return history;
-    const { sessionId, id, question, started, error } = submitted;
-    const session = history.find(s => s.id === sessionId) ??
-      { id: sessionId, title: question.slice(0, 28), updatedAt: started, messages: [] };
-    session.messages.push({ id: id + "-q", role: "user", content: question });
-    if (error) session.messages.push({ id: id + "-a", role: "assistant", content: error, error: true });
-    session.updatedAt = started;
-    return [session, ...history.filter(s => s.id !== sessionId)];
-  }, [trial, submitted]);
+  function complete() { setChallenge(""); setSiteKey(""); }
+  const legacySessions = useMemo(() => guestSessions(trial), [trial]);
   const notice = <>
     {siteKey && <Challenge key={challengeVersion} siteKey={siteKey} onToken={setChallenge} />}
     {error && <div role="alert">{error} {!trial && <button type="button" className="underline" onClick={() => setRetry(n => n + 1)}>重试</button>}</div>}
   </>;
-  return { remaining: trial?.remaining, sessions, busy, pendingSessionId: busy ? submitted.sessionId : null, submit, notice,
+  return { remaining: trial?.remaining, scope: trial?.scope, legacySessions, challenge, notice, refresh, handleError, complete,
     ready: Boolean(trial) && (!siteKey || Boolean(challenge)) };
 }

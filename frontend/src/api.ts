@@ -316,13 +316,9 @@ export async function fetchRechargeOrder(order: Pick<RechargeOrder, "id" | "orde
 
 export async function fetchUserSkillFavoriteKeywords(): Promise<string[] | undefined> {
   const t = getAuthToken();
-  if (!t) return undefined;
   try {
     const res = await fetch("/api/v1/user/skill", {
-      headers: {
-        Authorization: `Bearer ${t}`,
-        "X-User-Id": getEffectiveUserId(),
-      },
+      headers: t ? { Authorization: `Bearer ${t}` } : {},
     });
     if (!res.ok) return undefined;
     const j = (await res.json()) as { favoriteKeywords?: unknown };
@@ -503,7 +499,7 @@ export type StreamSearchEvent =
   | { type: "synthesis_replace"; synthesis: string }
   | { type: "points_exhausted"; message: string }
   | { type: "done"; synthesis?: string | null; synthesisNote?: string | null; pointsExhausted?: boolean; billingMessage?: string; synthesisPlan?: Record<string, unknown> | null; synthesisPlanNote?: string | null; synthesisModels?: SearchResultMeta["synthesisModels"]; webAnswerDrafts?: SearchResultMeta["webAnswerDrafts"]; llmUsage?: SearchResultMeta["llmUsage"]; performanceTrace?: SearchResultMeta["performanceTrace"]; latencyMs?: number; rewriteNote?: string; sourcesUsed?: string[]; parentOperationId?: string; billingReceipt?: BillingReceipt | null; deepMine?: SearchResultMeta["deepMine"]; deepSynthesis?: string | null; deepSynthesisNote?: string | null; replayed?: boolean; pdfSources?: Paper[]; pdfCrawlStatus?: SearchResultMeta["pdfCrawlStatus"]; pdfCrawlProgress?: SearchResultMeta["pdfCrawlProgress"] }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string; code?: string; siteKey?: string };
 
 /**
  * 流式搜索+综述：返回 AsyncGenerator，逐帧 yield 事件。
@@ -512,7 +508,7 @@ export type StreamSearchEvent =
  */
 export async function* searchPapersV1Stream(
   query: string,
-  opts: Parameters<typeof searchPapersV1>[1] & { signal?: AbortSignal } = {},
+  opts: Parameters<typeof searchPapersV1>[1] & { signal?: AbortSignal; guestChallenge?: string } = {},
 ): AsyncGenerator<StreamSearchEvent> {
   const dm = opts.deepMine;
   const deepBody =
@@ -564,7 +560,7 @@ export async function* searchPapersV1Stream(
     while (true) {
       res = await fetch("/api/v1/search/stream", {
         method: "POST",
-        headers: headersJson({ "Idempotency-Key": idempotencyKey }),
+        headers: headersJson({ "Idempotency-Key": idempotencyKey, ...(opts.guestChallenge ? { "X-Guest-Challenge": opts.guestChallenge } : {}) }),
         signal: controller.signal,
         body: requestBody,
       });
@@ -598,8 +594,9 @@ export async function* searchPapersV1Stream(
     if (!res.ok) {
       let errMsg = `请求失败 (${res.status})`;
       try {
-        const j = (await res.json()) as { error?: string };
-        if (j.error) errMsg = j.error;
+        const j = (await res.json()) as { error?: string; code?: string; siteKey?: string };
+        yield { type: "error", error: j.error || errMsg, code: j.code, siteKey: j.siteKey };
+        return;
       } catch { /* ignore */ }
       yield { type: "error", error: errMsg };
       return;
@@ -1372,7 +1369,7 @@ export function downloadPdfArtifact(opts: {
 export async function requestGenerateDataTable(
   papers: Paper[],
   tableType: string,
-  opts?: { synthesisMarkdown?: string | null },
+  opts?: { synthesisMarkdown?: string | null; parentOperationId?: string },
 ): Promise<{
   tableType: string;
   title: string;
@@ -1385,6 +1382,7 @@ export async function requestGenerateDataTable(
     body: JSON.stringify({
       papers: papers.map(slimPaperForChartApi),
       tableType,
+      parentOperationId: opts?.parentOperationId,
       synthesisMarkdown: opts?.synthesisMarkdown?.trim().slice(0, 8000) || undefined,
     }),
   });

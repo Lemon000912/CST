@@ -4,9 +4,9 @@ import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
 import { schoolGuestDigest } from "./auth.js";
 
 const COOKIE = "cst_school_trial";
-const PATH = "/api/v1/guest";
+const PATH = "/api/v1";
 const HOUR = 3600000;
-const LEASE = 5 * 60000;
+const LEASE = 60 * 60000;
 
 function limit(name, fallback) {
   const value = process.env[name]?.trim();
@@ -39,6 +39,18 @@ function sql(tx, statement) {
   let n = 0;
   return tx.dialect === "postgres" ? statement.replace(/\?/g, () => "$" + ++n) : statement;
 }
+const guestUserId = visitor => "trial-" + visitor;
+async function reconcile(tx, visitor) {
+  // The shared search transaction is authoritative, including after a worker restart.
+  await tx.run(sql(tx, `UPDATE school_guest_questions SET state='done',result='{}'
+    WHERE visitor=? AND state='pending' AND EXISTS (SELECT 1 FROM point_operations p
+      WHERE p.user_id=? AND p.operation_type='search' AND p.idempotency_key=school_guest_questions.request_id AND p.status='completed')`),
+    [visitor, guestUserId(visitor)]);
+  await tx.run(sql(tx, `UPDATE school_guest_questions SET state='failed'
+    WHERE visitor=? AND state='pending' AND EXISTS (SELECT 1 FROM point_operations p
+      WHERE p.user_id=? AND p.operation_type='search' AND p.idempotency_key=school_guest_questions.request_id AND p.updated_at>=school_guest_questions.started AND p.status='failed')`),
+    [visitor, guestUserId(visitor)]);
+}
 async function history(visitor) {
   const query = "SELECT request_id,started,question,result FROM school_guest_questions WHERE visitor=? AND state='done' ORDER BY started";
   const rows = pgPool ? (await pgPool.query(sql({ dialect: "postgres" }, query), [visitor])).rows
@@ -50,13 +62,17 @@ async function reserve(visitor, network, id, question, verified) {
   return withDatabaseTransaction(async tx => {
     // Serialize the short admission decision across workers, including the global daily cap.
     if (tx.dialect === "postgres") await tx.get("SELECT pg_advisory_xact_lock(172903441)");
+    await reconcile(tx, visitor);
     const now = Date.now();
     const get = (q, args) => tx.get(sql(tx, q), args);
     const run = (q, args) => tx.run(sql(tx, q), args);
     await run("UPDATE school_guest_questions SET state='failed' WHERE visitor=? AND state='pending' AND started<=?", [visitor, now - LEASE]);
     const previous = await get("SELECT * FROM school_guest_questions WHERE visitor=? AND request_id=?", [visitor, id]);
     if (previous && previous.question !== question) throw Object.assign(new Error("请重新提交问题"), { status: 409 });
-    if (previous?.state === "done") return null;
+    if (previous?.state === "done") {
+      if (JSON.parse(previous.result || "{}").answer) throw Object.assign(new Error("请重新提交问题"), { status: 409 });
+      return null;
+    }
     const stats = await get(`SELECT COUNT(*) AS attempts, MAX(started) AS last,
       COUNT(CASE WHEN state='done' THEN 1 END) AS used,
       COUNT(CASE WHEN state='pending' AND started>? THEN 1 END) AS busy
@@ -84,70 +100,87 @@ async function reserve(visitor, network, id, question, verified) {
     await run(`INSERT INTO school_guest_questions(visitor,request_id,question,started,network,first_use,state)
       VALUES(?,?,?,?,?,?,'pending') ON CONFLICT(visitor,request_id) DO UPDATE SET started=excluded.started,state='pending'`,
       [visitor, id, question, now, network, Number(stats.attempts) ? 0 : 1]);
+    const userId = guestUserId(visitor);
+    await run("INSERT INTO users (id,username,password_hash,created_at,edition) VALUES (?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+      [userId, userId, "!", now, "school"]);
+    await run("INSERT INTO point_wallets(user_id,balance_units,created_at,updated_at) VALUES (?,0,?,?) ON CONFLICT(user_id) DO NOTHING",
+      [userId, now, now]);
     return now;
   });
 }
 
-export function schoolGuestRouter({ answer, clientIp }) {
+export function schoolGuestRouter() {
   const router = express.Router();
-  router.use((_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
-  const status = async visitor => {
-    const answers = await history(visitor);
-    return { remaining: Math.max(0, allowance() - answers.length), answers };
-  };
   router.get("/status", async (req, res, next) => {
     try {
+      res.set("Cache-Control", "no-store");
       const visitor = visitorId(req);
-      if (visitor) return res.json(await status(visitor));
-      const id = randomUUID();
+      const id = visitor || randomUUID();
+      const cookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict" };
+      // Retain the signed ID (and used quota) from the old, narrower cookie.
+      res.clearCookie(COOKIE, { ...cookieOptions, path: "/api/v1/guest" });
       res.cookie(COOKIE, id + "." + schoolGuestDigest("cookie", id), {
-        httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: PATH, maxAge: 365 * 24 * HOUR,
+        ...cookieOptions, path: PATH, maxAge: 365 * 24 * HOUR,
       });
-      res.json({ remaining: allowance(), answers: [] });
+      if (visitor) await withDatabaseTransaction(tx => reconcile(tx, id));
+      const rows = visitor ? await history(id) : [];
+      res.json({ remaining: Math.max(0, allowance() - rows.length), scope: guestUserId(id),
+        answers: rows.filter(row => typeof row.answer === "string") });
     } catch (e) { next(e); }
   });
-  router.post("/ask", async (req, res) => {
+  router.post("/ask", (_req, res) => res.status(409).json({ error: "校园版已更新，请刷新页面后重新发送。" }));
+  return router;
+}
+
+export function schoolChatAccess(requireAccount, { search = false, needsAnswer = false, needsQuota = false } = {}) {
+  return async (req, res, next) => {
+    const visitor = visitorId(req);
+    if (req.headers.authorization || !visitor) return requireAccount(req, res, next);
     try {
-      const visitor = visitorId(req);
-      if (!visitor) throw loginRequired("请启用 Cookie 后刷新页面，或登录继续。");
-      const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
-      const id = req.get("Idempotency-Key") || "";
-      if (!question || question.length > 800 || !/^[\w-]{16,80}$/.test(id))
-        return res.status(400).json({ error: "请输入 1 至 800 字的问题后提交。" });
-      const ip = clientIp(req);
-      try {
-        await admit(false);
-      } catch (e) {
-        const token = req.body?.challenge;
-        if (e.code !== "guest-challenge" || typeof token !== "string" || !token || token.length > 2048) throw e;
-        const validation = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-          method: "POST", body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY, response: token, remoteip: ip }),
-          signal: AbortSignal.timeout(7000),
-        });
-        if (!validation.ok || (await validation.json()).success !== true) throw e;
-        await admit(true);
+      const origin = req.get("Origin");
+      if (origin && req.get("Sec-Fetch-Site") !== "same-origin" && new URL(origin).host !== req.get("Host")) return res.status(403).json({ error: "请求来源无效" });
+      if (req.get("x-llm-chat-url") && !(req.get("x-openai-key") || req.get("x-dashscope-key") || req.get("x-deepseek-key"))) {
+        return res.status(400).json({ error: "自定义模型地址需要同时填写自己的 API Key。" });
       }
-      async function admit(challengePassed) {
-        const started = await reserve(visitor, schoolGuestDigest("network", ip), id, question, challengePassed);
-        if (started === null) return;
-        const settle = (state, result) => withDatabaseTransaction(tx => tx.run(sql(tx,
-          "UPDATE school_guest_questions SET state=?,result=? WHERE visitor=? AND request_id=? AND started=? AND state='pending'"),
-          [state, result, visitor, id, started]));
+      const userId = guestUserId(visitor);
+      if (search) {
+        const id = req.get("Idempotency-Key") || "";
+        const question = String(req.body?.query ?? "").trim();
+        if (!question || question.length > 12000 || !/^[\w-]{16,80}$/.test(id))
+          return res.status(400).json({ error: "请输入有效问题后提交。" });
+        const addr = req.socket.remoteAddress || "unknown";
+        const ip = /^(::1$|(::ffff:)?127\.)/.test(addr) ? String(req.get("X-Forwarded-For") || addr).split(",").at(-1).trim() : addr;
+        const network = schoolGuestDigest("network", ip);
+        let started;
         try {
-          const result = await answer(question, AbortSignal.timeout(120000), req.body?.options ?? {});
-          const sessionId = typeof req.body?.sessionId === "string" && /^[\w-]{1,80}$/.test(req.body.sessionId)
-            ? req.body.sessionId : id;
-          await settle("done", JSON.stringify({ ...result, sessionId }));
+          started = await reserve(visitor, network, id, question, false);
         } catch (e) {
-          await settle("failed", null);
-          throw e;
+          const token = req.get("X-Guest-Challenge");
+          if (e.code !== "guest-challenge" || !token || token.length > 2048) throw e;
+          const validation = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+            method: "POST", body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY, response: token, remoteip: ip }),
+            signal: AbortSignal.timeout(7000),
+          });
+          if (!validation.ok || !(await validation.json()).success) throw e;
+          started = await reserve(visitor, network, id, question, true);
         }
+        // Before the stream opens there may be no point_operation to reconcile.
+        if (started !== null) res.once("finish", () => {
+          if (res.statusCode >= 400 || res.statusCode === 202) withDatabaseTransaction(tx => tx.run(sql(tx,
+            "UPDATE school_guest_questions SET state='failed' WHERE visitor=? AND request_id=? AND started=? AND state='pending'"),
+            [visitor, id, started])).catch(() => {});
+        });
+      } else if (needsAnswer || needsQuota) {
+        await withDatabaseTransaction(tx => reconcile(tx, visitor));
+        const used = (await history(visitor)).length;
+        if (needsQuota && used >= allowance()) throw loginRequired("游客次数已用完，请注册或登录后继续。");
+        if (needsAnswer && !used) return res.status(403).json({ error: "请先完成一次提问。" });
       }
-      res.json(await status(visitor));
+      req.auth = { userId, isAdmin: false, guest: true };
+      return next();
     } catch (e) {
       if (!e.status) console.error("[school guest]", e.message);
-      res.status(e.status || 503).json({ error: e.status ? e.message : "试用服务暂不可用，请稍后重试。", code: e.code, siteKey: e.siteKey });
+      return res.status(e.status || 503).json({ error: e.status ? e.message : "试用服务暂不可用，请稍后重试。", code: e.code, siteKey: e.siteKey });
     }
-  });
-  return router;
+  };
 }

@@ -2847,12 +2847,14 @@ export default function App({
   const selectedSkillEnabled = selectedSkill ? enabledFinanceSkills[selectedSkill.name] ?? true : false;
   const pointsEnabled = edition === "school" && !guestMode;
   const studentVerificationEnabled = pointsEnabled;
-  const [accountSessions, setSessions] = useState<ChatSession[]>(() => {
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (guestMode) return [];
     const loaded = recoverInterruptedSearchSessions(loadSessions(getAuthProfile()?.userId, edition));
     return removeEmptySessions(loaded);
   });
-  const sessions = guestMode ? guest.sessions : accountSessions;
+  const sessionOwner = guestMode ? guest.scope : getAuthProfile()?.userId;
+  const legacyGuestSessions = useRef(guest.legacySessions);
+  legacyGuestSessions.current = guest.legacySessions;
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [sessionSyncState, setSessionSyncState] = useState<ChatSessionsSyncState | null>(null);
   const [sessionHydrationRetry, setSessionHydrationRetry] = useState(0);
@@ -2887,8 +2889,7 @@ export default function App({
   const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [accountBusy, setBusy] = useState(false);
-  const busy = guestMode ? guest.busy : accountBusy;
+  const [busy, setBusy] = useState(false);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const activeOperationIdRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
@@ -3089,7 +3090,7 @@ export default function App({
   }, [mobileNavOpen]);
 
   useEffect(() => {
-    if (guestMode) return;
+    if (guestMode && !sessionOwner) return;
     let cancelled = false;
     let retryTimer: number | null = null;
     const worker=new SessionSync({
@@ -3101,11 +3102,11 @@ export default function App({
     });
     sessionSyncWorker.current=worker;
     const hydrate = async () => {
-      if (!getAuthToken()) {
+      if (!guestMode && !getAuthToken()) {
         if (!cancelled) setSessionsHydrated(true);
         return;
       }
-      const local = await loadDurableSessions(getAuthProfile()?.userId, edition);
+      const local = await loadDurableSessions(sessionOwner, edition);
       let remote = null;
       // A transient GET failure must not be treated as an empty server history.
       // Retry before allowing any server PUT; otherwise a local snapshot could
@@ -3133,7 +3134,8 @@ export default function App({
         }, 5000);
         return;
       }
-      worker.setCurrent(mergeChatSessions(local,sessionsRef.current),[...deletedSessionIdsRef.current]);
+      const restored = guestMode && !remote.revision ? mergeChatSessions(legacyGuestSessions.current, local) : local;
+      worker.setCurrent(mergeChatSessions(restored,sessionsRef.current),[...deletedSessionIdsRef.current]);
       worker.accept({...remote,sessions:recoverInterruptedSearchSessions(remote.sessions)});
       setSessionSyncState({
         revision: remote.revision,
@@ -3148,22 +3150,22 @@ export default function App({
       worker.stopped=true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [edition, sessionHydrationRetry, guestMode]);
+  }, [edition, sessionHydrationRetry, guestMode, sessionOwner]);
 
   useEffect(() => {
     if (!sessionsHydrated) return;
     const persistedSessions = removeEmptySessions(sessions);
     try {
-      saveSessions(persistedSessions, getAuthProfile()?.userId, edition);
+      saveSessions(persistedSessions, sessionOwner, edition);
     } catch (e) {
       console.warn("[App] saveSessions effect failed, skipped", e);
     }
     const worker=sessionSyncWorker.current;
-    if (!getAuthToken() || !worker || worker.revision===null) return;
+    if ((!guestMode && !getAuthToken()) || !worker || worker.revision===null) return;
     worker.setCurrent(persistedSessions,[...deletedSessionIdsRef.current]);
     const timer=setTimeout(()=>void worker.flush(),1200);
     return ()=>clearTimeout(timer);
-  }, [edition,sessions,sessionsHydrated,sessionSaveEpoch]);
+  }, [edition,sessions,sessionsHydrated,sessionSaveEpoch,guestMode,sessionOwner]);
 
   useEffect(()=>{
     const refresh=()=>{if(document.visibilityState!=='hidden')void sessionSyncWorker.current?.pull().catch(()=>{});};
@@ -3369,7 +3371,6 @@ export default function App({
   };
 
   const processSelectedFiles = async (files: File[]) => {
-    if (onGuestLogin) return onGuestLogin(false);
     if (!files.length) return;
     setUploadNotice(null);
     setUploadError(null);
@@ -3596,6 +3597,7 @@ export default function App({
     );
     try {
       const r = await requestGenerateDataTable(msg.papers, tableType, {
+        parentOperationId: msg.meta?.parentOperationId,
         synthesisMarkdown: msg.meta?.synthesis ?? undefined,
       });
       setSessions((prev) =>
@@ -3833,16 +3835,8 @@ export default function App({
 
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
-    if (guestMode) {
-      const outcome = await guest.submit(q, sessionId, { channel: searchChannel, field: queryField, sort: searchSort,
-        patents: patentsOnlyEnabled, persona: personaId }, () => {
-        activeIdRef.current = sessionId;
-        setActiveId(sessionId);
-        setInput("");
-      });
-      if (outcome === "failed" && activeIdRef.current === sessionId) setInput(q);
-      return;
-    }
+    if (guestMode && guest.remaining === 0) return onGuestLogin?.(true);
+    if (guestMode && (!guest.ready || !sessionsHydrated)) return;
 
     const priorMessages =
       overrides?.priorMessages ??
@@ -3917,6 +3911,7 @@ export default function App({
       activeAbortControllerRef.current = abortController;
       const streamOpts = {
         idempotencyKey: searchIdempotencyKey,
+        guestChallenge: guestMode ? guest.challenge : undefined,
         chatSession:{sessionId,userMessageId:userMsg.id,assistantMessageId:assistantId},
         field: fieldAtSend,
         channel: channelAtSend,
@@ -4080,6 +4075,7 @@ export default function App({
             },
           });
         } else if (event.type === "done") {
+          if (guestMode) guest.complete();
           streamCompleted = true;
           synthesisSoFar = event.synthesis ?? synthesisSoFar;
           completedParentOperationId = event.parentOperationId ?? "";
@@ -4119,6 +4115,7 @@ export default function App({
         } else if (event.type === "error") {
           if (pauseRequestedRef.current) continue;
           streamFailed = true;
+          if (guestMode) guest.handleError(event.code, event.siteKey);
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
       }
@@ -4262,6 +4259,7 @@ export default function App({
       );
     } finally {
       activeAbortControllerRef.current = null;
+      if (guestMode) guest.refresh();
       setBusy(false);
     }
   };
@@ -4282,7 +4280,7 @@ export default function App({
     !busy &&
     !uploadBusy &&
     !exportPickMode &&
-    (!guestMode || guest.ready) &&
+    (!guestMode || (guest.ready && sessionsHydrated)) &&
     !billingDisabled;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -4663,7 +4661,6 @@ export default function App({
           <button
             type="button"
             onClick={() => {
-              if (onGuestLogin) return onGuestLogin(false);
               setUrlDraft(getLlmChatCompletionsUrl() ?? "");
               setKeyDraft(getOpenAiKey() ?? "");
               setModelDraft(getOpenAiModel() ?? "");
@@ -4709,14 +4706,14 @@ export default function App({
               >
                 <span className="line-clamp-2 text-[var(--t-text)]">{s.title}</span>
               </button>
-              {!guestMode && <button
+              <button
                 type="button"
                 title="删除"
                 onClick={(e) => deleteSession(s.id, e)}
                 className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md p-1 text-[var(--t-text-dim)] hover:bg-surface-hover hover:text-[var(--t-text)] group-hover:block"
               >
                 ×
-              </button>}
+              </button>
             </div>
           ))}
         </nav>
@@ -4939,13 +4936,6 @@ export default function App({
                   <div className="min-w-0 flex-1 pt-1">
                     {m.role === "user" ? (
                       <UserBubble text={m.content} />
-                    ) : guestMode ? (
-                      <div className="qp-answer-card qp-markdown-scroll">
-                        {m.error ? <p role="alert" className="text-[var(--t-error)]">{m.content}</p> :
-                          <div className="qp-web-synth prose prose-sm max-w-none text-[var(--t-text)]">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                          </div>}
-                      </div>
                     ) : (
                       <AssistantBlock
                         msg={m}
@@ -4975,7 +4965,7 @@ export default function App({
                 </div>
               </div>
             ))}
-            {busy && (!guestMode || guest.pendingSessionId === active?.id) && !activeAssistantShowsProgress && (
+            {busy && !activeAssistantShowsProgress && (
               <div className="qp-message-enter flex gap-3 sm:gap-4">
                 <div className="qp-avatar-assistant">
                   <img src={getEditionLogo(edition)} alt="AI" className="h-full w-full object-contain mix-blend-multiply" draggable={false} />
@@ -5021,7 +5011,7 @@ export default function App({
                 onSort={setSearchSort}
                 onQueryField={setQueryField}
                 onPatentsOnly={setPatentsOnlyEnabled}
-                onDeepMine={onGuestLogin ? () => onGuestLogin(false) : setDeepMineEnabled}
+                onDeepMine={setDeepMineEnabled}
                 disabled={busy || exportPickMode}
               />
               <div className="relative">
@@ -5114,7 +5104,6 @@ export default function App({
                 />
                 <textarea
                   value={input}
-                  maxLength={guestMode ? 800 : undefined}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={4}
@@ -5135,7 +5124,6 @@ export default function App({
                   disabled={uploadBusy || exportPickMode}
                   onClick={() => {
                     if (uploadBusy || exportPickMode) return;
-                    if (onGuestLogin) return onGuestLogin(false);
                     fileInputRef.current?.click();
                   }}
                   className={`absolute bottom-2 left-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -5156,7 +5144,7 @@ export default function App({
                 </button>
                 <button
                   type="button"
-                  disabled={busy ? guestMode : !canSend}
+                  disabled={!busy && !canSend}
                   onClick={() => (busy ? pause() : void send(input))}
                   className={`absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-35 ${
                     busy
@@ -5188,7 +5176,7 @@ export default function App({
               {guestMode ? (guest.remaining == null ? "游客试用" : `游客剩余 ${guest.remaining} 次提问`) : pointsEnabled
                 ? "回答文字 0.05 积分/字符 · 图表自动生成 0.1 积分/有效数据点 · PDF 1 积分/文件"
                 : "企业版 · 搜索、图表与 PDF 不使用积分"}
-              {!guestMode && willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
+              {willAttachConvoContext ? " · 后续提问将带入本对话上文" : ""}
               {billingDisabled ? ` · 积分已用完（当前余额 ${formatPoints(pointBalance?.balance)}），请充值后继续使用` : ""}
             </p>
           </div>
