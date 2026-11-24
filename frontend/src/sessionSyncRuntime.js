@@ -20,25 +20,33 @@ export class SessionSync {
     this.running=this.run().catch(e=>{if(!this.stopped)this.onError(e);}).finally(()=>{this.running=null;});
     return this.running;
   }
+  // 回答流式输出期间内容持续变化：保存成功后仍有新内容属正常情况，稍后补存即可，不能当作冲突报错。
+  schedule(){if(this.stopped||this.followUp)return;this.followUp=setTimeout(()=>{this.followUp=null;void this.flush();},1500);this.followUp?.unref?.();}
   async run(){
     if(this.revision===null||this.stopped)return;
-    for(let attempt=0;attempt<4&&!this.stopped;attempt++){
+    let saves=0,conflicts=0;
+    while(!this.stopped){
       const sent=this.dirty();const deletions=[...this.deleted];
       if(!sent.length&&!deletions.length)return;
+      if(saves>=4){this.schedule();return;}
       const payload=this.prepare(sent);
       const result=await this.save(payload,this.revision,deletions);
       if(this.stopped)return;
       if(result.ok){
+        saves++;conflicts=0;
         for(const s of sent)this.confirmed.set(s.id,this.fingerprint(s));
         this.deleted=this.deleted.filter(id=>!deletions.includes(id));this.onDeleteAck(deletions);
         if(result.sessions)this.accept(result);else this.revision=result.revision;
         // 再次检查最新状态：请求飞行期间的新消息不能丢弃。
         continue;
       }
-      if(result.conflict){this.accept(result);continue;}
+      if(result.conflict){
+        // 只有连续的 409 才是真正的同步冲突。
+        if(++conflicts>=4)throw Error('对话同步仍有冲突，正在重试');
+        this.accept(result);continue;
+      }
       throw Error(result.status===401?'登录已过期，对话尚未同步':'对话尚未同步到服务器，正在重试');
     }
-    if(this.dirty().length||this.deleted.length)throw Error('对话同步仍有冲突，正在重试');
   }
   async pull(){if(this.stopped)return;const remote=await this.load(this.revision);if(remote&&!this.stopped)this.accept(remote);}
 }

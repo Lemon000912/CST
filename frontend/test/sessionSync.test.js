@@ -19,6 +19,18 @@ test('网络失败保留待保存内容，恢复后重试；删除标记阻止�
  let fail=true;const f=fixture(async(s,r)=>{if(fail)throw Error('offline');return{ok:true,revision:r+1,sessions:s};});f.set([session('a')]);await f.worker.flush();assert.equal(f.errors.length,1);fail=false;await f.worker.flush();assert.equal(f.calls,2);
  f.worker.accept({revision:3,sessions:[],deletedSessionIds:['a']});assert.deepEqual(f.current,[]);await f.worker.flush();assert.equal(f.calls,2);
 });
+test('回答流式输出期间持续变化不报冲突，停止后补存最终内容',async()=>{
+ const payloads=[];const f=fixture(async(s,r)=>{payloads.push(s);await new Promise(x=>setTimeout(x,30));return{ok:true,revision:r+1,sessions:s};});
+ let text='';const tick=()=>{text+='x';f.set([{...session('a',Date.now(),text)}]);};tick();
+ const timer=setInterval(tick,10);await f.worker.flush();clearInterval(timer);
+ assert.equal(f.errors.length,0);
+ await new Promise(x=>setTimeout(x,1800));if(f.worker.running)await f.worker.running;
+ assert.equal(f.errors.length,0);assert.equal(payloads.at(-1)[0].messages[0].meta.synthesis,text);
+});
+test('持续409才提示同步冲突',async()=>{
+ const f=fixture(async()=>({conflict:true,revision:5,sessions:[]}));f.set([session('a')]);await f.worker.flush();
+ assert.equal(f.errors.length,1);assert.match(f.errors[0].message,/冲突/);
+});
 test('同一会话的不同页面新增消息都保留',()=>{
  const a={id:'s',updatedAt:2,messages:[{id:'u',role:'user',content:'q'},{id:'a',role:'assistant',content:'first'}]};
  const b={id:'s',updatedAt:3,messages:[{id:'u',role:'user',content:'q'},{id:'b',role:'assistant',content:'second'}]};
