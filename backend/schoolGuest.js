@@ -1,9 +1,9 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import { getSqliteDb, pgPool, withDatabaseTransaction } from "./db.js";
-import { schoolGuestDigest } from "./auth.js";
+import { SCHOOL_GUEST_COOKIE, parseSchoolGuestVisitorId, resolveClientIp, schoolGuestDigest } from "./auth.js";
 
-const COOKIE = "cst_school_trial";
+const COOKIE = SCHOOL_GUEST_COOKIE;
 const PATH = "/api/v1";
 const HOUR = 3600000;
 const LEASE = 60 * 60000;
@@ -28,10 +28,7 @@ export async function initSchoolGuest() {
 }
 
 function visitorId(req) {
-  const token = req.headers.cookie?.split(";").map(s => s.trim()).find(s => s.startsWith(COOKIE + "="));
-  const match = token?.slice(COOKIE.length + 1).match(/^([\da-f-]{36})\.([\da-f]{64})$/);
-  if (!match || !timingSafeEqual(Buffer.from(match[2]), Buffer.from(schoolGuestDigest("cookie", match[1])))) return null;
-  return match[1];
+  return parseSchoolGuestVisitorId(req);
 }
 
 // Both adapters accept positional parameters. Convert the shared SQL for PostgreSQL.
@@ -148,8 +145,7 @@ export function schoolChatAccess(requireAccount, { search = false, needsAnswer =
         const question = String(req.body?.query ?? "").trim();
         if (!question || question.length > 12000 || !/^[\w-]{16,80}$/.test(id))
           return res.status(400).json({ error: "请输入有效问题后提交。" });
-        const addr = req.socket.remoteAddress || "unknown";
-        const ip = /^(::1$|(::ffff:)?127\.)/.test(addr) ? String(req.get("X-Forwarded-For") || addr).split(",").at(-1).trim() : addr;
+        const ip = resolveClientIp(req, "unknown");
         const network = schoolGuestDigest("network", ip);
         let started;
         try {

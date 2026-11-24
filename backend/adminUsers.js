@@ -34,7 +34,10 @@ export async function listAdminUsers({ skip = 0, limit = 10, search = "", status
   const normalizedSearch = String(search || "").trim().slice(0, 100);
   const normalizedStatus = ["0", "1"].includes(String(status)) ? String(status) : "";
   const db = await getReadDb();
-  const clauses = [db.dialect === "postgres" ? "u.edition = $1" : "u.edition = ?"];
+  const clauses = [
+    db.dialect === "postgres" ? "u.edition = $1" : "u.edition = ?",
+    "u.id NOT LIKE 'trial-%'",
+  ];
   const params = [getConfiguredAppEdition()];
 
   if (normalizedStatus === "0") clauses.push("1 = 0");

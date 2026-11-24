@@ -790,7 +790,7 @@ export async function extractUploadedDocument(
       `文件过大，上传网关拒绝了请求。单文件需 ≤${EXTRACT_MAX_MB}MB；如文件未超限，请检查服务器反向代理的请求体大小配置。`,
     );
   }
-  let data: { filename?: string; text?: string; charCount?: number; error?: string };
+  let data: { filename?: string; text?: string; charCount?: number; error?: string; code?: string };
   try {
     data = JSON.parse(text) as typeof data;
   } catch {
@@ -803,7 +803,10 @@ export async function extractUploadedDocument(
     throw new Error(`上传响应不是合法 JSON（HTTP ${res.status}）`);
   }
   if (!res.ok) {
-    throw new Error(data.error || `解析失败 (${res.status})`);
+    throw new ApiError(data.error || `解析失败 (${res.status})`, {
+      status: res.status,
+      code: data.code,
+    });
   }
   return {
     filename: data.filename || name,

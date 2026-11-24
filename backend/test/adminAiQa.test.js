@@ -12,7 +12,7 @@ process.env.USE_POSTGRES = "false";
 process.env.SQLITE_FILE = sqliteFile;
 process.env.NODE_ENV = "test";
 
-const { createUserRecord, initDatabase } = await import("../db.js");
+const { createUserRecord, getSqliteDb, initDatabase } = await import("../db.js");
 const { completeImmediateBillableOperation, stableRequestHash } = await import("../billing.js");
 const {
   exportAdminAiQaRecords,
@@ -157,4 +157,48 @@ test("AI QA admin records include only new charged search operations", async (t)
   assert.match(csv, /给我一个实验方案/);
   assert.match(csv, /用户停止前生成的部分回答/);
   assert.doesNotMatch(csv, /上线前历史回答/);
+
+  // 校园版游客的已完成提问（cost_units = 0）应能在 AI 问答记录中查看和搜索，同时普通用户的 0 成本记录仍被排除
+  const db = await getSqliteDb();
+  const guestId = "trial-00000000-0000-4000-8000-000000000003";
+  const now = Date.now();
+  await db.run(
+    "INSERT INTO users (id, username, password_hash, created_at, edition) VALUES (?,?,?,?,?)",
+    [guestId, guestId, "!", now, "school"],
+  );
+  await db.run(
+    "INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES (?,0,?,?)",
+    [guestId, now, now],
+  );
+  const guestOp = await completeOperation({
+    userId: guestId,
+    key: "qa-guest-0001",
+    costUnits: 0,
+    result: {
+      synthesis: "游客收到的材料综述回答",
+      channel: "web",
+      adminQa: { version: 1, question: "游客提问：钛合金腐蚀机理是什么？" },
+    },
+  });
+
+  const listedWithGuest = await listAdminAiQaRecords({ limit: 20 });
+  assert.equal(listedWithGuest.total, 5);
+  const guestRow = listedWithGuest.records.find((record) => record.operationId === guestOp.operation.id);
+  assert.ok(guestRow);
+  assert.equal(guestRow.isGuest, true);
+  assert.equal(guestRow.username, "游客");
+  assert.equal(guestRow.costUnits, 0);
+
+  const guestSearch = await listAdminAiQaRecords({ search: "游客" });
+  assert.equal(guestSearch.total, 1);
+  assert.equal(guestSearch.records[0].operationId, guestOp.operation.id);
+
+  const guestDetail = await getAdminAiQaRecord(guestOp.operation.id);
+  assert.equal(guestDetail.isGuest, true);
+  assert.equal(guestDetail.username, "游客");
+  assert.equal(guestDetail.answer, "游客收到的材料综述回答");
+
+  const guestCsv = await exportAdminAiQaRecords({ search: "钛合金腐蚀" });
+  assert.match(guestCsv, /"游客"/);
+  assert.match(guestCsv, /钛合金腐蚀机理/);
 });

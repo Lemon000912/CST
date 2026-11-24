@@ -75,4 +75,38 @@ test("admin adjustments update the wallet atomically and append audit ledger ent
   assert.equal(listed.users[0].balance, "12.50");
   const ledger = await listAdminPointLedger({ userId, limit: 10 });
   assert.equal(ledger[0].reason, "余额校准");
+
+  // 游客临时账户及 0 积分流水不应污染积分账户列表、预警计数和流水报表
+  const guestId = "trial-00000000-0000-4000-8000-000000000002";
+  const now = Date.now();
+  await db.run(
+    "INSERT INTO users (id, username, password_hash, created_at, edition) VALUES (?,?,?,?,?)",
+    [guestId, guestId, "!", now, "school"],
+  );
+  await db.run(
+    "INSERT INTO point_wallets (user_id, balance_units, created_at, updated_at) VALUES (?,0,?,?)",
+    [guestId, now, now],
+  );
+  await db.run(
+    `INSERT INTO point_ledger
+     (id, user_id, operation_id, entry_type, idempotency_key, delta_units, balance_after_units, metadata_json, created_at)
+     VALUES (?,?,NULL,'debit',?,?,?,?,?)`,
+    ["guest-ledger-0001", guestId, "operation:guest-op-1", 0, 0, JSON.stringify({ edition: "school" }), now],
+  );
+
+  const allUsers = await listAdminPointUsers({ limit: 50 });
+  assert.equal(allUsers.total, 1);
+  assert.equal(allUsers.summary.walletCount, 1);
+  assert.equal(allUsers.summary.attentionCount, 1);
+  assert.ok(allUsers.users.every((u) => !u.id.startsWith("trial-")));
+  const emptyUsers = await listAdminPointUsers({ status: "empty", limit: 50 });
+  assert.equal(emptyUsers.total, 0);
+  const allLedger = await listAdminPointLedger({ limit: 50 });
+  assert.ok(allLedger.every((entry) => !entry.userId.startsWith("trial-")));
+  await assert.rejects(
+    adjustAdminUserPoints({
+      userId: guestId, mode: "add", amount: "10", reason: "误操作测试", idempotencyKey: "adjust-guest-0001", admin,
+    }),
+    (error) => error instanceof AdminPointsError && error.code === "guest-account-not-adjustable",
+  );
 });

@@ -2395,3 +2395,52 @@ export async function saveUserChatSessions(
     return { ok: false };
   }
 }
+
+/** 将游客临时会话原子合并到正式账号并清理游客会话，避免注册/登录后试用记录丢失。 */
+export async function migrateUserChatSessions(fromUserId, toUserId, edition = "school") {
+  const sourceId = String(fromUserId ?? "").trim();
+  const targetId = String(toUserId ?? "").trim();
+  if (!sourceId || !targetId || sourceId === targetId || sourceId === "anonymous" || targetId === "anonymous") {
+    return { ok: true, migratedCount: 0 };
+  }
+  const normalizedEdition = normalizeChatEdition(edition);
+  const serverTs = Date.now();
+  try {
+    return await withDatabaseTransaction(async (tx) => {
+      const sourceMeta = await tx.get(
+        tx.dialect === "postgres"
+          ? "SELECT sessions_json FROM user_chat_sessions_by_edition WHERE user_id = $1 AND edition = $2 FOR UPDATE"
+          : "SELECT sessions_json FROM user_chat_sessions_by_edition WHERE user_id = ? AND edition = ?",
+        [sourceId, normalizedEdition],
+      );
+      const sourceItems = await readChatSessionItems(tx, sourceId, normalizedEdition, sourceMeta?.sessions_json ?? null);
+      if (!sourceItems.length) {
+        return { ok: true, migratedCount: 0 };
+      }
+      await lockChatOwner(tx, targetId, normalizedEdition, serverTs);
+      let migratedCount = 0;
+      let changed = false;
+      for (const session of sourceItems) {
+        if (!session || typeof session !== "object" || !session.id) continue;
+        const saved = await mergeChatItem(tx, targetId, normalizedEdition, session);
+        if (saved) {
+          migratedCount += 1;
+          changed ||= saved.changed;
+        }
+      }
+      if (changed) await bumpChatRevision(tx, targetId, normalizedEdition, serverTs);
+      for (const table of ["user_chat_session_items", "user_chat_session_deletions", "user_chat_sessions_by_edition"]) {
+        await tx.run(
+          tx.dialect === "postgres"
+            ? `DELETE FROM ${table} WHERE user_id = $1 AND edition = $2`
+            : `DELETE FROM ${table} WHERE user_id = ? AND edition = ?`,
+          [sourceId, normalizedEdition],
+        );
+      }
+      return { ok: true, migratedCount };
+    });
+  } catch (e) {
+    console.warn("[db] migrateUserChatSessions failed", e?.message || e);
+    return { ok: false, migratedCount: 0 };
+  }
+}

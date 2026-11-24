@@ -25,11 +25,13 @@ export function getSessionKey(userId?: string | null, edition: AppEdition = getA
  */
 export function clearUserSessions(userId: string, edition: AppEdition = getAppEdition()): void {
   if (!userId || typeof userId !== "string") return;
+  const storageKey = getSessionKey(userId, edition);
   try {
-    localStorage.removeItem(getSessionKey(userId, edition));
+    localStorage.removeItem(storageKey);
   } catch {
     /* ignore */
   }
+  void saveLocalChatCache(storageKey, []).catch(() => {});
 }
 
 /** 写入本地和服务端会话前移除可由 spec 重新渲染的图表静态图片。 */

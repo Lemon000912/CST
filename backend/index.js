@@ -106,6 +106,7 @@ import {
   handleSendWechatBindSmsCode,
   requireAdmin,
   requireAuthenticatedUser,
+  resolveClientIp,
   resolveUserIdFromRequest,
 } from "./auth.js";
 import { isSmsVerificationConfigured } from "./smsVerification.js";
@@ -210,19 +211,7 @@ rewriteCache.clear();
 console.log("[cache] 搜索缓存和改写缓存已清除");
 
 function clientIp(req) {
-  const remoteAddr = req.socket?.remoteAddress ?? "";
-  // Only trust X-Forwarded-For when the TCP connection itself comes from localhost
-  // (Apache reverse proxy on the same machine). Otherwise an attacker can inject
-  // an arbitrary header from the public internet.
-  const isLoopback =
-    remoteAddr === "127.0.0.1" ||
-    remoteAddr === "::1" ||
-    remoteAddr.startsWith("::ffff:127.");
-  if (isLoopback) {
-    const xf = req.headers["x-forwarded-for"];
-    if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
-  }
-  return remoteAddr || "local";
+  return resolveClientIp(req, "local");
 }
 
 class ApiRouteError extends Error {
@@ -3106,7 +3095,7 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
 
     if (pgPool) {
       const [usersResult, searchesResult] = await Promise.all([
-        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1", [APP_EDITION]),
+        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1 AND id NOT LIKE 'trial-%'", [APP_EDITION]),
         pgPool.query("SELECT COUNT(*) AS total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND u.edition = $2", [todayStart.getTime(), APP_EDITION]),
       ]);
       totalUsers = parseInt(usersResult.rows[0]?.total ?? "0") || 0;
@@ -3129,7 +3118,7 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
       }
     } else {
       const db = await getSqliteDb();
-      const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ?", [APP_EDITION]);
+      const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ? AND id NOT LIKE 'trial-%'", [APP_EDITION]);
       totalUsers = usersResult[0]?.total || 0;
       const searchesResult = await db.all(
         "SELECT COUNT(*) as total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND u.edition = ?",

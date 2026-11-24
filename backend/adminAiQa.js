@@ -113,7 +113,7 @@ function buildWhere(db, filters) {
     `u.edition = ${bind(getConfiguredAppEdition())}`,
     "o.operation_type = 'search'",
     "o.status = 'completed'",
-    "o.cost_units > 0",
+    "(o.cost_units > 0 OR u.id LIKE 'trial-%')",
     "o.result_json IS NOT NULL",
     db.dialect === "postgres"
       ? `COALESCE(${json.version}, '') = '1'`
@@ -122,12 +122,13 @@ function buildWhere(db, filters) {
 
   if (filters.search) {
     const term = `%${filters.search}%`;
+    const matchGuest = filters.search.includes("游客") || "游客".includes(filters.search);
     if (db.dialect === "postgres") {
       const placeholder = bind(term);
-      clauses.push(`(u.username ILIKE ${placeholder} OR u.id ILIKE ${placeholder} OR o.id ILIKE ${placeholder} OR COALESCE(${json.question}, '') ILIKE ${placeholder})`);
+      clauses.push(`(u.username ILIKE ${placeholder} OR u.id ILIKE ${placeholder} OR o.id ILIKE ${placeholder} OR COALESCE(${json.question}, '') ILIKE ${placeholder}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
     } else {
       const lowerTerm = term.toLowerCase();
-      clauses.push(`(LOWER(u.username) LIKE ${bind(lowerTerm)} OR LOWER(u.id) LIKE ${bind(lowerTerm)} OR LOWER(o.id) LIKE ${bind(lowerTerm)} OR LOWER(COALESCE(${json.question}, '')) LIKE ${bind(lowerTerm)})`);
+      clauses.push(`(LOWER(u.username) LIKE ${bind(lowerTerm)} OR LOWER(u.id) LIKE ${bind(lowerTerm)} OR LOWER(o.id) LIKE ${bind(lowerTerm)} OR LOWER(COALESCE(${json.question}, '')) LIKE ${bind(lowerTerm)}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
     }
   }
   if (filters.edition) clauses.push(`LOWER(COALESCE(${json.edition}, '')) = ${bind(filters.edition)}`);
@@ -150,11 +151,14 @@ function ledgerJoinSql() {
 function publicListRecord(row) {
   const costUnits = safeInteger(row.cost_units, "消耗积分");
   const edition = normalizeEdition(row.edition) || String(row.edition || "").trim().toLowerCase();
+  const userId = String(row.user_id);
+  const isGuest = userId.startsWith("trial-");
   return {
     id: String(row.operation_id),
     operationId: String(row.operation_id),
-    userId: String(row.user_id),
-    username: String(row.username || "-"),
+    userId,
+    username: isGuest ? "游客" : String(row.username || "-"),
+    isGuest,
     question: String(row.question || ""),
     answerPreview: String(row.answer_preview || ""),
     deepAnswerPreview: String(row.deep_answer_preview || ""),
@@ -258,7 +262,7 @@ export async function getAdminAiQaRecord(operationId) {
      JOIN users u ON u.id = o.user_id
      ${ledgerJoinSql()}
      WHERE o.id = ${placeholder} AND u.edition = ${db.dialect === "postgres" ? "$2" : "?"} AND o.operation_type = 'search'
-       AND o.status = 'completed' AND o.cost_units > 0
+       AND o.status = 'completed' AND (o.cost_units > 0 OR u.id LIKE 'trial-%')
        AND o.result_json IS NOT NULL AND ${versionCheck}`,
     [normalizedId, getConfiguredAppEdition()],
   );
@@ -303,9 +307,10 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
     const balanceAfter = row.balance_after_units === null || row.balance_after_units === undefined
       ? ""
       : formatPointUnits(safeInteger(row.balance_after_units, "变动后余额"));
+    const isGuest = String(row.user_id || "").startsWith("trial-");
     lines.push([
       EDITION_LABELS[normalizeEdition(row.edition)] || String(row.edition || "未知版本"),
-      row.username,
+      isGuest ? "游客" : row.username,
       row.user_id,
       row.question,
       row.answer,

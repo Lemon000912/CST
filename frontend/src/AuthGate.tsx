@@ -48,7 +48,7 @@ export default function AuthGate() {
 
   const onLogout = useCallback(() => {
     clearAuthSession();
-    setEntry("guest");
+    setEntry("login");
     setToken(null);
   }, []);
   const onGuestLogin = useCallback((register: boolean) => setEntry(register ? "register" : "login"), []);

@@ -1,6 +1,11 @@
 import { SessionSync } from "./sessionSyncRuntime.js";
-import { useSchoolGuest } from "./SchoolGuest";
-import { loadDurableSessions } from "./storage";
+import {
+  consumePendingGuestScope,
+  consumePendingInputDraft,
+  savePendingInputDraft,
+  useSchoolGuest,
+} from "./SchoolGuest";
+import { clearUserSessions, loadDurableSessions } from "./storage";
 import {
   forwardRef,
   lazy,
@@ -2871,7 +2876,17 @@ export default function App({
   const [draftSession, setDraftSession] = useState<ChatSession>(() => createSession());
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => consumePendingInputDraft(edition));
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  const redirectGuestToLogin = useCallback(
+    (register: boolean, draftText?: string) => {
+      if (!onGuestLogin) return;
+      savePendingInputDraft(edition, draftText ?? inputRef.current);
+      onGuestLogin(register);
+    },
+    [edition, onGuestLogin],
+  );
   const [queryField, setQueryField] = useState<ArxivSearchField>("ti");
   const [searchChannel, setSearchChannel] = useState<SearchChannel>(() =>
     edition === "enterprise" ? "database" : "web",
@@ -3106,7 +3121,20 @@ export default function App({
         if (!cancelled) setSessionsHydrated(true);
         return;
       }
-      const local = await loadDurableSessions(sessionOwner, edition);
+      let local = await loadDurableSessions(sessionOwner, edition);
+      if (!guestMode && edition === "school") {
+        const pendingGuestScope = consumePendingGuestScope();
+        if (pendingGuestScope && pendingGuestScope !== sessionOwner) {
+          const guestLocal = removeEmptySessions(
+            recoverInterruptedSearchSessions(await loadDurableSessions(pendingGuestScope, edition)),
+          );
+          if (guestLocal.length > 0) {
+            local = mergeChatSessions(guestLocal, local);
+            clearUserSessions(pendingGuestScope, edition);
+            try { saveSessions(local, sessionOwner, edition); } catch { /* ignore */ }
+          }
+        }
+      }
       let remote = null;
       // A transient GET failure must not be treated as an empty server history.
       // Retry before allowing any server PUT; otherwise a local snapshot could
@@ -3372,6 +3400,10 @@ export default function App({
 
   const processSelectedFiles = async (files: File[]) => {
     if (!files.length) return;
+    if (guestMode && guest.remaining === 0) {
+      redirectGuestToLogin(true);
+      return;
+    }
     setUploadNotice(null);
     setUploadError(null);
     setUploadBusy(true);
@@ -3402,6 +3434,10 @@ export default function App({
       }
     } catch (err) {
       setUploadNotice(null);
+      if (guestMode && err instanceof ApiError && err.code === "guest-login-required") {
+        redirectGuestToLogin(true);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "文件解析失败";
       setUploadError(msg);
     } finally {
@@ -3835,7 +3871,7 @@ export default function App({
 
     const sessionId = activeIdRef.current ?? activeId ?? draftSession.id;
     if (!sessionId) return;
-    if (guestMode && guest.remaining === 0) return onGuestLogin?.(true);
+    if (guestMode && guest.remaining === 0) return redirectGuestToLogin(true, text);
     if (guestMode && !guest.ready) return;
 
     const priorMessages =
@@ -4115,7 +4151,10 @@ export default function App({
         } else if (event.type === "error") {
           if (pauseRequestedRef.current) continue;
           streamFailed = true;
-          if (guestMode) guest.handleError(event.code, event.siteKey);
+          if (guestMode) {
+            if (event.code === "guest-login-required" && q) savePendingInputDraft(edition, q);
+            guest.handleError(event.code, event.siteKey);
+          }
           upsertAssistant({ content: event.error, error: true, meta: { synthesisNote: "synth:error" } });
         }
       }
@@ -4588,7 +4627,7 @@ export default function App({
             ) : null}
           </div>
           <div className="flex shrink-0 flex-col gap-1">
-            {onGuestLogin && <button type="button" className="qp-link-accent rounded-md border px-2 py-1 text-[10px]" onClick={() => onGuestLogin(false)}>登录 / 注册</button>}
+            {onGuestLogin && <button type="button" className="qp-link-accent rounded-md border px-2 py-1 text-[10px]" onClick={() => redirectGuestToLogin(false)}>登录 / 注册</button>}
             {pointsEnabled || edition === "finance" ? (
               <button
                 type="button"
@@ -4804,8 +4843,17 @@ export default function App({
             >
               {pointBalance ? `${formatPoints(pointBalance.balance)} 积分` : "积分 —"}
             </button>
+          ) : guestMode && onGuestLogin ? (
+            <button
+              type="button"
+              onClick={() => redirectGuestToLogin(false)}
+              className="qp-link-accent shrink-0 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-medium lg:hidden"
+              aria-label="登录或注册"
+            >
+              {guest.remaining == null ? "登录 / 注册" : `余${guest.remaining}次 · 登录`}
+            </button>
           ) : (
-            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{guestMode ? "游客" : "企业版"}</span>
+            <span className="shrink-0 text-[10px] font-medium text-[var(--t-text-muted)] lg:hidden">{edition === "finance" ? "金融版" : "企业版"}</span>
           )}
         </header>
 

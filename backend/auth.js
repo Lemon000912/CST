@@ -8,6 +8,7 @@ import {
   findUserById,
   findUserByWechatIdentity,
   bindWechatIdentityByVerifiedPhone,
+  migrateUserChatSessions,
   updateUserPassword,
   WechatIdentityLinkError,
   normalizeUsernameKey,
@@ -65,8 +66,60 @@ function getJwtSecret() {
   return new TextEncoder().encode("paper-query-dev-insecure-secret-min-32-chars!");
 }
 
+export const SCHOOL_GUEST_COOKIE = "cst_school_trial";
+
 export function schoolGuestDigest(purpose, value) {
   return createHmac("sha256", getJwtSecret()).update(`school-guest:${purpose}:${value}`).digest("hex");
+}
+
+export function parseSchoolGuestVisitorId(req) {
+  const raw = parseRequestCookies(req)[SCHOOL_GUEST_COOKIE];
+  const match = typeof raw === "string" ? raw.match(/^([\da-f-]{36})\.([\da-f]{64})$/) : null;
+  if (!match) return null;
+  try {
+    const expected = schoolGuestDigest("cookie", match[1]);
+    if (!timingSafeEqual(Buffer.from(match[2]), Buffer.from(expected))) return null;
+    return match[1];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 统一解析客户端真实 IP（仅当直连来源为本机反代时信任 X-Forwarded-For / X-Real-IP）。
+ * TRUSTED_PROXY_HOPS 默认为 1（单层本机 Nginx/Apache 反代）；若前面还有 CDN/SLB 可设为 2。
+ */
+export function resolveClientIp(req, fallback = "local") {
+  const remoteAddr = String(req?.socket?.remoteAddress ?? "").trim();
+  const isLoopback =
+    remoteAddr === "127.0.0.1" ||
+    remoteAddr === "::1" ||
+    remoteAddr.startsWith("::ffff:127.");
+  if (isLoopback) {
+    const xf = req?.headers?.["x-forwarded-for"];
+    if (typeof xf === "string" && xf.trim()) {
+      const ips = xf.split(",").map((part) => part.trim()).filter(Boolean);
+      if (ips.length) {
+        const rawHops = String(process.env.TRUSTED_PROXY_HOPS ?? "").trim();
+        const hops = /^\d+$/.test(rawHops) && Number(rawHops) >= 1 ? Number(rawHops) : 1;
+        return ips[Math.max(0, ips.length - hops)];
+      }
+    }
+    const realIp = req?.headers?.["x-real-ip"];
+    if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
+  }
+  return remoteAddr || fallback;
+}
+
+async function migrateSchoolGuestSessionsIfPresent(req, userId) {
+  if (getConfiguredAppEdition() !== "school" || !userId || String(userId).startsWith("trial-")) return;
+  const visitor = parseSchoolGuestVisitorId(req);
+  if (!visitor) return;
+  try {
+    await migrateUserChatSessions(`trial-${visitor}`, userId, "school");
+  } catch (error) {
+    console.warn("[auth/guest-migrate]", error instanceof Error ? error.message : error);
+  }
 }
 
 function parseRequestCookies(req) {
@@ -528,6 +581,7 @@ export async function handleWechatSession(req, res) {
     if (!user) {
       return res.status(401).json({ error: "微信绑定账号不存在", code: "wechat-user-not-found" });
     }
+    await migrateSchoolGuestSessionsIfPresent(req, user.id);
     return res.json(await successfulAuthPayload(user));
   } catch (error) {
     console.error("[auth/wechat/session]", error instanceof Error ? error.message : error);
@@ -613,6 +667,7 @@ export async function handleWechatBindPhone(req, res) {
     });
     consumeWechatTicket(ticketToken);
     clearWechatCookie(res, editionCookieName(WECHAT_TICKET_COOKIE));
+    await migrateSchoolGuestSessionsIfPresent(req, result.user.id);
     return res.status(result.created ? 201 : 200).json({
       ...(await successfulAuthPayload(result.user)),
       accountCreated: result.created,
@@ -677,6 +732,7 @@ export async function handleRegister(req, res) {
     const id = randomUUID();
     const hash = await hashUserPassword(p.password);
     const created = await createUserRecord(id, u.username, hash, e.email, ph.phone);
+    await migrateSchoolGuestSessionsIfPresent(req, id);
     const token = await signAuthToken(id, u.username);
     return res.status(201).json({
       token,
@@ -733,6 +789,7 @@ export async function handleLogin(req, res) {
     if (!(await verifyUserPassword(password, row.password_hash))) {
       return res.status(401).json({ error: "手机号或管理员账号、密码错误" });
     }
+    await migrateSchoolGuestSessionsIfPresent(req, row.id);
     const token = await signAuthToken(row.id, row.username);
     const billing = await getPointBalance(row.id);
     return res.json({

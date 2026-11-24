@@ -1,5 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatSession } from "./types";
+import type { AppEdition } from "./edition";
+
+const PENDING_GUEST_SCOPE_KEY = "paper-query-pending-guest-scope-v1:school";
+const GUEST_DRAFT_KEY = (edition: AppEdition) => `paper-query-input-draft-v1:${edition}`;
+
+export function rememberPendingGuestScope(scope?: string | null): void {
+  if (!scope || !scope.startsWith("trial-")) return;
+  try { sessionStorage.setItem(PENDING_GUEST_SCOPE_KEY, scope); } catch { /* ignore */ }
+}
+
+export function consumePendingGuestScope(): string | null {
+  try {
+    const scope = sessionStorage.getItem(PENDING_GUEST_SCOPE_KEY);
+    if (scope) sessionStorage.removeItem(PENDING_GUEST_SCOPE_KEY);
+    return scope && scope.startsWith("trial-") ? scope : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePendingInputDraft(edition: AppEdition, text: string): void {
+  const value = text.trim();
+  if (!value) return;
+  try { sessionStorage.setItem(GUEST_DRAFT_KEY(edition), text); } catch { /* ignore */ }
+}
+
+export function consumePendingInputDraft(edition: AppEdition): string {
+  try {
+    const value = sessionStorage.getItem(GUEST_DRAFT_KEY(edition)) ?? "";
+    if (value) sessionStorage.removeItem(GUEST_DRAFT_KEY(edition));
+    return value;
+  } catch {
+    return "";
+  }
+}
 
 
 type Trial = {
@@ -66,7 +101,11 @@ export function useSchoolGuest(onLogin?: (register: boolean) => void) {
       .then(async res => {
         if (!res.ok) throw Error();
         const state: Trial = await res.json();
-        if (!controller.signal.aborted) { setTrial(state); setError(""); }
+        if (!controller.signal.aborted) {
+          rememberPendingGuestScope(state.scope);
+          setTrial(state);
+          setError("");
+        }
       })
       .catch(() => { if (!controller.signal.aborted) setError("暂时无法读取试用次数。"); });
     return () => controller.abort();

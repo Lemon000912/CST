@@ -130,15 +130,21 @@ export class AiQaPage {
             body.innerHTML = '<tr><td colspan="7" class="ai-qa-empty"><i class="fas fa-inbox"></i><span>没有符合条件的问答记录</span></td></tr>';
             return;
         }
-        body.innerHTML = this.records.map((record) => `<tr>
-            <td><div class="ai-qa-user"><strong>${this.escapeHtml(record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div></td>
+        body.innerHTML = this.records.map((record) => {
+            const isGuest = Boolean(record.isGuest || String(record.userId || '').startsWith('trial-'));
+            const costCell = isGuest && Number(record.costUnits || 0) === 0
+                ? '<span class="ai-qa-edition">游客免费</span>'
+                : `<strong class="ai-qa-cost">-${this.formatPoints(record.cost)}</strong>`;
+            return `<tr>
+            <td><div class="ai-qa-user"><strong>${this.escapeHtml(isGuest ? '游客' : record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div></td>
             <td><button type="button" class="ai-qa-question" data-ai-qa-detail="${this.escapeHtml(record.operationId)}">${this.escapeHtml(record.question || '（无文本问题）')}</button><small class="ai-qa-operation">${this.escapeHtml(record.operationId)}</small></td>
             <td><span class="ai-qa-edition ai-qa-edition-${this.escapeHtml(record.edition || 'unknown')}">${this.escapeHtml(record.editionLabel || this.formatEdition(record.edition))}</span></td>
             <td><span class="ai-qa-status ${record.status}">${record.status === 'stopped' ? '已停止' : '成功'}</span></td>
-            <td><strong class="ai-qa-cost">-${this.formatPoints(record.cost)}</strong></td>
+            <td>${costCell}</td>
             <td><span class="ai-qa-date">${this.formatDate(record.completedAt)}</span></td>
             <td><button type="button" class="ai-qa-detail-button" data-ai-qa-detail="${this.escapeHtml(record.operationId)}" title="查看详情"><i class="fas fa-eye"></i></button></td>
-        </tr>`).join('');
+        </tr>`;
+        }).join('');
     }
 
     renderPagination() {
@@ -172,12 +178,15 @@ export class AiQaPage {
         try {
             const record = await api.getAiQaRecord(operationId);
             if (!content) return;
-            const contacts = [record.email, record.phone].filter(Boolean).map(this.escapeHtml).join(' · ') || '未填写联系方式';
+            const isGuest = Boolean(record.isGuest || String(record.userId || '').startsWith('trial-'));
+            const contacts = isGuest
+                ? '游客试用（未注册）'
+                : ([record.email, record.phone].filter(Boolean).map(this.escapeHtml).join(' · ') || '未填写联系方式');
             content.innerHTML = `
                 <div class="ai-qa-detail-grid">
-                    <div><span>用户</span><strong>${this.escapeHtml(record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div>
+                    <div><span>用户</span><strong>${this.escapeHtml(isGuest ? '游客' : record.username)}</strong><small>${this.escapeHtml(record.userId)}</small></div>
                     <div><span>请求状态</span><strong>${record.status === 'stopped' ? '已停止' : '成功'}</strong><small>${contacts}</small></div>
-                    <div><span>消耗积分</span><strong>${this.formatPoints(record.cost)}</strong><small>余额 ${record.balanceAfter == null ? '-' : this.formatPoints(record.balanceAfter)}</small></div>
+                    <div><span>消耗积分</span><strong>${isGuest && Number(record.costUnits || 0) === 0 ? '0.00（游客免费）' : this.formatPoints(record.cost)}</strong><small>余额 ${isGuest ? '游客无积分账户' : (record.balanceAfter == null ? '-' : this.formatPoints(record.balanceAfter))}</small></div>
                     <div><span>完成时间</span><strong>${this.formatDate(record.completedAt)}</strong><small>${this.escapeHtml(record.channel || '-')} · ${this.escapeHtml(record.editionLabel || this.formatEdition(record.edition))}</small></div>
                 </div>
                 <section class="ai-qa-detail-section"><h4>用户问题</h4><pre>${this.escapeHtml(record.question || '（无文本问题）')}</pre></section>
