@@ -29,8 +29,9 @@ export class DashboardPage {
             // 保存到store
             store.updateStats(data);
         } catch (error) {
+            if (error?.isCancelled) return;
             console.error('加载仪表盘数据失败:', error);
-            this.showError('加载数据失败');
+            this.showError(error?.message || '加载数据失败');
         } finally {
             this.setLoading(false);
         }
@@ -134,8 +135,20 @@ export class DashboardPage {
     }
 
     showError(message) {
-        // 可以在这里添加错误提示UI
         console.error(message);
+        const safe = String(message || '加载失败')
+            .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+        const trendLoading = document.getElementById('trend-loading');
+        if (trendLoading) {
+            trendLoading.style.display = 'block';
+            trendLoading.innerHTML = `<p style="text-align: center; color: #b91c1c;">${safe} <button type="button" class="btn-action" id="dashboard-retry-btn" style="margin-left: 8px;">重试</button></p>`;
+            document.getElementById('dashboard-retry-btn')?.addEventListener('click', () => this.loadData(), { once: true });
+        }
+        const sourceLoading = document.getElementById('source-loading');
+        if (sourceLoading) {
+            sourceLoading.style.display = 'block';
+            sourceLoading.innerHTML = `<p style="text-align: center; color: #b91c1c;">${safe}</p>`;
+        }
     }
 
     unmount() {

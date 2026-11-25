@@ -201,4 +201,37 @@ test("AI QA admin records include only new charged search operations", async (t)
   const guestCsv = await exportAdminAiQaRecords({ search: "钛合金腐蚀" });
   assert.match(guestCsv, /"游客"/);
   assert.match(guestCsv, /钛合金腐蚀机理/);
+
+  // 验证存量老记录（qa_version 为 NULL）在查询前会被自动回填且正常展示
+  const legacyOpId = "qa-legacy-backfill-0001";
+  await db.run(
+    `INSERT INTO point_operations
+     (id, user_id, operation_type, idempotency_key, request_hash, status, cost_units,
+      billing_details_json, result_json, receipt_json, created_at, updated_at, completed_at)
+     VALUES (?,?,?,?,?,'completed',?,?,?,?,?,?,?)`,
+    [
+      legacyOpId,
+      userId,
+      "search",
+      "qa-legacy-backfill-key",
+      "legacy-hash",
+      15,
+      JSON.stringify({ edition: "school" }),
+      JSON.stringify({
+        synthesis: "存量老记录回答内容",
+        channel: "web",
+        adminQa: { version: 1, question: "存量老记录回填问题" },
+      }),
+      "{}",
+      now,
+      now,
+      now,
+    ],
+  );
+  const afterBackfill = await listAdminAiQaRecords({ search: "存量老记录回填" });
+  assert.equal(afterBackfill.total, 1);
+  assert.equal(afterBackfill.records[0].operationId, legacyOpId);
+  assert.equal(afterBackfill.records[0].answerPreview, "存量老记录回答内容");
+  const legacyDetail = await getAdminAiQaRecord(legacyOpId);
+  assert.equal(legacyDetail.answer, "存量老记录回答内容");
 });

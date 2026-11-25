@@ -117,6 +117,7 @@ export class PointsPage {
             this.renderUsers();
             this.renderPagination();
         } catch (error) {
+            if (error?.isCancelled) return;
             if (body) body.innerHTML = `<tr><td colspan="6" class="points-empty"><i class="fas fa-circle-exclamation"></i><span>${this.escapeHtml(error.message || '加载积分账户失败')}</span></td></tr>`;
         }
     }
@@ -175,6 +176,7 @@ export class PointsPage {
             const data = await api.getPointLedger({ userId: this.ledgerUserId, limit: 20 });
             this.renderLedger(data.entries || []);
         } catch (error) {
+            if (error?.isCancelled) return;
             list.innerHTML = `<div class="points-empty"><i class="fas fa-circle-exclamation"></i><span>${this.escapeHtml(error.message || '加载积分流水失败')}</span></div>`;
         }
     }

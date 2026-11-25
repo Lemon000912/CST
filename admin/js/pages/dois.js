@@ -9,6 +9,13 @@ export class DOIsPage {
         this.container = document.getElementById('page-doi');
         this.currentPage = 1;
         this.searchQuery = '';
+        this.listeners = [];
+    }
+
+    listen(element, event, handler) {
+        if (!element) return;
+        element.addEventListener(event, handler);
+        this.listeners.push(() => element.removeEventListener(event, handler));
     }
 
     async mount() {
@@ -18,34 +25,24 @@ export class DOIsPage {
 
     bindEvents() {
         // 搜索
-        const searchInput = document.getElementById('doi-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', this.debounce((e) => {
-                this.searchQuery = e.target.value;
-                this.currentPage = 1;
-                this.loadData();
-            }, 300));
-        }
+        this.listen(document.getElementById('doi-search'), 'input', this.debounce((e) => {
+            this.searchQuery = e.target.value;
+            this.currentPage = 1;
+            this.loadData();
+        }, 300));
 
         // 分页
-        const prevBtn = document.getElementById('doi-prev');
-        const nextBtn = document.getElementById('doi-next');
-        
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => {
-                if (this.currentPage > 1) {
-                    this.currentPage--;
-                    this.loadData();
-                }
-            });
-        }
-
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => {
-                this.currentPage++;
+        this.listen(document.getElementById('doi-prev'), 'click', () => {
+            if (this.currentPage > 1) {
+                this.currentPage--;
                 this.loadData();
-            });
-        }
+            }
+        });
+
+        this.listen(document.getElementById('doi-next'), 'click', () => {
+            this.currentPage++;
+            this.loadData();
+        });
 
         // 绑定全局函数到window对象
         window.viewDOI = this.viewDOIDetail.bind(this);
@@ -76,9 +73,9 @@ export class DOIsPage {
                 total: data.total || 0
             });
         } catch (error) {
+            if (error?.isCancelled) return;
             console.error('加载DOI数据失败:', error);
-            this.showError('加载DOI数据失败');
-            this.renderDOIs([]);
+            this.showError(error?.message || '加载DOI数据失败');
         } finally {
             this.setLoading(false);
         }
@@ -266,9 +263,21 @@ export class DOIsPage {
 
     showError(message) {
         console.error(message);
+        const tbody = document.getElementById('doi-table-body');
+        if (tbody) {
+            const safe = String(message || '加载DOI数据失败')
+                .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 28px; color: #b91c1c;">
+                <span>${safe}</span>
+                <button type="button" class="btn-action" id="dois-retry-btn" style="margin-left: 12px;">重试</button>
+            </td></tr>`;
+            document.getElementById('dois-retry-btn')?.addEventListener('click', () => this.loadData(), { once: true });
+        }
     }
 
     unmount() {
+        for (const dispose of this.listeners) dispose();
+        this.listeners = [];
         // 清理全局函数
         window.viewDOI = null;
         window.deleteDOI = null;

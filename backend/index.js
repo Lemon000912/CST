@@ -3083,80 +3083,101 @@ app.all("/api/v1/gbrain/*", (_req, res) => {
 app.post("/api/v1/auth/login", async (req, res) => {
   await handleLogin(req, res);
 });
+const PG_FAST_COUNT_TABLES = new Set(["doi_records", "journal_papers", "aizhishi_papers"]);
+const pgFastCountCache = new Map();
+const PG_FAST_COUNT_TTL_MS = 60_000;
+
+async function getFastPgTableCount(tableName) {
+  if (!pgPool || !PG_FAST_COUNT_TABLES.has(tableName)) return 0;
+  const cached = pgFastCountCache.get(tableName);
+  if (cached && cached.expiresAt > Date.now()) return cached.count;
+  let count = 0;
+  try {
+    const approxRes = await pgPool.query(
+      "SELECT reltuples::bigint AS approx FROM pg_class WHERE oid = to_regclass($1)",
+      [`public.${tableName}`],
+    );
+    const approx = Number(approxRes.rows[0]?.approx ?? -1);
+    if (Number.isFinite(approx) && approx > 0) {
+      count = approx;
+    } else {
+      const exactRes = await pgPool.query(`SELECT COUNT(*) AS count FROM ${tableName}`);
+      count = parseInt(exactRes.rows[0]?.count ?? "0", 10) || 0;
+    }
+    pgFastCountCache.set(tableName, { count, expiresAt: Date.now() + PG_FAST_COUNT_TTL_MS });
+  } catch (err) {
+    console.error(`[admin/count:${tableName}]`, err?.message || err);
+    if (cached) return cached.count;
+    throw err;
+  }
+  return count;
+}
+
 /** 仪表盘统计 */
 app.get("/api/v1/admin/dashboard", async (_req, res) => {
   try {
     let totalUsers = 0;
     let todaySearches = 0;
-    const weeklyTrend = [];
+    const dayBuckets = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      const nextDate = new Date(date);
+      nextDate.setDate(nextDate.getDate() + 1);
+      dayBuckets.push({
+        start: date.getTime(),
+        end: nextDate.getTime(),
+        date: date.toISOString().slice(0, 10),
+        count: 0,
+      });
+    }
+    const weekStartMs = dayBuckets[0].start;
+    const todayStartMs = dayBuckets[dayBuckets.length - 1].start;
+    const weekEndMs = dayBuckets[dayBuckets.length - 1].end;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    if (pgPool) {
-      const [usersResult, searchesResult] = await Promise.all([
-        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1 AND id NOT LIKE 'trial-%'", [APP_EDITION]),
-        pgPool.query("SELECT COUNT(*) AS total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND u.edition = $2", [todayStart.getTime(), APP_EDITION]),
-      ]);
-      totalUsers = parseInt(usersResult.rows[0]?.total ?? "0") || 0;
-      todaySearches = parseInt(searchesResult.rows[0]?.total ?? "0") || 0;
-
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        date.setHours(0, 0, 0, 0);
-        const nextDate = new Date(date);
-        nextDate.setDate(nextDate.getDate() + 1);
-        const dayResult = await pgPool.query(
-          "SELECT COUNT(*) AS count FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND q.ts < $2 AND u.edition = $3",
-          [date.getTime(), nextDate.getTime(), APP_EDITION],
-        );
-        weeklyTrend.push({
-          date: date.toISOString().slice(0, 10),
-          count: parseInt(dayResult.rows[0]?.count ?? "0") || 0,
-        });
+    const bucketTimestamps = (rows) => {
+      for (const row of rows) {
+        const ts = Number(row.ts);
+        if (!Number.isFinite(ts)) continue;
+        if (ts >= todayStartMs) todaySearches += 1;
+        for (const bucket of dayBuckets) {
+          if (ts >= bucket.start && ts < bucket.end) {
+            bucket.count += 1;
+            break;
+          }
+        }
       }
+    };
+
+    let doiCount = 0;
+    let journalPaperCount = 0;
+    if (pgPool) {
+      const [usersResult, weekQueriesResult, fetchedDoiCount, fetchedJournalCount] = await Promise.all([
+        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1 AND id NOT LIKE 'trial-%'", [APP_EDITION]),
+        pgPool.query(
+          "SELECT q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND q.ts < $2 AND u.edition = $3",
+          [weekStartMs, weekEndMs, APP_EDITION],
+        ),
+        getFastPgTableCount("doi_records").catch(() => 0),
+        getFastPgTableCount("journal_papers").catch(() => 0),
+      ]);
+      totalUsers = parseInt(usersResult.rows[0]?.total ?? "0", 10) || 0;
+      bucketTimestamps(weekQueriesResult.rows);
+      doiCount = fetchedDoiCount;
+      journalPaperCount = fetchedJournalCount;
     } else {
       const db = await getSqliteDb();
       const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ? AND id NOT LIKE 'trial-%'", [APP_EDITION]);
       totalUsers = usersResult[0]?.total || 0;
-      const searchesResult = await db.all(
-        "SELECT COUNT(*) as total FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND u.edition = ?",
-        [todayStart.getTime(), APP_EDITION],
+      const weekRows = await db.all(
+        "SELECT q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND q.ts < ? AND u.edition = ?",
+        [weekStartMs, weekEndMs, APP_EDITION],
       );
-      todaySearches = searchesResult[0]?.total || 0;
-
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        date.setHours(0, 0, 0, 0);
-        const nextDate = new Date(date);
-        nextDate.setDate(nextDate.getDate() + 1);
-        const dayResult = await db.all(
-          "SELECT COUNT(*) as count FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND q.ts < ? AND u.edition = ?",
-          [date.getTime(), nextDate.getTime(), APP_EDITION],
-        );
-        weeklyTrend.push({
-          date: date.toISOString().slice(0, 10),
-          count: dayResult[0]?.count || 0,
-        });
-      }
+      bucketTimestamps(weekRows);
     }
 
-    // 论文统计 - 使用PostgreSQL数据
-    let doiCount = 0;
-    let journalPaperCount = 0;
-    if (pgPool) {
-      try {
-        const doiResult = await pgPool.query("SELECT COUNT(*) as count FROM doi_records");
-        doiCount = parseInt(doiResult.rows[0].count) || 0;
-
-        const jpResult = await pgPool.query("SELECT COUNT(*) as count FROM journal_papers");
-        journalPaperCount = parseInt(jpResult.rows[0].count) || 0;
-      } catch (pgErr) {
-        console.error("[admin/dashboard] PostgreSQL query error:", pgErr.message);
-      }
-    }
+    const weeklyTrend = dayBuckets.map(({ date, count }) => ({ date, count }));
 
     // 论文总数 = DOI数量 + 15万
     const totalPapers = doiCount + 150000;
@@ -3326,15 +3347,16 @@ app.get("/api/v1/admin/pdfs", async (req, res) => {
 
     if (pgPool) {
       try {
-        // 查询总数
-        let countSql = "SELECT COUNT(*) as total FROM aizhishi_papers";
-        let countParams = [];
+        // 查询总数（无搜索词时使用快速统计，避免大表全表扫描）
         if (search) {
-          countSql += " WHERE title ILIKE $1 OR material_name ILIKE $1";
-          countParams = [`%${search}%`];
+          const countResult = await pgPool.query(
+            "SELECT COUNT(*) as total FROM aizhishi_papers WHERE title ILIKE $1 OR material_name ILIKE $1",
+            [`%${search}%`],
+          );
+          total = parseInt(countResult.rows[0].total, 10) || 0;
+        } else {
+          total = await getFastPgTableCount("aizhishi_papers");
         }
-        const countResult = await pgPool.query(countSql, countParams);
-        total = parseInt(countResult.rows[0].total) || 0;
 
         // 查询数据 - 包含11个要素字段
         let sql = `SELECT paper_id, doi, title, material_name, symmetry_phase, structure_descriptor, 
@@ -3444,6 +3466,7 @@ app.delete("/api/v1/admin/pdfs/:id", async (req, res) => {
     }
     
     await pgPool.query("DELETE FROM aizhishi_papers WHERE paper_id = $1", [id]);
+    pgFastCountCache.delete("aizhishi_papers");
     
     res.json({
       success: true,
@@ -3466,15 +3489,15 @@ app.get("/api/v1/admin/dois", async (req, res) => {
 
     if (pgPool) {
       try {
-        // 查询总数
-        const countResult = await pgPool.query("SELECT COUNT(*) as total FROM doi_records");
-        total = parseInt(countResult.rows[0].total) || 0;
-
-        // 查询数据
-        const result = await pgPool.query(
-          "SELECT id, doi, title, authors, journal, year, url FROM doi_records ORDER BY year DESC NULLS LAST LIMIT $1 OFFSET $2",
-          [limit, skip]
-        );
+        // 查询总数与分页数据并行执行；总数走快速统计避免全表扫 277 万行
+        const [fastTotal, result] = await Promise.all([
+          getFastPgTableCount("doi_records"),
+          pgPool.query(
+            "SELECT id, doi, title, authors, journal, year, url FROM doi_records ORDER BY year DESC NULLS LAST LIMIT $1 OFFSET $2",
+            [limit, skip],
+          ),
+        ]);
+        total = fastTotal;
         dois = result.rows;
       } catch (pgErr) {
         console.error("[admin/dois] PostgreSQL error:", pgErr.message);
@@ -3540,6 +3563,7 @@ app.delete("/api/v1/admin/dois/:id", async (req, res) => {
     }
     
     await pgPool.query("DELETE FROM doi_records WHERE id = $1", [id]);
+    pgFastCountCache.delete("doi_records");
     
     res.json({
       success: true,
@@ -3765,14 +3789,12 @@ app.get("/api/v1/admin/config", async (_req, res) => {
         const pgResult = await pgPool.query("SELECT 1");
         pgConnected = true;
         
-        // 获取DOI记录数
-        const doiResult = await pgPool.query("SELECT COUNT(*) as count FROM doi_records");
-        doiCount = parseInt(doiResult.rows[0].count) || 0;
+        // 获取DOI记录数与期刊论文数（走快速统计避免每次全表扫 277 万行）
+        doiCount = await getFastPgTableCount("doi_records");
         
         // 获取期刊论文数（从journal_papers表或其他相关表）
         try {
-          const journalResult = await pgPool.query("SELECT COUNT(*) as count FROM journal_papers");
-          journalCount = parseInt(journalResult.rows[0].count) || 0;
+          journalCount = await getFastPgTableCount("journal_papers");
         } catch (e) {
           // 如果表不存在，尝试其他表
           const totalResult = await pgPool.query(`

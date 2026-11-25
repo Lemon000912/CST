@@ -80,6 +80,8 @@ function showAdminPage() {
 }
 
 async function showPage(pageName) {
+    // 切页时取消上一页仍在进行的请求，避免旧请求拖慢或覆盖新页面
+    api.abortPageRequests();
     // 卸载当前页面
     if (currentPageInstance) {
         currentPageInstance.unmount();

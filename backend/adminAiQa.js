@@ -1,6 +1,6 @@
 import { getConfiguredAppEdition } from "./appEdition.js";
 import { formatPointUnits } from "./billing.js";
-import { getSqliteDb, pgPool } from "./db.js";
+import { backfillAdminQaMetadata, getSqliteDb, pgPool } from "./db.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -79,31 +79,7 @@ async function getReadDb() {
   return getSqliteDb();
 }
 
-function jsonExpressions(dialect) {
-  if (dialect === "postgres") {
-    return {
-      version: "o.result_json::jsonb #>> '{adminQa,version}'",
-      question: "o.result_json::jsonb #>> '{adminQa,question}'",
-      answer: "o.result_json::jsonb ->> 'synthesis'",
-      deepAnswer: "o.result_json::jsonb ->> 'deepSynthesis'",
-      paused: "COALESCE(o.result_json::jsonb ->> 'paused', 'false') = 'true'",
-      channel: "o.result_json::jsonb ->> 'channel'",
-      edition: "o.billing_details_json::jsonb ->> 'edition'",
-    };
-  }
-  return {
-    version: "json_extract(o.result_json, '$.adminQa.version')",
-    question: "json_extract(o.result_json, '$.adminQa.question')",
-    answer: "json_extract(o.result_json, '$.synthesis')",
-    deepAnswer: "json_extract(o.result_json, '$.deepSynthesis')",
-    paused: "COALESCE(json_extract(o.result_json, '$.paused'), 0) = 1",
-    channel: "json_extract(o.result_json, '$.channel')",
-    edition: "json_extract(o.billing_details_json, '$.edition')",
-  };
-}
-
 function buildWhere(db, filters) {
-  const json = jsonExpressions(db.dialect);
   const params = [];
   const bind = (value) => {
     params.push(value);
@@ -114,10 +90,7 @@ function buildWhere(db, filters) {
     "o.operation_type = 'search'",
     "o.status = 'completed'",
     "(o.cost_units > 0 OR u.id LIKE 'trial-%')",
-    "o.result_json IS NOT NULL",
-    db.dialect === "postgres"
-      ? `COALESCE(${json.version}, '') = '1'`
-      : `CAST(COALESCE(${json.version}, 0) AS INTEGER) = 1`,
+    "o.qa_version = 1",
   ];
 
   if (filters.search) {
@@ -125,19 +98,30 @@ function buildWhere(db, filters) {
     const matchGuest = filters.search.includes("游客") || "游客".includes(filters.search);
     if (db.dialect === "postgres") {
       const placeholder = bind(term);
-      clauses.push(`(u.username ILIKE ${placeholder} OR u.id ILIKE ${placeholder} OR o.id ILIKE ${placeholder} OR COALESCE(${json.question}, '') ILIKE ${placeholder}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
+      clauses.push(`(u.username ILIKE ${placeholder} OR u.id ILIKE ${placeholder} OR o.id ILIKE ${placeholder} OR COALESCE(o.qa_question, '') ILIKE ${placeholder}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
     } else {
       const lowerTerm = term.toLowerCase();
-      clauses.push(`(LOWER(u.username) LIKE ${bind(lowerTerm)} OR LOWER(u.id) LIKE ${bind(lowerTerm)} OR LOWER(o.id) LIKE ${bind(lowerTerm)} OR LOWER(COALESCE(${json.question}, '')) LIKE ${bind(lowerTerm)}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
+      clauses.push(`(LOWER(u.username) LIKE ${bind(lowerTerm)} OR LOWER(u.id) LIKE ${bind(lowerTerm)} OR LOWER(o.id) LIKE ${bind(lowerTerm)} OR LOWER(COALESCE(o.qa_question, '')) LIKE ${bind(lowerTerm)}${matchGuest ? " OR u.id LIKE 'trial-%'" : ""})`);
     }
   }
-  if (filters.edition) clauses.push(`LOWER(COALESCE(${json.edition}, '')) = ${bind(filters.edition)}`);
-  if (filters.status === "stopped") clauses.push(json.paused);
-  if (filters.status === "success") clauses.push(`NOT (${json.paused})`);
+  if (filters.edition) clauses.push(`LOWER(COALESCE(o.qa_edition, '')) = ${bind(filters.edition)}`);
+  if (filters.status === "stopped") clauses.push("COALESCE(o.qa_paused, 0) = 1");
+  if (filters.status === "success") clauses.push("COALESCE(o.qa_paused, 0) = 0");
   if (filters.from !== null) clauses.push(`o.completed_at >= ${bind(filters.from)}`);
   if (filters.to !== null) clauses.push(`o.completed_at <= ${bind(filters.to)}`);
 
-  return { whereSql: clauses.join(" AND "), params, json };
+  return { whereSql: clauses.join(" AND "), params };
+}
+
+function parseResultJsonSafe(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function ledgerJoinSql() {
@@ -200,8 +184,9 @@ export async function listAdminAiQaRecords({ skip = 0, limit = DEFAULT_PAGE_SIZE
   const normalizedSkip = Math.max(0, Number(skip) || 0);
   const normalizedLimit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(limit) || DEFAULT_PAGE_SIZE));
   const filters = normalizeFilters(rawFilters);
+  await backfillAdminQaMetadata();
   const db = await getReadDb();
-  const { whereSql, params, json } = buildWhere(db, filters);
+  const { whereSql, params } = buildWhere(db, filters);
   const countRow = await db.get(
     `SELECT COUNT(*) AS total
      FROM point_operations o JOIN users u ON u.id = o.user_id
@@ -209,15 +194,6 @@ export async function listAdminAiQaRecords({ skip = 0, limit = DEFAULT_PAGE_SIZE
     params,
   );
 
-  const questionPreview = db.dialect === "postgres"
-    ? `SUBSTRING(COALESCE(${json.question}, '') FROM 1 FOR 500)`
-    : `substr(COALESCE(${json.question}, ''), 1, 500)`;
-  const answerPreview = db.dialect === "postgres"
-    ? `SUBSTRING(COALESCE(${json.answer}, '') FROM 1 FOR 500)`
-    : `substr(COALESCE(${json.answer}, ''), 1, 500)`;
-  const deepAnswerPreview = db.dialect === "postgres"
-    ? `SUBSTRING(COALESCE(${json.deepAnswer}, '') FROM 1 FOR 500)`
-    : `substr(COALESCE(${json.deepAnswer}, ''), 1, 500)`;
   const pageParams = [...params, normalizedLimit, normalizedSkip];
   const limitSql = db.dialect === "postgres"
     ? `LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`
@@ -225,11 +201,11 @@ export async function listAdminAiQaRecords({ skip = 0, limit = DEFAULT_PAGE_SIZE
   const rows = await db.all(
     `SELECT o.id AS operation_id, o.user_id, u.username, o.cost_units,
             o.created_at, o.completed_at, l.id AS ledger_id, l.balance_after_units,
-            ${questionPreview} AS question,
-            ${answerPreview} AS answer_preview,
-            ${deepAnswerPreview} AS deep_answer_preview,
-            ${json.edition} AS edition,
-            CASE WHEN ${json.paused} THEN 1 ELSE 0 END AS is_paused
+            COALESCE(o.qa_question, '') AS question,
+            COALESCE(o.qa_answer_preview, '') AS answer_preview,
+            COALESCE(o.qa_deep_answer_preview, '') AS deep_answer_preview,
+            o.qa_edition AS edition,
+            COALESCE(o.qa_paused, 0) AS is_paused
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
      ${ledgerJoinSql()}
@@ -244,30 +220,34 @@ export async function listAdminAiQaRecords({ skip = 0, limit = DEFAULT_PAGE_SIZE
 export async function getAdminAiQaRecord(operationId) {
   const normalizedId = String(operationId || "").trim().slice(0, 128);
   if (!normalizedId) throw new AdminAiQaError(400, "missing-operation-id", "缺少计费操作 ID");
+  await backfillAdminQaMetadata();
   const db = await getReadDb();
-  const json = jsonExpressions(db.dialect);
   const placeholder = db.dialect === "postgres" ? "$1" : "?";
-  const versionCheck = db.dialect === "postgres"
-    ? `COALESCE(${json.version}, '') = '1'`
-    : `CAST(COALESCE(${json.version}, 0) AS INTEGER) = 1`;
   const row = await db.get(
     `SELECT o.id AS operation_id, o.user_id, u.username, u.email, u.phone,
             o.cost_units, o.created_at, o.completed_at,
             l.id AS ledger_id, l.balance_after_units, l.created_at AS ledger_created_at,
-            ${json.question} AS question, ${json.answer} AS answer,
-            ${json.deepAnswer} AS deep_answer, ${json.channel} AS channel,
-            ${json.edition} AS edition,
-            CASE WHEN ${json.paused} THEN 1 ELSE 0 END AS is_paused
+            COALESCE(o.qa_question, '') AS question,
+            o.qa_edition AS edition,
+            COALESCE(o.qa_paused, 0) AS is_paused,
+            o.result_json
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
      ${ledgerJoinSql()}
      WHERE o.id = ${placeholder} AND u.edition = ${db.dialect === "postgres" ? "$2" : "?"} AND o.operation_type = 'search'
        AND o.status = 'completed' AND (o.cost_units > 0 OR u.id LIKE 'trial-%')
-       AND o.result_json IS NOT NULL AND ${versionCheck}`,
+       AND o.qa_version = 1`,
     [normalizedId, getConfiguredAppEdition()],
   );
   if (!row) throw new AdminAiQaError(404, "ai-qa-record-not-found", "AI 问答记录不存在");
-  return publicDetailRecord(row);
+  const parsed = parseResultJsonSafe(row.result_json);
+  return publicDetailRecord({
+    ...row,
+    question: String(parsed?.adminQa?.question ?? row.question ?? ""),
+    answer: String(parsed?.synthesis ?? ""),
+    deep_answer: String(parsed?.deepSynthesis ?? ""),
+    channel: String(parsed?.channel ?? ""),
+  });
 }
 
 function csvCell(value) {
@@ -284,15 +264,16 @@ function csvDate(value) {
 
 export async function exportAdminAiQaRecords(rawFilters = {}) {
   const filters = normalizeFilters(rawFilters);
+  await backfillAdminQaMetadata();
   const db = await getReadDb();
-  const { whereSql, params, json } = buildWhere(db, filters);
+  const { whereSql, params } = buildWhere(db, filters);
   const rows = await db.all(
     `SELECT o.id AS operation_id, o.user_id, u.username, o.cost_units,
             o.created_at, o.completed_at, l.id AS ledger_id, l.balance_after_units,
-            ${json.question} AS question, ${json.answer} AS answer,
-            ${json.deepAnswer} AS deep_answer,
-            ${json.edition} AS edition,
-            CASE WHEN ${json.paused} THEN 1 ELSE 0 END AS is_paused
+            COALESCE(o.qa_question, '') AS question,
+            o.qa_edition AS edition,
+            COALESCE(o.qa_paused, 0) AS is_paused,
+            o.result_json
      FROM point_operations o
      JOIN users u ON u.id = o.user_id
      ${ledgerJoinSql()}
@@ -303,6 +284,7 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
   const header = ["版本", "用户名", "用户ID", "用户问题", "AI回答", "深度研究回答", "状态", "消耗积分", "计费操作ID", "积分流水ID", "提交时间", "完成时间", "变动后余额"];
   const lines = [header.map(csvCell).join(",")];
   for (const row of rows) {
+    const parsed = parseResultJsonSafe(row.result_json);
     const costUnits = safeInteger(row.cost_units, "消耗积分");
     const balanceAfter = row.balance_after_units === null || row.balance_after_units === undefined
       ? ""
@@ -312,9 +294,9 @@ export async function exportAdminAiQaRecords(rawFilters = {}) {
       EDITION_LABELS[normalizeEdition(row.edition)] || String(row.edition || "未知版本"),
       isGuest ? "游客" : row.username,
       row.user_id,
-      row.question,
-      row.answer,
-      row.deep_answer,
+      String(parsed?.adminQa?.question ?? row.question ?? ""),
+      String(parsed?.synthesis ?? ""),
+      String(parsed?.deepSynthesis ?? ""),
       row.is_paused ? "已停止" : "成功",
       formatPointUnits(costUnits),
       row.operation_id,

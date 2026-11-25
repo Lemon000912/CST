@@ -117,6 +117,7 @@ export class AiQaPage {
             this.renderRecords();
             this.renderPagination();
         } catch (error) {
+            if (error?.isCancelled) return;
             if (body) body.innerHTML = `<tr><td colspan="7" class="ai-qa-empty"><i class="fas fa-circle-exclamation"></i><span>${this.escapeHtml(error.message || '加载问答记录失败')}</span></td></tr>`;
         }
     }

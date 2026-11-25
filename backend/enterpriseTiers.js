@@ -8,7 +8,11 @@ export class EnterpriseTierError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
 
+const initializedTargets = new WeakSet();
+
 export async function ensureEnterpriseTierSchema() {
+  const target = pgPool || await getSqliteDb();
+  if (initializedTargets.has(target)) return;
   if (pgPool) {
     await pgPool.query(`CREATE TABLE IF NOT EXISTS enterprise_point_tiers (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -17,14 +21,14 @@ export async function ensureEnterpriseTierSchema() {
       updated_at BIGINT NOT NULL
     )`);
   } else {
-    const db = await getSqliteDb();
-    await db.exec(`CREATE TABLE IF NOT EXISTS enterprise_point_tiers (
+    await target.exec(`CREATE TABLE IF NOT EXISTS enterprise_point_tiers (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       tiers INTEGER NOT NULL CHECK (tiers >= 0),
       quota_year INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
   }
+  initializedTargets.add(target);
 }
 
 export async function getEnterpriseTier(userId) {

@@ -1,6 +1,6 @@
 import { persistSearchSession } from "./chatSessionStore.js";
 import crypto from "node:crypto";
-import { pgPool, getSqliteDb, withDatabaseTransaction } from "./db.js";
+import { extractAdminQaSummary, pgPool, getSqliteDb, withDatabaseTransaction } from "./db.js";
 
 export const POINT_UNITS = 20;
 export const SIGNUP_GRANT_UNITS = 20_000;
@@ -524,23 +524,34 @@ export async function completeImmediateBillableOperation({
         throw new BillingError("result-not-serializable", "Billing receipt could not be serialized", 500);
       }
 
+      const qa = normalizedType === "search" ? extractAdminQaSummary(result, billingDetails) : null;
       if (tx.dialect === "postgres") {
         if (existing?.status === "failed") {
           await tx.run(
             `UPDATE point_operations SET status = 'completed', cost_units = $1,
              billing_details_json = $2, result_json = $3, receipt_json = $4,
-             error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = $5, completed_at = $5
-             WHERE id = $6`,
-            [costUnits, detailsJson, resultJson, receiptJson, now, operationId],
+             qa_version = $5, qa_question = $6, qa_answer_preview = $7,
+             qa_deep_answer_preview = $8, qa_paused = $9, qa_edition = $10,
+             error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = $11, completed_at = $11
+             WHERE id = $12`,
+            [costUnits, detailsJson, resultJson, receiptJson,
+              qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+              qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+              now, operationId],
           );
         } else {
           await tx.run(
             `INSERT INTO point_operations
              (id, user_id, operation_type, idempotency_key, request_hash, status, cost_units,
-              billing_details_json, result_json, receipt_json, created_at, updated_at, completed_at)
-             VALUES ($1,$2,$3,$4,$5,'completed',$6,$7,$8,$9,$10,$10,$10)`,
+              billing_details_json, result_json, receipt_json,
+              qa_version, qa_question, qa_answer_preview, qa_deep_answer_preview, qa_paused, qa_edition,
+              created_at, updated_at, completed_at)
+             VALUES ($1,$2,$3,$4,$5,'completed',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$16)`,
             [operationId, normalizedUserId, normalizedType, normalizedKey, normalizedHash,
-              costUnits, detailsJson, resultJson, receiptJson, now],
+              costUnits, detailsJson, resultJson, receiptJson,
+              qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+              qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+              now],
           );
         }
         await tx.run(
@@ -558,18 +569,28 @@ export async function completeImmediateBillableOperation({
           await tx.run(
             `UPDATE point_operations SET status = 'completed', cost_units = ?,
              billing_details_json = ?, result_json = ?, receipt_json = ?,
+             qa_version = ?, qa_question = ?, qa_answer_preview = ?,
+             qa_deep_answer_preview = ?, qa_paused = ?, qa_edition = ?,
              error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = ?, completed_at = ?
              WHERE id = ?`,
-            [costUnits, detailsJson, resultJson, receiptJson, now, now, operationId],
+            [costUnits, detailsJson, resultJson, receiptJson,
+              qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+              qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+              now, now, operationId],
           );
         } else {
           await tx.run(
             `INSERT INTO point_operations
              (id, user_id, operation_type, idempotency_key, request_hash, status, cost_units,
-              billing_details_json, result_json, receipt_json, created_at, updated_at, completed_at)
-             VALUES (?,?,?,?,?,'completed',?,?,?,?,?,?,?)`,
+              billing_details_json, result_json, receipt_json,
+              qa_version, qa_question, qa_answer_preview, qa_deep_answer_preview, qa_paused, qa_edition,
+              created_at, updated_at, completed_at)
+             VALUES (?,?,?,?,?,'completed',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             [operationId, normalizedUserId, normalizedType, normalizedKey, normalizedHash,
-              costUnits, detailsJson, resultJson, receiptJson, now, now, now],
+              costUnits, detailsJson, resultJson, receiptJson,
+              qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+              qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+              now, now, now],
           );
         }
         await tx.run(
@@ -690,6 +711,7 @@ export async function completeBillableOperation({
         throw new BillingError("result-not-serializable", "Billing receipt could not be serialized", 500);
       }
 
+      const qa = operation.operation_type === "search" ? extractAdminQaSummary(result, billingDetails) : null;
       if (tx.dialect === "postgres") {
         await tx.run(
           `UPDATE point_wallets SET balance_units = $1, updated_at = $2 WHERE user_id = $3`,
@@ -704,9 +726,14 @@ export async function completeBillableOperation({
         await tx.run(
           `UPDATE point_operations SET status = 'completed', cost_units = $1,
            billing_details_json = $2, result_json = $3, receipt_json = $4,
-           error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = $5, completed_at = $5
-           WHERE id = $6`,
-          [costUnits, detailsJson, resultJson, receiptJson, now, normalizedOperationId],
+           qa_version = $5, qa_question = $6, qa_answer_preview = $7,
+           qa_deep_answer_preview = $8, qa_paused = $9, qa_edition = $10,
+           error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = $11, completed_at = $11
+           WHERE id = $12`,
+          [costUnits, detailsJson, resultJson, receiptJson,
+            qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+            qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+            now, normalizedOperationId],
         );
       } else {
         await tx.run(
@@ -722,9 +749,14 @@ export async function completeBillableOperation({
         await tx.run(
           `UPDATE point_operations SET status = 'completed', cost_units = ?,
            billing_details_json = ?, result_json = ?, receipt_json = ?,
+           qa_version = ?, qa_question = ?, qa_answer_preview = ?,
+           qa_deep_answer_preview = ?, qa_paused = ?, qa_edition = ?,
            error_code = NULL, lease_expires_at = NULL, lease_token = NULL, updated_at = ?, completed_at = ?
            WHERE id = ?`,
-          [costUnits, detailsJson, resultJson, receiptJson, now, now, normalizedOperationId],
+          [costUnits, detailsJson, resultJson, receiptJson,
+            qa?.qaVersion ?? null, qa?.qaQuestion ?? null, qa?.qaAnswerPreview ?? null,
+            qa?.qaDeepAnswerPreview ?? null, qa?.qaPaused ?? null, qa?.qaEdition ?? null,
+            now, now, normalizedOperationId],
         );
       }
       if(operation.operation_type==='search') await persistSearchSession(tx,{userId:normalizedUserId,operationId:normalizedOperationId,result,receipt:finalReceipt,edition:billingDetails.edition,now});

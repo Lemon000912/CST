@@ -11,7 +11,14 @@ export class UsersPage {
         this.searchQuery = '';
         this.filterStatus = '';
         this.usersOnPage = [];
+        this.listeners = [];
         this.handleTableClick = this.handleTableClick.bind(this);
+    }
+
+    listen(element, event, handler) {
+        if (!element) return;
+        element.addEventListener(event, handler);
+        this.listeners.push(() => element.removeEventListener(event, handler));
     }
 
     async mount() {
@@ -21,46 +28,33 @@ export class UsersPage {
 
     bindEvents() {
         // 搜索
-        const searchInput = document.getElementById('user-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', this.debounce((e) => {
-                this.searchQuery = e.target.value;
-                this.currentPage = 1;
-                this.loadData();
-            }, 300));
-        }
+        this.listen(document.getElementById('user-search'), 'input', this.debounce((e) => {
+            this.searchQuery = e.target.value;
+            this.currentPage = 1;
+            this.loadData();
+        }, 300));
 
         // 筛选
-        const filterSelect = document.getElementById('user-filter');
-        if (filterSelect) {
-            filterSelect.addEventListener('change', (e) => {
-                this.filterStatus = e.target.value;
-                this.currentPage = 1;
-                this.loadData();
-            });
-        }
+        this.listen(document.getElementById('user-filter'), 'change', (e) => {
+            this.filterStatus = e.target.value;
+            this.currentPage = 1;
+            this.loadData();
+        });
 
         // 分页
-        const prevBtn = document.getElementById('user-prev');
-        const nextBtn = document.getElementById('user-next');
-        
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => {
-                if (this.currentPage > 1) {
-                    this.currentPage--;
-                    this.loadData();
-                }
-            });
-        }
-
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => {
-                this.currentPage++;
+        this.listen(document.getElementById('user-prev'), 'click', () => {
+            if (this.currentPage > 1) {
+                this.currentPage--;
                 this.loadData();
-            });
-        }
+            }
+        });
 
-        document.getElementById('users-table-body')?.addEventListener('click', this.handleTableClick);
+        this.listen(document.getElementById('user-next'), 'click', () => {
+            this.currentPage++;
+            this.loadData();
+        });
+
+        this.listen(document.getElementById('users-table-body'), 'click', this.handleTableClick);
     }
 
     async loadData() {
@@ -91,8 +85,9 @@ export class UsersPage {
                 total: data.total || 0
             });
         } catch (error) {
+            if (error?.isCancelled) return;
             console.error('加载用户数据失败:', error);
-            this.showError('加载用户数据失败');
+            this.showError(error?.message || '加载用户数据失败');
         } finally {
             this.setLoading(false);
         }
@@ -132,6 +127,10 @@ export class UsersPage {
     }
 
     async handleTableClick(event) {
+        if (event.target.closest('[data-retry-users]')) {
+            await this.loadData();
+            return;
+        }
         const tierButton = event.target.closest('[data-set-enterprise-tier]');
         if (tierButton) {
             const userId = tierButton.dataset.setEnterpriseTier;
@@ -218,9 +217,17 @@ export class UsersPage {
 
     showError(message) {
         console.error(message);
+        const tbody = document.getElementById('users-table-body');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 28px; color: #b91c1c;">
+                <span>${this.escapeHtml(message || '加载用户数据失败')}</span>
+                <button type="button" class="btn-action" data-retry-users="1" style="margin-left: 12px;">重试</button>
+            </td></tr>`;
+        }
     }
 
     unmount() {
-        document.getElementById('users-table-body')?.removeEventListener('click', this.handleTableClick);
+        for (const dispose of this.listeners) dispose();
+        this.listeners = [];
     }
 }

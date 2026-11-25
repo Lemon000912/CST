@@ -10,6 +10,13 @@ export class PDFsPage {
         this.currentPage = 1;
         this.searchQuery = '';
         this.categoryFilter = '';
+        this.listeners = [];
+    }
+
+    listen(element, event, handler) {
+        if (!element) return;
+        element.addEventListener(event, handler);
+        this.listeners.push(() => element.removeEventListener(event, handler));
     }
 
     async mount() {
@@ -19,44 +26,31 @@ export class PDFsPage {
 
     bindEvents() {
         // 搜索
-        const searchInput = document.getElementById('pdf-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', this.debounce((e) => {
-                this.searchQuery = e.target.value;
-                this.currentPage = 1;
-                this.loadData();
-            }, 300));
-        }
+        this.listen(document.getElementById('pdf-search'), 'input', this.debounce((e) => {
+            this.searchQuery = e.target.value;
+            this.currentPage = 1;
+            this.loadData();
+        }, 300));
 
         // 分类筛选
-        const categorySelect = document.getElementById('pdf-category');
-        if (categorySelect) {
-            categorySelect.addEventListener('change', (e) => {
-                this.categoryFilter = e.target.value;
-                this.currentPage = 1;
-                this.loadData();
-            });
-        }
+        this.listen(document.getElementById('pdf-category'), 'change', (e) => {
+            this.categoryFilter = e.target.value;
+            this.currentPage = 1;
+            this.loadData();
+        });
 
         // 分页
-        const prevBtn = document.getElementById('pdf-prev');
-        const nextBtn = document.getElementById('pdf-next');
-        
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => {
-                if (this.currentPage > 1) {
-                    this.currentPage--;
-                    this.loadData();
-                }
-            });
-        }
-
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => {
-                this.currentPage++;
+        this.listen(document.getElementById('pdf-prev'), 'click', () => {
+            if (this.currentPage > 1) {
+                this.currentPage--;
                 this.loadData();
-            });
-        }
+            }
+        });
+
+        this.listen(document.getElementById('pdf-next'), 'click', () => {
+            this.currentPage++;
+            this.loadData();
+        });
 
         // 绑定全局函数到window对象
         window.viewPDF = this.viewPDFDetail.bind(this);
@@ -91,9 +85,9 @@ export class PDFsPage {
                 total: data.total || 0
             });
         } catch (error) {
+            if (error?.isCancelled) return;
             console.error('加载文献数据失败:', error);
-            this.showError('加载文献数据失败');
-            this.renderPDFs([]);
+            this.showError(error?.message || '加载文献数据失败');
         } finally {
             this.setLoading(false);
         }
@@ -305,9 +299,21 @@ export class PDFsPage {
 
     showError(message) {
         console.error(message);
+        const tbody = document.getElementById('pdfs-table-body');
+        if (tbody) {
+            const safe = String(message || '加载文献数据失败')
+                .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 28px; color: #b91c1c;">
+                <span>${safe}</span>
+                <button type="button" class="btn-action" id="pdfs-retry-btn" style="margin-left: 12px;">重试</button>
+            </td></tr>`;
+            document.getElementById('pdfs-retry-btn')?.addEventListener('click', () => this.loadData(), { once: true });
+        }
     }
 
     unmount() {
+        for (const dispose of this.listeners) dispose();
+        this.listeners = [];
         // 清理全局函数
         window.viewPDF = null;
         window.deletePDF = null;

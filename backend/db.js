@@ -606,9 +606,24 @@ export async function initDatabase() {
         )
       `);
       await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS lease_token TEXT`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_version INTEGER`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_question TEXT`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_answer_preview TEXT`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_deep_answer_preview TEXT`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_paused INTEGER`);
+      await billingClient.query(`ALTER TABLE point_operations ADD COLUMN IF NOT EXISTS qa_edition TEXT`);
       await billingClient.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS point_operations_one_processing_per_user
         ON point_operations(user_id) WHERE status = 'processing'
+      `);
+      await billingClient.query(`
+        CREATE INDEX IF NOT EXISTS point_operations_admin_qa_completed
+        ON point_operations(completed_at DESC, id DESC)
+        WHERE operation_type = 'search' AND status = 'completed' AND qa_version = 1
+      `);
+      await billingClient.query(`
+        CREATE INDEX IF NOT EXISTS query_log_ts_idx
+        ON query_log(ts)
       `);
       await billingClient.query(`
         CREATE TABLE IF NOT EXISTS point_ledger (
@@ -701,6 +716,16 @@ export async function initDatabase() {
       await withDatabaseTransaction(async tx => { await tx.run(`CREATE TABLE IF NOT EXISTS user_chat_session_deletions (user_id TEXT NOT NULL, edition TEXT NOT NULL, session_id TEXT NOT NULL, deleted_at BIGINT NOT NULL, PRIMARY KEY(user_id,edition,session_id))`); });
       await migrateLegacyChatSessionItems();
       await backfillPointWallets();
+      await backfillAdminQaMetadata();
+      // 若文献表存在则补齐按年份倒排索引，避免管理端文献列表每次全表排序
+      try {
+        const hasAizhishi = await pgPool.query("SELECT to_regclass('public.aizhishi_papers') AS tbl");
+        if (hasAizhishi.rows[0]?.tbl) {
+          await pgPool.query("CREATE INDEX IF NOT EXISTS idx_aizhishi_papers_year_desc ON aizhishi_papers (year DESC NULLS LAST)");
+        }
+      } catch (idxErr) {
+        console.warn("[db] optional aizhishi_papers year index skipped:", idxErr?.message || idxErr);
+      }
       databaseReady = true;
       console.log("[db] PostgreSQL tables initialized");
       return;
@@ -974,6 +999,25 @@ export async function initDatabase() {
     } catch (_) {
       /* Existing database already has the lease fencing column. */
     }
+    for (const columnSql of [
+      "qa_version INTEGER",
+      "qa_question TEXT",
+      "qa_answer_preview TEXT",
+      "qa_deep_answer_preview TEXT",
+      "qa_paused INTEGER",
+      "qa_edition TEXT",
+    ]) {
+      try {
+        await db.exec(`ALTER TABLE point_operations ADD COLUMN ${columnSql}`);
+      } catch (_) {
+        /* Existing database already has the admin QA summary column. */
+      }
+    }
+    await db.exec(`
+      CREATE INDEX IF NOT EXISTS point_operations_admin_qa_completed
+      ON point_operations(completed_at DESC, id DESC)
+      WHERE operation_type = 'search' AND status = 'completed' AND qa_version = 1;
+    `);
     try {
       await db.exec(`ALTER TABLE point_recharge_orders ADD COLUMN description TEXT`);
     } catch (_) {
@@ -1052,7 +1096,8 @@ export async function initDatabase() {
         url TEXT,
         timestamp TEXT,
         created_at INTEGER NOT NULL
-      )
+      );
+      CREATE INDEX IF NOT EXISTS query_log_ts_idx ON query_log(ts);
     `);
     console.log("[db] SQLite tables initialized");
   } catch (e) {
@@ -1064,7 +1109,109 @@ export async function initDatabase() {
   await withDatabaseTransaction(async tx => { await tx.run(`CREATE TABLE IF NOT EXISTS user_chat_session_deletions (user_id TEXT NOT NULL, edition TEXT NOT NULL, session_id TEXT NOT NULL, deleted_at BIGINT NOT NULL, PRIMARY KEY(user_id,edition,session_id))`); });
       await migrateLegacyChatSessionItems();
   await backfillPointWallets();
+  await backfillAdminQaMetadata();
   databaseReady = true;
+}
+
+/** 从 search 结果与计费明细提取管理端 AI 问答摘要列（避免列表查询扫描超大 result_json TOAST）。 */
+export function extractAdminQaSummary(result, billingDetails) {
+  let parsedResult = result;
+  if (typeof parsedResult === "string") {
+    try { parsedResult = JSON.parse(parsedResult); } catch { parsedResult = null; }
+  }
+  let parsedDetails = billingDetails;
+  if (typeof parsedDetails === "string") {
+    try { parsedDetails = JSON.parse(parsedDetails); } catch { parsedDetails = null; }
+  }
+  const version = Number(parsedResult?.adminQa?.version);
+  if (version !== 1) {
+    return {
+      qaVersion: 0,
+      qaQuestion: null,
+      qaAnswerPreview: null,
+      qaDeepAnswerPreview: null,
+      qaPaused: 0,
+      qaEdition: null,
+    };
+  }
+  const rawEdition = String(parsedDetails?.edition ?? "").trim().toLowerCase();
+  return {
+    qaVersion: 1,
+    qaQuestion: String(parsedResult?.adminQa?.question ?? "").slice(0, 500),
+    qaAnswerPreview: String(parsedResult?.synthesis ?? "").slice(0, 500),
+    qaDeepAnswerPreview: String(parsedResult?.deepSynthesis ?? "").slice(0, 500),
+    qaPaused: parsedResult?.paused === true ? 1 : 0,
+    qaEdition: rawEdition || null,
+  };
+}
+
+let adminQaBackfillRunning = null;
+/** 将尚未回填摘要列的已完成 search 操作分批写入 qa_* 列（幂等、仅跑一次）。 */
+export async function backfillAdminQaMetadata({ batchSize = 50 } = {}) {
+  if (adminQaBackfillRunning) return adminQaBackfillRunning;
+  const task = (async () => {
+    const size = Math.max(10, Math.min(200, Number(batchSize) || 50));
+    let totalUpdated = 0;
+    while (true) {
+      let rows;
+      if (pgPool) {
+        const res = await pgPool.query(
+          `SELECT id, result_json, billing_details_json
+           FROM point_operations
+           WHERE operation_type = 'search' AND status = 'completed'
+             AND qa_version IS NULL AND result_json IS NOT NULL
+           ORDER BY completed_at DESC NULLS LAST, id DESC
+           LIMIT $1`,
+          [size],
+        );
+        rows = res.rows;
+      } else {
+        const db = await getSqliteDb();
+        rows = await db.all(
+          `SELECT id, result_json, billing_details_json
+           FROM point_operations
+           WHERE operation_type = 'search' AND status = 'completed'
+             AND qa_version IS NULL AND result_json IS NOT NULL
+           ORDER BY completed_at DESC, id DESC
+           LIMIT ?`,
+          [size],
+        );
+      }
+      if (!rows.length) break;
+      await withDatabaseTransaction(async (tx) => {
+        for (const row of rows) {
+          const qa = extractAdminQaSummary(row.result_json, row.billing_details_json);
+          if (tx.dialect === "postgres") {
+            await tx.run(
+              `UPDATE point_operations
+               SET qa_version = $1, qa_question = $2, qa_answer_preview = $3,
+                   qa_deep_answer_preview = $4, qa_paused = $5, qa_edition = $6
+               WHERE id = $7`,
+              [qa.qaVersion, qa.qaQuestion, qa.qaAnswerPreview, qa.qaDeepAnswerPreview, qa.qaPaused, qa.qaEdition, row.id],
+            );
+          } else {
+            await tx.run(
+              `UPDATE point_operations
+               SET qa_version = ?, qa_question = ?, qa_answer_preview = ?,
+                   qa_deep_answer_preview = ?, qa_paused = ?, qa_edition = ?
+               WHERE id = ?`,
+              [qa.qaVersion, qa.qaQuestion, qa.qaAnswerPreview, qa.qaDeepAnswerPreview, qa.qaPaused, qa.qaEdition, row.id],
+            );
+          }
+        }
+      });
+      totalUpdated += rows.length;
+      if (rows.length < size) break;
+    }
+    if (totalUpdated > 0) {
+      console.log(`[db] 已回填 ${totalUpdated} 条 AI 问答摘要索引`);
+    }
+    return totalUpdated;
+  })().finally(() => {
+    adminQaBackfillRunning = null;
+  });
+  adminQaBackfillRunning = task;
+  return task;
 }
 
 // ==================== 搜索历史 ====================

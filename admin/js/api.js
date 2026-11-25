@@ -4,7 +4,7 @@
 
 const API_CONFIG = {
     baseURL: `${window.location.origin}/api/v1`,
-    timeout: 10000,
+    timeout: 30000,
     retries: 2
 };
 
@@ -13,6 +13,14 @@ class ApiClient {
     constructor() {
         this.baseURL = API_CONFIG.baseURL;
         this.token = localStorage.getItem('admin_token');
+        this.activeControllers = new Set();
+    }
+
+    abortPageRequests() {
+        for (const controller of this.activeControllers) {
+            controller.abort('page-switched');
+        }
+        this.activeControllers.clear();
     }
 
     getHeaders() {
@@ -43,11 +51,19 @@ class ApiClient {
     async request(endpoint, options = {}) {
         const url = `${this.baseURL}${endpoint}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
+        const trackForPage = options.trackForPage !== false && !endpoint.startsWith('/auth/');
+        if (trackForPage) this.activeControllers.add(controller);
+        const timeoutMs = Number(options.timeout) > 0 ? Number(options.timeout) : API_CONFIG.timeout;
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort('timeout');
+        }, timeoutMs);
 
         try {
+            const { trackForPage: _ignoreTrack, timeout: _ignoreTimeout, ...fetchOptions } = options;
             const response = await fetch(url, {
-                ...options,
+                ...fetchOptions,
                 headers: {
                     ...this.getHeaders(),
                     ...options.headers
@@ -56,6 +72,7 @@ class ApiClient {
             });
 
             clearTimeout(timeoutId);
+            this.activeControllers.delete(controller);
 
             // 处理401未授权
             if (response.status === 401 || response.status === 403) {
@@ -76,16 +93,22 @@ class ApiClient {
             // 处理其他错误
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `请求失败: ${response.status}`);
+                throw new Error(errorData.message || errorData.error || `请求失败: ${response.status}`);
             }
 
             const data = await response.json();
             return data;
         } catch (error) {
             clearTimeout(timeoutId);
+            this.activeControllers.delete(controller);
             
-            if (error.name === 'AbortError') {
-                throw new Error('请求超时，请检查网络连接');
+            if (error.name === 'AbortError' || controller.signal.aborted) {
+                if (!timedOut && controller.signal.reason === 'page-switched') {
+                    const cancelled = new Error('页面已切换，请求已取消');
+                    cancelled.isCancelled = true;
+                    throw cancelled;
+                }
+                throw new Error('请求超时，请检查网络连接或稍后重试');
             }
             
             throw error;
