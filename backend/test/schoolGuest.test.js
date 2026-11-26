@@ -140,3 +140,22 @@ test("migrateUserChatSessions merges school guest history into account and clear
   const guestAfter = await getUserChatSessions(guestId, "school");
   assert.equal(guestAfter, null);
 });
+
+test("school guest default allowance is 5 when SCHOOL_GUEST_LIMIT is unset", async (t) => {
+  const prev = process.env.SCHOOL_GUEST_LIMIT;
+  delete process.env.SCHOOL_GUEST_LIMIT;
+  const app = express().use("/guest", schoolGuestRouter());
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
+  });
+  t.after(async () => {
+    if (prev === undefined) delete process.env.SCHOOL_GUEST_LIMIT;
+    else process.env.SCHOOL_GUEST_LIMIT = prev;
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/guest/status`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.remaining, 5);
+});

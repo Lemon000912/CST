@@ -52,7 +52,7 @@ test("student verification grants exactly 1000 points once", async (t) => {
     details: { school: "测试大学", imageSha256: "abc" },
   });
   assert.equal(first.rewarded, true);
-  assert.equal(first.balanceUnits, 40_000);
+  assert.equal(first.balanceUnits, 37_000);
   const second = await grantStudentVerification({
     userId,
     confidence: 0.99,
@@ -61,7 +61,7 @@ test("student verification grants exactly 1000 points once", async (t) => {
     details: { school: "测试大学", imageSha256: "def" },
   });
   assert.equal(second.rewarded, false);
-  assert.equal(second.balanceUnits, 40_000);
+  assert.equal(second.balanceUnits, 37_000);
   const verification = await getStudentVerification(userId);
   assert.equal(verification.verified, true);
   assert.equal(verification.details.school, "测试大学");

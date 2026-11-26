@@ -3154,7 +3154,7 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
     let journalPaperCount = 0;
     if (pgPool) {
       const [usersResult, weekQueriesResult, fetchedDoiCount, fetchedJournalCount] = await Promise.all([
-        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1 AND id NOT LIKE 'trial-%'", [APP_EDITION]),
+        pgPool.query("SELECT COUNT(*) AS total FROM users WHERE edition = $1", [APP_EDITION]),
         pgPool.query(
           "SELECT q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= $1 AND q.ts < $2 AND u.edition = $3",
           [weekStartMs, weekEndMs, APP_EDITION],
@@ -3168,7 +3168,7 @@ app.get("/api/v1/admin/dashboard", async (_req, res) => {
       journalPaperCount = fetchedJournalCount;
     } else {
       const db = await getSqliteDb();
-      const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ? AND id NOT LIKE 'trial-%'", [APP_EDITION]);
+      const usersResult = await db.all("SELECT COUNT(*) as total FROM users WHERE edition = ?", [APP_EDITION]);
       totalUsers = usersResult[0]?.total || 0;
       const weekRows = await db.all(
         "SELECT q.ts FROM query_log q JOIN users u ON u.id = q.user_id WHERE q.ts >= ? AND q.ts < ? AND u.edition = ?",

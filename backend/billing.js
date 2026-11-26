@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { extractAdminQaSummary, pgPool, getSqliteDb, withDatabaseTransaction } from "./db.js";
 
 export const POINT_UNITS = 20;
-export const SIGNUP_GRANT_UNITS = 20_000;
+export const SIGNUP_GRANT_UNITS = 17_000;
 export const PRICE_UNITS = Object.freeze({
   character: 1,
   chartPoint: 2,

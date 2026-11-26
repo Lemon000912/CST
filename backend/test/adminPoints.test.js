@@ -43,20 +43,20 @@ test("admin adjustments update the wallet atomically and append audit ledger ent
     userId, mode: "add", amount: "100", reason: "客服补偿", idempotencyKey: "adjust-add-0001", admin,
   });
   assert.equal(added.entry.deltaUnits, 2000);
-  assert.equal(added.entry.balanceAfter, "1100.00");
+  assert.equal(added.entry.balanceAfter, "950.00");
   assert.equal(added.entry.operator, "admin");
 
   const replay = await adjustAdminUserPoints({
     userId, mode: "add", amount: "100", reason: "客服补偿", idempotencyKey: "adjust-add-0001", admin,
   });
   assert.equal(replay.replayed, true);
-  assert.equal(replay.entry.balanceAfter, "1100.00");
+  assert.equal(replay.entry.balanceAfter, "950.00");
 
   const deducted = await adjustAdminUserPoints({
     userId, mode: "deduct", amount: "50.25", reason: "异常订单修正", idempotencyKey: "adjust-deduct-0001", admin,
   });
   assert.equal(deducted.entry.deltaUnits, -1005);
-  assert.equal(deducted.entry.balanceAfter, "1049.75");
+  assert.equal(deducted.entry.balanceAfter, "899.75");
 
   const set = await adjustAdminUserPoints({
     userId, mode: "set", amount: "12.50", reason: "余额校准", idempotencyKey: "adjust-set-0001", admin,
@@ -76,7 +76,7 @@ test("admin adjustments update the wallet atomically and append audit ledger ent
   const ledger = await listAdminPointLedger({ userId, limit: 10 });
   assert.equal(ledger[0].reason, "余额校准");
 
-  // 游客临时账户及 0 积分流水不应污染积分账户列表、预警计数和流水报表
+  // 游客临时账户与流水在管理端积分管理与流水中均保留展示
   const guestId = "trial-00000000-0000-4000-8000-000000000002";
   const now = Date.now();
   await db.run(
@@ -95,18 +95,13 @@ test("admin adjustments update the wallet atomically and append audit ledger ent
   );
 
   const allUsers = await listAdminPointUsers({ limit: 50 });
-  assert.equal(allUsers.total, 1);
-  assert.equal(allUsers.summary.walletCount, 1);
-  assert.equal(allUsers.summary.attentionCount, 1);
-  assert.ok(allUsers.users.every((u) => !u.id.startsWith("trial-")));
+  assert.equal(allUsers.total, 2);
+  assert.equal(allUsers.summary.walletCount, 2);
+  assert.equal(allUsers.summary.attentionCount, 2);
+  assert.ok(allUsers.users.some((u) => u.id === guestId));
   const emptyUsers = await listAdminPointUsers({ status: "empty", limit: 50 });
-  assert.equal(emptyUsers.total, 0);
+  assert.equal(emptyUsers.total, 1);
+  assert.equal(emptyUsers.users[0].id, guestId);
   const allLedger = await listAdminPointLedger({ limit: 50 });
-  assert.ok(allLedger.every((entry) => !entry.userId.startsWith("trial-")));
-  await assert.rejects(
-    adjustAdminUserPoints({
-      userId: guestId, mode: "add", amount: "10", reason: "误操作测试", idempotencyKey: "adjust-guest-0001", admin,
-    }),
-    (error) => error instanceof AdminPointsError && error.code === "guest-account-not-adjustable",
-  );
+  assert.ok(allLedger.some((entry) => entry.userId === guestId));
 });

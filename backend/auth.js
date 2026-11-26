@@ -13,7 +13,7 @@ import {
   WechatIdentityLinkError,
   normalizeUsernameKey,
 } from "./db.js";
-import { BillingError, getPointBalance } from "./billing.js";
+import { BillingError, formatPointUnits, getPointBalance } from "./billing.js";
 import {
   SmsVerificationError,
   checkRegisterVerificationCode,
@@ -741,7 +741,7 @@ export async function handleRegister(req, res) {
         userId: id,
         balanceUnits: created.balanceUnits,
         availableUnits: created.balanceUnits,
-        balance: "1000.00",
+        balance: formatPointUnits(created.balanceUnits),
       },
     });
   } catch (err) {

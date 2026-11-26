@@ -12,7 +12,7 @@ function limit(name, fallback) {
   const value = process.env[name]?.trim();
   return value && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : fallback;
 }
-const allowance = () => limit("SCHOOL_GUEST_LIMIT", 2);
+const allowance = () => limit("SCHOOL_GUEST_LIMIT", 5);
 const loginRequired = message => Object.assign(new Error(message), { status: 401, code: "guest-login-required" });
 
 export async function initSchoolGuest() {

@@ -14,7 +14,7 @@ import {
 
 test("pricing catalog uses integer units", () => {
   assert.equal(POINT_UNITS, 20);
-  assert.equal(SIGNUP_GRANT_UNITS, 20_000);
+  assert.equal(SIGNUP_GRANT_UNITS, 17_000);
   assert.deepEqual(PRICE_UNITS, { character: 1, chartPoint: 2, pdf: 20 });
   assert.equal(PRICING_CATALOG.unitsPerPoint, 20);
   assert.equal(calculateCostUnits({ characterCount: 3, chartPointCount: 4, pdfCount: 2 }), 51);
@@ -29,6 +29,7 @@ test("Unicode count uses code points rather than UTF-16 code units", () => {
 });
 
 test("point formatting is exact for positive and negative integer units", () => {
+  assert.equal(formatPointUnits(17_000), "850.00");
   assert.equal(formatPointUnits(20_000), "1000.00");
   assert.equal(formatPointUnits(1), "0.05");
   assert.equal(formatPointUnits(2), "0.10");

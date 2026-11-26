@@ -33,7 +33,7 @@ const { Pool } = pg;
 // ==================== 配置 ====================
 const USE_POSTGRES = process.env.USE_POSTGRES === "true" || !!process.env.DATABASE_URL;
 const POSTGRES_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-export const INITIAL_POINT_GRANT_UNITS = 20_000;
+export const INITIAL_POINT_GRANT_UNITS = 17_000;
 
 // ==================== PostgreSQL 连接池 ====================
 let pgPool = null;

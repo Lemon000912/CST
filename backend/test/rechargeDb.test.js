@@ -26,7 +26,7 @@ process.env.WECHAT_PAY_PUBLIC_KEY_PATH = publicKeyPath;
 process.env.WECHAT_PAY_PUBLIC_KEY_ID = "PUB_KEY_ID_3000000001";
 process.env.WECHAT_PAY_NOTIFY_URL = "https://example.test/api/pay/wechat/notify";
 
-const { createUserRecord, getSqliteDb, initDatabase, withDatabaseTransaction } = await import("../db.js");
+const { INITIAL_POINT_GRANT_UNITS, createUserRecord, getSqliteDb, initDatabase, withDatabaseTransaction } = await import("../db.js");
 const {
   completeRechargeOrder,
   createRechargeOrder,
@@ -71,11 +71,11 @@ test("paid recharge credits wallet and ledger exactly once", async () => {
   });
   assert.equal(first.replayed, false);
   assert.equal(first.order.status, "paid");
-  assert.equal(first.order.billing.balanceUnits, 40_000);
-  assert.equal(first.order.balanceBeforeUnits, 20_000);
-  assert.equal(first.order.balanceBefore, "1000.00");
-  assert.equal(first.order.balanceAfterUnits, 40_000);
-  assert.equal(first.order.balanceAfter, "2000.00");
+  assert.equal(first.order.billing.balanceUnits, 37_000);
+  assert.equal(first.order.balanceBeforeUnits, 17_000);
+  assert.equal(first.order.balanceBefore, "850.00");
+  assert.equal(first.order.balanceAfterUnits, 37_000);
+  assert.equal(first.order.balanceAfter, "1850.00");
 
   const replay = await completeRechargeOrder({
     provider: "alipay",
@@ -84,20 +84,20 @@ test("paid recharge credits wallet and ledger exactly once", async () => {
     amountFen: RECHARGE_PACKAGE.amountFen,
   });
   assert.equal(replay.replayed, true);
-  assert.equal(replay.order.billing.balanceUnits, 40_000);
-  assert.equal(replay.order.balanceBeforeUnits, 20_000);
-  assert.equal(replay.order.balanceAfterUnits, 40_000);
+  assert.equal(replay.order.billing.balanceUnits, 37_000);
+  assert.equal(replay.order.balanceBeforeUnits, 17_000);
+  assert.equal(replay.order.balanceAfterUnits, 37_000);
 
   const db = await getSqliteDb();
   const wallet = await db.get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [userId]);
   const ledger = await db.all("SELECT * FROM point_ledger WHERE user_id = ? AND entry_type = 'recharge'", [userId]);
-  assert.equal(Number(wallet.balance_units), 40_000);
+  assert.equal(Number(wallet.balance_units), 37_000);
   assert.equal(ledger.length, 1);
   assert.equal(Number(ledger[0].delta_units), RECHARGE_PACKAGE.pointUnits);
   assert.equal(ledger[0].idempotency_key, `recharge:${orderId}`);
   const storedOrder = await db.get("SELECT balance_before_units, balance_after_units FROM point_recharge_orders WHERE id = ?", [orderId]);
-  assert.equal(Number(storedOrder.balance_before_units), 20_000);
-  assert.equal(Number(storedOrder.balance_after_units), 40_000);
+  assert.equal(Number(storedOrder.balance_before_units), 17_000);
+  assert.equal(Number(storedOrder.balance_after_units), 37_000);
   assert.equal(Number(ledger[0].balance_after_units), Number(storedOrder.balance_after_units));
 });
 
@@ -163,7 +163,7 @@ test("finance subscription orders use current prices and payment extends access 
   }
   assert.deepEqual(chargedAmounts, [98_000, 268_000, 498_000, 798_000]);
   const wallet = await (await getSqliteDb()).get("SELECT balance_units FROM point_wallets WHERE user_id = ?", [userId]);
-  assert.equal(Number(wallet.balance_units), RECHARGE_PACKAGE.pointUnits);
+  assert.equal(Number(wallet.balance_units), INITIAL_POINT_GRANT_UNITS);
 });
 
 test("a user cannot query another user's WeChat payment order", async () => {
@@ -222,13 +222,13 @@ test("repeated WeChat success notification credits points exactly once", async (
   assert.equal(replay.replayed, true);
   assert.equal(first.order.status, "paid");
   assert.equal(replay.order.status, "paid");
-  assert.equal(first.order.balanceBefore, "1000.00");
-  assert.equal(first.order.balanceAfter, "2000.00");
+  assert.equal(first.order.balanceBefore, "850.00");
+  assert.equal(first.order.balanceAfter, "1850.00");
   assert.equal(replay.order.balanceBefore, first.order.balanceBefore);
   assert.equal(replay.order.balanceAfter, first.order.balanceAfter);
   const fetched = await getRechargeOrderByNo({ userId, orderNo: order.orderNo });
-  assert.equal(fetched.balanceBefore, "1000.00");
-  assert.equal(fetched.balanceAfter, "2000.00");
+  assert.equal(fetched.balanceBefore, "850.00");
+  assert.equal(fetched.balanceAfter, "1850.00");
   const db = await getSqliteDb();
   const ledger = await db.all("SELECT * FROM point_ledger WHERE user_id = ? AND entry_type = 'recharge'", [userId]);
   assert.equal(ledger.length, 1);

@@ -112,15 +112,16 @@ test("an administrator cannot delete the account used for the current session", 
   );
 });
 
-test("admin user list excludes temporary school guest trial accounts", async () => {
+test("admin user list includes school guest trial accounts", async () => {
   const db = await getSqliteDb();
   const now = Date.now();
+  const guestId = "trial-00000000-0000-4000-8000-000000000001";
   await db.run(
     "INSERT INTO users (id, username, password_hash, created_at, edition) VALUES (?,?,?,?,?)",
-    ["trial-00000000-0000-4000-8000-000000000001", "trial-00000000-0000-4000-8000-000000000001", "!", now, "school"],
+    [guestId, guestId, "!", now, "school"],
   );
   const all = await listAdminUsers({ limit: 50 });
-  assert.ok(all.users.every((u) => !u.id.startsWith("trial-")));
+  assert.ok(all.users.some((u) => u.id === guestId));
   const searched = await listAdminUsers({ search: "trial-" });
-  assert.equal(searched.total, 0);
+  assert.equal(searched.total, 1);
 });
